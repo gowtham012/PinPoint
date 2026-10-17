@@ -3,64 +3,87 @@
 <head>
 <meta charset="utf-8" />
 <style>
-  /* Tokens, so dark mode is a redefinition rather than a second stylesheet. The on-page UI has
-     honoured prefers-color-scheme since day one; this popup never did — a white flash in a dark
-     browser. Values match content.js so the two surfaces read as one product. */
+  /* The same tokens as the on-page UI (content.js), so the popup and the bar read as one product.
+     Dark mode is a redefinition, not a second stylesheet. */
   :root {
-    --ink: #17171c; --ink-dim: #6b6b76; --ink-faint: #71717a;
-    --surface: #ffffff; --surface-2: #f1f1f3; --surface-3: #e4e4e8;
-    --line: #eeeeee; --line-2: #f2f2f2; --field: #dddddd;
-    --accent: #6d5ae6; --accent-ink: #ffffff; --accent-hover: #5b46b3;
-    --ok: #2a9d5c; --bad: #e5484d;
-    --note-ink: #8a6d1f; --note-bg: #fdf6e3; --note-line: #f0e2b6;
+    --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --ink: #111114; --ink-dim: #55555f; --ink-3: #6e6e78;
+    --surface: #ffffff; --surface-2: #f5f5f7; --surface-3: #ececf0;
+    --line: rgba(17,17,20,.08); --field: rgba(17,17,20,.14);
+    --accent: #6d5ae6; --accent-hover: #5e4bd8; --accent-text: #5b47d6; --accent-ink: #ffffff;
+    --ok: #18794e; --bad: #d1343a; --agent: #b8582e;
+    --note-ink: #7a5b00; --note-bg: #fdf6e3; --note-line: #f0e2b6;
+    color-scheme: light dark;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --ink: #f2f2f5; --ink-dim: #a1a1ab; --ink-faint: #86868f;
-      --surface: #1c1c20; --surface-2: #2a2a30; --surface-3: #34343c;
-      --line: #2e2e35; --line-2: #26262c; --field: #3a3a42;
-      --accent: #8b74f0; --accent-ink: #14121f; --accent-hover: #9d89f4;
-      --ok: #3ec37a; --bad: #ff6369;
+      --ink: #ededf0; --ink-dim: #a8a8b3; --ink-3: #8f8f9a;
+      --surface: #1c1c1f; --surface-2: #26262a; --surface-3: #303036;
+      --line: rgba(255,255,255,.08); --field: rgba(255,255,255,.14);
+      --accent-hover: #7d6bf0; --accent-text: #a99cff;
+      --ok: #4cc38a; --bad: #ff6b6f; --agent: #f0a070;
       --note-ink: #e8cf8a; --note-bg: #2b2718; --note-line: #4a4126;
     }
   }
-  :root { --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; --mono: ui-monospace, Menlo, monospace; }
-  body { width: 320px; margin: 0; font: 13px/1.4 var(--sans); color: var(--ink); background: var(--surface); }
+  * { box-sizing: border-box; }
+  body { width: 340px; margin: 0; font: 13px/1.4 var(--sans); color: var(--ink); background: var(--surface); }
+  svg { width: 15px; height: 15px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   header { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
-  header h1 { font-size: 14px; margin: 0; flex: 1; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-faint); }
+  header h1 { font-size: 14px; font-weight: 600; margin: 0; flex: 1; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); }
   .dot.on { background: var(--ok); } .dot.off { background: var(--bad); }
-  .status { font-size: 11px; color: var(--ink-dim); }
+  .status { font-size: 11px; color: var(--ink-dim); max-width: 190px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   main { padding: 12px 14px; display: grid; gap: 8px; }
-  button { border: 0; border-radius: 8px; padding: 9px 12px; font: 600 13px var(--sans); cursor: pointer; background: var(--surface-2); color: var(--ink); text-align: left; display: flex; align-items: center; gap: 8px; }
+  button { border: 0; border-radius: 8px; padding: 9px 12px; font: 500 13px var(--sans); cursor: pointer; background: var(--surface-2); color: var(--ink); text-align: left; display: flex; align-items: center; gap: 8px; }
   button:hover { background: var(--surface-3); }
   button:disabled { opacity: .45; cursor: default; }
   button:disabled:hover { background: var(--surface-2); }
-  button.primary { background: var(--accent); color: var(--accent-ink); } button.primary:hover { background: var(--accent-hover); }
-  button kbd { margin-left: auto; font: 11px ui-monospace, Menlo, monospace; opacity: .7; }
-  ul { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow: auto; border-top: 1px solid var(--line); }
-  li { padding: 8px 14px; border-bottom: 1px solid var(--line-2); display: flex; gap: 8px; align-items: flex-start; }
+  button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button.primary { background: var(--accent); color: var(--accent-ink); font-weight: 600; padding: 11px 12px; }
+  button.primary:hover { background: var(--accent-hover); }
+  button kbd { margin-left: auto; font: 11px var(--mono); background: rgba(255,255,255,.18); border-radius: 4px; padding: 2px 5px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .row button { justify-content: center; font-size: 12px; padding: 8px 10px; background: transparent; box-shadow: inset 0 0 0 1px var(--field); }
+  .row button:hover { background: var(--surface-2); }
+  #bridge { font-size: 12px; padding: 8px 10px; color: var(--ink-dim); background: transparent; box-shadow: inset 0 0 0 1px var(--field); justify-content: center; }
+  #bridge:hover { color: var(--ink); background: var(--surface-2); }
+  .agent { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--ink-dim); min-height: 22px; }
+  .agent[hidden] { display: none; }
+  .agent .who { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .agent .led { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-3); flex: none; }
+  .agent.live .led { background: var(--agent); }
+  .agent button { font-size: 11px; padding: 3px 8px; border-radius: 6px; background: transparent; color: var(--accent-text); }
+  .agent button:hover { background: var(--surface-2); }
+  ul { list-style: none; margin: 0; padding: 4px 6px; max-height: 240px; overflow: auto; border-top: 1px solid var(--line); }
+  li { padding: 8px; border-radius: 8px; display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
+  li:hover { background: var(--surface-2); }
   li .n { background: var(--accent); color: var(--accent-ink); border-radius: 999px; min-width: 20px; height: 20px; font: 700 11px/20px var(--sans); text-align: center; padding: 0 5px; flex-shrink: 0; }
   li .c { flex: 1; min-width: 0; }
   li .c .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  li .c .s { font: 10px ui-monospace, Menlo, monospace; color: var(--ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  li .c .u { font-size: 10px; color: var(--ink-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  li .c .u.current { color: var(--accent); }
-  li .x { color: var(--ink-faint); cursor: pointer; padding: 0 4px; background: none; border-radius: 4px; font-weight: 400; } li .x:hover { color: var(--bad); background: none; }
-  button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  li .c .s { font: 10px var(--mono); color: var(--ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  li .c .u { font-size: 10px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  li .c .u.current { color: var(--accent-text); }
+  li .x { color: var(--ink-3); cursor: pointer; padding: 2px 6px; background: none; border-radius: 6px; font-weight: 400; opacity: 0; }
+  li:hover .x, li:focus-within .x, li .x:focus-visible { opacity: 1; }
+  li .x:hover { color: var(--bad); background: var(--surface); }
   .empty { padding: 14px; color: var(--ink-dim); text-align: center; font-size: 12px; }
-  footer { padding: 8px 14px; border-top: 1px solid var(--line); display: flex; gap: 8px; align-items: center; font-size: 11px; color: var(--ink-dim); }
-  footer input { width: 52px; border: 1px solid var(--field); border-radius: 6px; padding: 3px 6px; font: inherit; background: var(--surface); color: var(--ink); }
-  footer select { border: 1px solid var(--field); border-radius: 6px; padding: 3px 4px; font: inherit; background: var(--surface); color: var(--ink); }
-  footer a { color: var(--accent); margin-left: auto; text-decoration: none; }
-  .hint { font-size: 11px; color: var(--ink-dim); line-height: 1.4; }
-  .hint code { font: 10.5px/1.5 ui-monospace, Menlo, monospace; background: var(--surface-2); border-radius: 4px; padding: 1px 4px; word-break: break-all; }
-  #bridge .bg { width: 14px; text-align: center; }
+  footer { padding: 8px 14px; border-top: 1px solid var(--line); display: flex; gap: 6px; align-items: center; font-size: 11px; color: var(--ink-dim); white-space: nowrap; }
+  footer input { width: 64px; border: 1px solid var(--field); border-radius: 6px; padding: 3px 6px; font: inherit; background: var(--surface); color: var(--ink); }
+  footer select { max-width: 92px; border: 1px solid var(--field); border-radius: 6px; padding: 3px 4px; font: inherit; background: var(--surface); color: var(--ink); }
+  footer .spacer { flex: 1; }
+  footer a { color: var(--accent-text); text-decoration: none; }
+  #clear { background: none; padding: 0; font: inherit; color: var(--ink-dim); }
+  #clear:hover { color: var(--bad); background: none; }
+  .hint { font-size: 11px; color: var(--ink-dim); line-height: 1.45; }
+  .hint:empty { display: none; }
+  .hint code { font: 10.5px/1.5 var(--mono); background: var(--surface-2); border-radius: 4px; padding: 1px 4px; word-break: break-all; }
+  .hint button { margin-top: 6px; font-size: 12px; padding: 6px 10px; }
   .where { display: none; font-size: 11.5px; line-height: 1.45; color: var(--note-ink); background: var(--note-bg); border: 1px solid var(--note-line); border-radius: 8px; padding: 8px 10px; }
-  button kbd { margin-left: auto; }
+  .where button { margin-top: 6px; font-size: 12px; padding: 6px 10px; background: var(--surface); }
   .tokenbox { display: grid; gap: 6px; font-size: 11.5px; }
   .tokenbox[hidden] { display: none; }
-  .tokenbox .row { display: flex; gap: 6px; }
+  .tokenbox .trow { display: flex; gap: 6px; }
   .tokenbox input { flex: 1; min-width: 0; border: 1px solid var(--field); border-radius: 6px; padding: 6px 8px; font: 11px var(--mono); background: var(--surface); color: var(--ink); }
   .tokenbox button { padding: 6px 12px; }
 </style>
@@ -73,14 +96,22 @@
   </header>
   <main>
     <div class="where" id="where"></div>
-    <button class="primary" id="pick"><span aria-hidden="true">✎</span> <span class="pl">Annotate an element</span> <kbd id="kpick">⌥⇧A</kbd></button>
-    <button id="copyAll"><span aria-hidden="true">⧉</span> Copy all as one prompt</button>
-    <button id="clear"><span aria-hidden="true">🗑</span> Clear all annotations</button>
-    <button id="showbar"><span aria-hidden="true">▾</span> Show the on-page bar here</button>
-    <button id="bridge"><span class="bg" aria-hidden="true">▶</span><span class="bl">Start bridge</span></button>
+    <button class="primary" id="pick">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4l7 16 2.5-6.5L20 11z"/></svg>
+      <span class="pl">Annotate an element</span> <kbd id="kpick">⌥⇧A</kbd>
+    </button>
+    <div class="row">
+      <button id="copyAll"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>Copy all</button>
+      <button id="showbar"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="15" width="18" height="5" rx="2.5"/><path d="M12 4v7M9 8l3 3 3-3"/></svg>Show the bar</button>
+    </div>
+    <button id="bridge" data-state="start"><span class="bg" aria-hidden="true"></span><span class="bl">Start bridge</span></button>
     <div class="tokenbox" id="tokenBox" hidden>
       <label for="token">Bridge token</label>
-      <div class="row"><input id="token" autocomplete="off" spellcheck="false" placeholder="paste the output of: cli.js token" /><button id="tokenSave">Save</button></div>
+      <div class="trow"><input id="token" autocomplete="off" spellcheck="false" placeholder="paste the output of: cli.js token" /><button id="tokenSave">Save</button></div>
+    </div>
+    <div class="agent" id="agent" hidden>
+      <span class="led" aria-hidden="true"></span><span class="who" id="agentWho"></span>
+      <button id="watch" title="Copy a prompt that keeps your agent picking up notes as you make them">Copy watch prompt</button>
     </div>
     <div class="hint" id="hint" role="status"></div>
   </main>
@@ -88,7 +119,9 @@
   <footer>
     <label for="port">Port</label><input id="port" type="number" min="1024" max="65535" />
     <label for="dockPos">Bar</label><select id="dockPos"><option value="tr">↗ Top right</option><option value="tl">↖ Top left</option><option value="br">↘ Bottom right</option><option value="bl">↙ Bottom left</option></select>
-    <a href="#" id="help">Setup guide</a>
+    <span class="spacer"></span>
+    <button id="clear" title="Delete every pending note">Clear all</button>
+    <a href="#" id="help" title="Setup guide">Guide</a>
   </footer>
   <script src="popup.js"></script>
 </body>

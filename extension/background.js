@@ -100,6 +100,33 @@ async function bridgeFetch(path, init = {}, retried = false) {
   return ct.includes("application/json") ? res.json() : res.text();
 }
 
+// ---------- finding the bridge on another port ----------
+// `--port 7332` in a terminal and 7331 in the popup is the commonest "it's not working". When the
+// saved port does not answer, look at its neighbours for the bridge and move there if there is
+// exactly one — several means several projects, and that is the developer's choice, not ours. Only
+// when the saved port is itself in that range: a deliberate custom port is left alone.
+const SCAN = Array.from({ length: 10 }, (_, i) => DEFAULT_PORT + i);
+let lastScan = 0;
+async function findBridges(except) {
+  const probe = async (port) => {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 400);
+    try {
+      const h = await (await fetch(`http://127.0.0.1:${port}/health`, { signal: ctl.signal })).json();
+      return h?.service === "pinpoint-bridge" ? { port, project: h.project || null } : null;
+    } catch { return null; } finally { clearTimeout(t); }
+  };
+  return (await Promise.all(SCAN.filter((p) => p !== except).map(probe))).filter(Boolean);
+}
+async function discoverPort() {
+  const current = await getPort();
+  if (!SCAN.includes(current) || Date.now() - lastScan < 5000) return null;
+  lastScan = Date.now();
+  const found = await findBridges(current);
+  if (found.length === 1) await chrome.storage.sync.set({ port: found[0].port });
+  return found;
+}
+
 // Any server can sit on 7331; only ours answers with this marker. Without the check the popup
 // would show a green dot for an unrelated dev server and every send would fail.
 async function health() {
@@ -498,6 +525,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           watch();
           return { ok: true, ...h };
         } catch (e) {
+          // Nothing answered at all (not "wrong server", not "needs token"): the bridge may simply be
+          // on a neighbouring port.
+          if (!e.code && !/Another server/.test(e.message || "")) {
+            const found = await discoverPort();
+            if (found?.length === 1) {
+              try { const h = await health(); watch(); return { ok: true, movedTo: h.port, ...h }; } catch {}
+            }
+            if (found?.length > 1) return { ok: false, error: String(e.message || e), code: "several", candidates: found };
+          }
           return { ok: false, error: String(e.message || e), code: e.code || null };
         }
       }
@@ -529,7 +565,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       case "canRun": {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        return { url: tab?.url || null, local: isLocalDev(tab?.url), reason: await whyNot(tab?.url), code: isBrowserPage(tab?.url) ? "browser_page" : null };
+        const reason = await whyNot(tab?.url);
+        const code = isBrowserPage(tab?.url) ? "browser_page" : /Allow access to file URLs/.test(reason) ? "file_access" : null;
+        // A file:// page without file access is "local" but unreachable: say so, with the switch.
+        return { url: tab?.url || null, local: isLocalDev(tab?.url) && code !== "file_access", reason, code };
       }
       default:
         return { error: `unknown message ${msg.type}` };

@@ -27,6 +27,13 @@ async function refresh({ keepHint = false } = {}) {
     // Not a local dev page. Say so plainly rather than failing when the button is pressed.
     $("#where").textContent = where.reason;
     $("#where").style.display = "block";
+    // file:// with file access off: the one switch that fixes it is a click away, not five.
+    if (where.code === "file_access") {
+      const b = document.createElement("button");
+      b.textContent = "Open Pinpoint's settings";
+      b.onclick = () => chrome.tabs.create({ url: `chrome://extensions/?id=${chrome.runtime.id}` });
+      $("#where").appendChild(b);
+    }
     const browserPage = where.code === "browser_page";
     pick.disabled = browserPage;
     pick.querySelector(".pl").textContent = browserPage ? "Not available here" : "Turn on for this page anyway";
@@ -40,13 +47,18 @@ async function refresh({ keepHint = false } = {}) {
   const needsToken = h.code === "token";
   $("#dot").className = "dot " + (h.ok ? "on" : "off");
   $("#status").textContent = h.ok ? `bridge on :${h.port}${h.project ? " · " + h.project.split("/").pop() : ""}` : needsToken ? "bridge needs its token" : "bridge offline";
+  // The saved port was wrong and the bridge was found next door: show the number it moved to.
+  if (h.movedTo) $("#port").value = h.movedTo;
+  paintAgent(h);
   $("#tokenBox").hidden = !needsToken;
   // The bridge tells us where it lives, so once it has run once we can name the real command
   // instead of a <pinpoint> placeholder nobody can copy.
   if (h.cliPath) { cliPath = h.cliPath; chrome.storage.local.set({ cliPath }).catch(() => {}); }
   paintBridgeButton(h);
   if (!(keepHint && !h.ok)) $("#hint").innerHTML = h.ok
-    ? ""
+    ? (h.movedTo ? `Found the bridge on port ${h.movedTo} and switched to it.` : "")
+    : h.code === "several"
+      ? `Several bridges are running (${h.candidates.map((c) => `:${c.port}${c.project ? " " + esc(c.project.split("/").pop()) : ""}`).join(", ")}). Set the port below to the one you want.`
     : needsToken
       ? `The bridge is running, but this browser has not got its token. Run <code>node ${esc(cliPath || "<pinpoint>/bridge/cli.js")} token</code> and paste the output above — once.`
     : /Another server/.test(h.error || "")
@@ -71,10 +83,13 @@ async function refresh({ keepHint = false } = {}) {
     const u = li.querySelector(".u");
     u.textContent = shortUrl(a.page.url);
     if (a.page.url.split("#")[0] === here) u.classList.add("current");
-    li.querySelector(".x").onclick = async () => {
+    li.querySelector(".x").onclick = async (e) => {
+      e.stopPropagation();
       await send({ type: "delete", id: a.id });
       refresh();
     };
+    // The row takes you to the note: its tab in front and the element flashed, or the page opened.
+    li.onclick = () => jumpTo(a);
     list.appendChild(li);
   }
 }
@@ -86,18 +101,53 @@ const esc = (t) => String(t).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt
 // Safari has no native messaging host of this kind, so it gets Restart (plain HTTP) but not Start.
 const canStart = typeof chrome.runtime.sendNativeMessage === "function";
 
+const ICON = {
+  start: `<svg viewBox="0 0 24 24"><path d="M7 5l12 7-12 7z"/></svg>`,
+  restart: `<svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5"/></svg>`,
+};
 function paintBridgeButton(h) {
   const btn = $("#bridge");
   // Up but locked out (no token yet) is not "start it" — the token box is the next step.
   btn.style.display = h.code === "token" ? "none" : h.ok || canStart ? "flex" : "none";
   btn.disabled = false;
-  btn.querySelector(".bg").textContent = h.ok ? "↻" : "▶";
+  btn.dataset.state = h.ok ? "restart" : "start";
+  btn.querySelector(".bg").innerHTML = ICON[btn.dataset.state];
   btn.querySelector(".bl").textContent = h.ok ? "Restart bridge" : "Start bridge";
+}
+
+// What the agent is doing, so "is anything listening?" has an answer before you send a batch.
+function paintAgent(h) {
+  const box = $("#agent");
+  box.hidden = !h.ok;
+  if (!h.ok) return;
+  const a = (h.agents || []).slice().sort((x, y) => (x.secondsAgo ?? 1e9) - (y.secondsAgo ?? 1e9))[0] || h.agent;
+  box.classList.toggle("live", !!a && (a.secondsAgo ?? 1e9) < 120);
+  $("#agentWho").textContent = a
+    ? `${a.name || "Your agent"} · ${a.label || a.action || "active"} · ${ago(a.secondsAgo)}`
+    : "No agent activity yet";
+}
+const ago = (s) => (s == null ? "" : s < 60 ? "just now" : s < 3600 ? `${Math.round(s / 60)}m ago` : `${Math.round(s / 3600)}h ago`);
+
+const WATCH_PROMPT = `Watch Pinpoint for me: call the pinpoint MCP tool wait_for_annotation in a loop. For each note that arrives, make the change it asks for, then call resolve_annotation with its id and a short note saying what you changed and where. Keep going until I say stop.`;
+$("#watch").onclick = async () => {
+  try { await navigator.clipboard.writeText(WATCH_PROMPT); $("#watch").textContent = "Copied — paste it to your agent"; }
+  catch { $("#watch").textContent = "Copy failed"; }
+  setTimeout(() => ($("#watch").textContent = "Copy watch prompt"), 2500);
+};
+
+async function jumpTo(a) {
+  const want = (a.page.topUrl || a.page.url).split("#")[0];
+  const tab = (await chrome.tabs.query({})).find((t) => (t.url || "").split("#")[0] === want);
+  if (!tab) { await chrome.tabs.create({ url: a.page.topUrl || a.page.url }); window.close(); return; }
+  await chrome.tabs.update(tab.id, { active: true });
+  try { await chrome.windows.update(tab.windowId, { focused: true }); } catch {}
+  chrome.tabs.sendMessage(tab.id, { type: "reveal", id: a.id }).catch(() => {});
+  window.close();
 }
 
 $("#bridge").onclick = async () => {
   const btn = $("#bridge");
-  const running = btn.querySelector(".bg").textContent === "↻";
+  const running = btn.dataset.state === "restart";
   btn.disabled = true;
   btn.querySelector(".bl").textContent = running ? "Restarting…" : "Starting…";
   const r = await send({ type: running ? "restartBridge" : "startBridge" });

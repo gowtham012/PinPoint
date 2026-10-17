@@ -70,7 +70,12 @@ async function hierarchy(udid) {
 // Each missing one comes back as a line saying how to get it — nothing is installed for you.
 export function iosReadiness() {
   if (process.platform !== "darwin") return ["the iOS Simulator only runs on macOS"];
-  const ok = (cmd, args) => spawnSync(cmd, args, { stdio: "ignore", env: maestroEnv() }).status === 0;
+  // Time-boxed: Maestro 2.9 prints its version and then does not exit, which hung `setup --for ios`
+  // forever. A command that printed a version number before being stopped is installed.
+  const ok = (cmd, args) => {
+    const r = spawnSync(cmd, args, { stdio: ["ignore", "pipe", "pipe"], env: maestroEnv(), timeout: 8000, killSignal: "SIGKILL" });
+    return r.status === 0 || (r.signal && /\d+\.\d+/.test(String(r.stdout || "") + String(r.stderr || "")));
+  };
   const missing = [];
   if (!ok("xcrun", ["simctl", "help"])) missing.push("Xcode, for the Simulator — install it from the App Store");
   if (!ok(MAESTRO, ["--version"])) missing.push('Maestro, which reads the screen — curl -fsSL "https://get.maestro.mobile.dev" | bash');

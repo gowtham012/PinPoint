@@ -31,15 +31,24 @@
   shadow.innerHTML = `
     <style>
       :host {
-        --accent: #6d5ae6;
+        /* One token set for the bar, popover, pins and panel (and the popup, which repeats it).
+           Surfaces are opaque: the frosted-glass blur cost a compositing layer on every page and
+           made text contrast depend on whatever the page painted underneath. */
+        --accent: #6d5ae6;          /* fills: white on it is 4.9:1 */
+        --accent-text: #5b47d6;     /* accent used as text on a light surface */
+        --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
         --agent: #b8582e;
         --accent-ink: #ffffff;
-        --surface: rgba(255,255,255,.97);
-        --surface-2: #f4f4f6;
-        --ink: #17171c;
-        --ink-dim: #6b6b76;
-        --line: rgba(0,0,0,.09);
-        --shadow: 0 1px 2px rgba(16,16,24,.06), 0 10px 30px rgba(16,16,24,.16);
+        --surface: #ffffff;
+        --surface-2: #f5f5f7;
+        --ink: #111114;
+        --ink-dim: #55555f;
+        --ink-3: #6e6e78;
+        --line: rgba(17,17,20,.08);
+        --line-2: rgba(17,17,20,.14);
+        --shadow: 0 1px 2px rgba(0,0,0,.05), 0 4px 12px rgba(0,0,0,.08), 0 0 0 1px var(--line);
+        --shadow-lg: 0 2px 4px rgba(0,0,0,.04), 0 12px 32px -4px rgba(0,0,0,.16), 0 0 0 1px var(--line);
+        --ease-out: cubic-bezier(.16,1,.3,1);
         --radius: 12px;
         /* Status colours at >=4.5:1 on their surface, light and dark. */
         --danger: #d1343a; --success: #18794e; --warn: #976200;
@@ -53,14 +62,18 @@
       }
       @media (prefers-color-scheme: dark) {
         :host {
-          --surface: rgba(28,28,32,.97);
-          --surface-2: #2a2a30;
-          --ink: #f2f2f5;
-          --ink-dim: #a1a1ab;
-          --agent: #e08a5b;
+          --surface: #1c1c1f;
+          --surface-2: #26262a;
+          --ink: #ededf0;
+          --ink-dim: #a8a8b3;
+          --ink-3: #8f8f9a;
+          --accent-text: #a99cff;
+          --line-2: rgba(255,255,255,.14);
+          --agent: #f0a070;
           --danger: #ff6b6f; --success: #4cc38a; --warn: #f0b43c;
-          --line: rgba(255,255,255,.12);
-          --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.45);
+          --line: rgba(255,255,255,.08);
+          --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 20px rgba(0,0,0,.4), 0 0 0 1px var(--line);
+          --shadow-lg: 0 2px 4px rgba(0,0,0,.3), 0 16px 40px -4px rgba(0,0,0,.55), 0 0 0 1px var(--line);
         }
         .mark { filter: invert(1); }
       }
@@ -99,9 +112,8 @@
         position: fixed; bottom: 16px; left: 16px;
         display: none; align-items: center; gap: 2px; pointer-events: auto;
         background: var(--surface); color: var(--ink);
-        border: 1px solid var(--line); border-radius: 999px;
+        border: 0; border-radius: 999px;
         box-shadow: var(--shadow); padding: 3px;
-        backdrop-filter: saturate(180%) blur(12px);
         /* Deliberately NOT dimmed. Fading the whole bar (was .58 at rest, .4 minified) took the
            label to 4.4:1, the shortcut keycap to 2.34:1 and the minified bar to 2.55:1 against a
            white page — under the 4.5:1 AA floor. Discretion comes from size and position now. */
@@ -140,7 +152,15 @@
       .dock.armed .label { display: none; }
       .dock.armed .sep, .dock.armed .close, .dock.armed .restart { display: none; }
       .dock.mini .count { padding: 0 8px; }
-      .dock.armed { opacity: 1; border-color: var(--accent); }
+      .dock.armed { opacity: 1; box-shadow: var(--shadow), 0 0 0 1.5px var(--accent); }
+      /* Bridge down: a small pill whose only job is to bring it back. */
+      .dock .start { display: none; color: var(--ink-dim); font-weight: 500; }
+      .dock.offline .start { display: inline-flex; }
+      .dock .start .led { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-3); flex: none; }
+      .dock .start.busy { opacity: .55; pointer-events: none; }
+      .dock.offline .count, .dock.offline .who, .dock.offline .agent-say, .dock.offline .restart,
+      .dock.offline .sep, .dock.offline .label, .dock.offline .hint { display: none; }
+      .dock.offline.armed .start { display: none; }
       /* Every direct child sits on the same 24px optical row, with one horizontal rhythm.
          Before, the toggle padded 5/10, close 5/8, count 5/10 and .who 0/4/0/6 — four different
          rhythms in a 200px bar. */
@@ -166,10 +186,12 @@
       .who { display: inline-flex; align-items: center; gap: 0; }
       .av { width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
             box-shadow: 0 0 0 2px var(--surface); color: var(--accent-ink); flex: none; }
-      .av.you { background: var(--accent); position: relative; z-index: 1; }
+      .av.you { display: none; }
       /* Idle, the agent is absent — drawn as an outline, not a colour. Greyscaling the orange fill
          produced ~#cacaca, which left its white glyph at 1.64:1: a blob you cannot read. */
-      .av.agent { background: var(--surface); color: var(--ink-dim); margin-left: -6px;
+      .who { display: none; }
+      .dock.agent-live .who { display: inline-flex; }
+      .av.agent { background: var(--surface); color: var(--ink-dim); margin-left: 0;
                   box-shadow: 0 0 0 2px var(--surface), inset 0 0 0 1px var(--line);
                   transition: background 200ms ease, color 200ms ease, box-shadow 200ms ease; }
       .dock.agent-live .av.agent { background: var(--agent); color: var(--accent-ink);
@@ -184,7 +206,13 @@
       .dock .count { color: var(--ink-dim); font-variant-numeric: tabular-nums; }
       .dock .count b { color: var(--ink); font-weight: 600; }
       .dock .count.only-done b { color: var(--ink-dim); }
-      .dock .sep { width: 1px; height: 14px; background: var(--line); margin: 0 4px; flex: none; align-self: center; }
+      /* Something was finished since you last looked. */
+      .dock .count { position: relative; }
+      .dock .count.unread::after { content: ""; position: absolute; top: 3px; right: 5px; width: 7px; height: 7px;
+                                   border-radius: 50%; background: var(--agent); box-shadow: 0 0 0 2px var(--surface); }
+      .dock .sep { width: 1px; height: 14px; background: var(--line-2); margin: 0 4px; flex: none; align-self: center; }
+      /* With no agent at work its slot is empty, and its two dividers would sit side by side. */
+      .dock:not(.agent-live) .agent-say + .sep { display: none; }
       .dock .close, .dock .restart { color: var(--ink-dim); height: 24px; width: 24px; padding: 0; font-size: 14px;
                      justify-content: center; }
       /* Restarting is a rare, deliberate act, so it lives with the close button rather than in the
@@ -212,19 +240,18 @@
       .pop {
         position: fixed; z-index: 3; width: min(340px, calc(100vw - 16px)); pointer-events: auto; display: none;
         background: var(--surface); color: var(--ink);
-        border: 1px solid var(--line); border-radius: var(--radius);
-        box-shadow: var(--shadow); padding: 12px;
-        backdrop-filter: saturate(180%) blur(12px);
-        animation: pop 120ms cubic-bezier(.2,.8,.2,1);
+        border: 0; border-radius: var(--radius);
+        box-shadow: var(--shadow-lg); padding: 12px;
+        animation: pop 160ms var(--ease-out);
       }
       @keyframes pop { from { opacity: 0; transform: translateY(-4px) scale(.985) } }
       .pop .meta { font: 11px/1.45 var(--mono); color: var(--ink-dim); margin-bottom: 8px; }
       .pop .meta .row { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .pop .meta b { color: var(--accent); font-weight: 600; }
+      .pop .meta b { color: var(--accent-text); font: 600 13px/1.3 var(--sans); }
       .pop .meta .picked { color: var(--ink); font-family: var(--sans); font-size: 12.5px; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .pop textarea {
-        width: 100%; min-height: 76px; resize: vertical; color: var(--ink);
-        background: var(--surface-2); border: 1px solid transparent; border-radius: 9px;
+        width: 100%; min-height: 56px; max-height: 220px; resize: none; color: var(--ink);
+        background: var(--surface-2); border: 1px solid transparent; border-radius: 8px;
         padding: 9px 10px; font: 13px/1.5 var(--sans); outline: none;
         transition: border-color 120ms ease, box-shadow 120ms ease;
       }
@@ -242,9 +269,10 @@
       .pop .row2 button { border-radius: 8px; padding: 7px 12px; font-size: 12px; font-weight: 600; }
       .pop .send { background: var(--accent); color: var(--accent-ink); display: inline-flex; gap: 7px; align-items: center; }
       .pop .send:hover { filter: brightness(1.08); }
-      .pop .send kbd { font: 10px/1 var(--mono); opacity: .7; border: 1px solid currentColor; border-radius: 4px; padding: 2px 4px; }
-      .pop .ghost { background: var(--surface-2); color: var(--ink); }
-      .pop .ghost:hover { filter: brightness(.95); }
+      .pop .send kbd { font: 10px/1 var(--mono); background: rgba(255,255,255,.18); color: #fff; border: 0; border-radius: 4px; padding: 3px 5px; }
+      /* Secondary actions read as text until hovered — one filled button per box. */
+      .pop .ghost { background: transparent; color: var(--ink-dim); font-weight: 500; }
+      .pop .ghost:hover { background: var(--surface-2); color: var(--ink); }
       .pop .status { margin-left: auto; font-size: 11px; color: var(--ink-dim); }
       .pop .status.err { color: var(--danger); }
       .pop .status.ok { color: var(--success); }
@@ -262,16 +290,16 @@
       }
       .pin:hover { transform: translate(-50%, -50%) scale(1.15); }
       .pin.watched { box-shadow: 0 2px 8px rgba(0,0,0,.28), 0 0 0 2px var(--surface), 0 0 0 6px color-mix(in srgb, var(--agent) 45%, transparent); }
-      .pin.new { animation: drop 320ms cubic-bezier(.2,1.2,.3,1); }
-      @keyframes drop { from { transform: translate(-50%, -180%) scale(.4); opacity: 0 } }
+      .pin.new { animation: drop 220ms var(--ease-out); }
+      @keyframes drop { from { transform: translate(-50%, -50%) scale(.6); opacity: 0 } }
 
       .tip {
         position: fixed; z-index: 4; max-width: min(300px, calc(100vw - 16px)); pointer-events: auto; display: none;
-        background: var(--surface); color: var(--ink); border: 1px solid var(--line);
-        border-radius: 10px; box-shadow: var(--shadow); padding: 9px 11px;
-        font-size: 12.5px; line-height: 1.45; backdrop-filter: saturate(180%) blur(12px);
+        background: var(--surface); color: var(--ink); border: 0;
+        border-radius: 10px; box-shadow: var(--shadow-lg); padding: 9px 11px;
+        font-size: 12.5px; line-height: 1.45;
       }
-      .tip .num { color: var(--accent); font-weight: 700; margin-right: 5px; }
+      .tip .num { color: var(--accent-text); font-weight: 700; margin-right: 5px; }
       .tip .del { display: inline-block; margin-top: 7px; color: var(--ink-dim); cursor: pointer; font-size: 11px; border-radius: 4px; }
       .tip .del:hover { color: var(--danger); }
 
@@ -279,24 +307,30 @@
       .panel {
         position: fixed; z-index: 5; top: 0; right: 0; bottom: 0; width: 304px; display: none;
         pointer-events: auto; background: var(--surface); color: var(--ink);
-        border-left: 1px solid var(--line); box-shadow: var(--shadow);
-        backdrop-filter: saturate(180%) blur(12px);
-        animation: slide 160ms cubic-bezier(.2,.8,.2,1);
+        border-left: 1px solid var(--line); box-shadow: var(--shadow-lg);
+        animation: slide 220ms var(--ease-out);
         flex-direction: column;
       }
       @keyframes slide { from { transform: translateX(12px); opacity: 0 } }
-      .panel h2 { margin: 0; padding: 14px 14px 10px; font-size: 12px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; color: var(--ink-dim); display: flex; align-items: center; }
+      .panel h2 { margin: 0; padding: 14px 14px 10px; font-size: 13px; font-weight: 600; color: var(--ink); display: flex; align-items: center; }
       .panel h2 .close { margin-left: auto; color: var(--ink-dim); font-size: 15px; padding: 0 4px; }
       .panel .list { list-style: none; margin: 0; padding: 0 8px 12px; overflow: auto; flex: 1; }
-      .panel .item { display: flex; gap: 9px; padding: 9px 8px; border-radius: 9px; cursor: pointer; align-items: flex-start; }
-      .panel .item:hover { background: var(--surface-2); }
+      .panel .item { display: flex; gap: 9px; padding: 9px 8px; border-radius: 8px; cursor: pointer; align-items: flex-start; outline: none; }
+      .panel .item:hover, .panel .item:focus-visible { background: var(--surface-2); }
+      .panel .item:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+      .panel .item .x { color: var(--ink-3); width: 22px; height: 22px; border-radius: 6px; font-size: 15px; line-height: 1;
+                        display: inline-flex; align-items: center; justify-content: center; flex: none; opacity: 0; }
+      .panel .item:hover .x, .panel .item:focus-within .x, .panel .item .x:focus-visible { opacity: 1; }
+      .panel .item .x:hover { color: var(--danger); background: var(--surface); }
       .panel .item .n { background: var(--accent); color: var(--accent-ink); border-radius: 999px; min-width: 19px; height: 19px; font: 700 10px/19px var(--sans); text-align: center; padding: 0 5px; flex: none; }
       .panel .item .body { min-width: 0; flex: 1; }
       .panel .item .c { font-size: 12.5px; line-height: 1.4; }
       .panel .item .s { font: 10px/1.5 var(--mono); color: var(--ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .panel .item.gone .c { opacity: .5; }
       .panel .item .s .warn { color: var(--warn); }
-      .panel .group { padding: 14px 8px 5px; font: 600 10px/1 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-dim); }
+      .panel .group { padding: 14px 8px 5px; font: 600 11px/1 var(--sans); color: var(--ink-dim); display: flex; align-items: center; }
+      .panel .group .clear-done { margin-left: auto; font: 500 11px var(--sans); color: var(--ink-dim); padding: 3px 6px; border-radius: 6px; }
+      .panel .group .clear-done:hover { color: var(--ink); background: var(--surface-2); }
       .panel .item.done { cursor: default; }
       .panel .item.done:hover { background: none; }
       .panel .item.done .n { background: var(--surface-2); color: var(--ink-dim); }
@@ -304,25 +338,25 @@
       /* The agent's answer, in the agent's colour — the same orange its avatar uses. */
       .panel .reply { margin-top: 6px; padding: 6px 0 0 9px; border-left: 2px solid var(--agent);
                       font-size: 12px; line-height: 1.45; color: var(--ink); }
-      .panel .reply .who { display: block; font: 600 10px/1 var(--sans); letter-spacing: .06em;
-                           text-transform: uppercase; color: var(--agent); margin-bottom: 4px; }
+      .panel .reply .who { display: block; font: 600 11px/1 var(--sans); color: var(--agent); margin-bottom: 4px; }
       .panel .reply.none { color: var(--ink-dim); font-style: italic; }
       .panel .empty { padding: 18px 14px; color: var(--ink-dim); font-size: 12.5px; line-height: 1.5; }
 
       /* ---------- toast ---------- */
       .toast {
         position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
-        background: #17171c; color: #fff; border-radius: 999px; padding: 8px 14px;
-        font-size: 12.5px; box-shadow: 0 8px 26px rgba(0,0,0,.32);
-        display: none; pointer-events: none; animation: pop 140ms cubic-bezier(.2,.8,.2,1);
+        background: var(--ink); color: var(--surface); border-radius: 999px; padding: 8px 14px;
+        font-size: 12.5px; box-shadow: var(--shadow-lg); max-width: min(560px, calc(100vw - 32px));
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        display: none; pointer-events: none; animation: pop 160ms var(--ease-out);
       }
+      .toast.action { pointer-events: auto; cursor: pointer; }
+      .toast.action::after { content: " ›"; opacity: .7; }
 
       /* Nothing here is load-bearing motion — it is all emphasis. Two of these loop forever (the
          armed pulse and the agent's spinner), which is exactly what this setting exists to stop. */
       @media (prefers-reduced-motion: reduce) {
-        .hl, .dock, .pop, .pin, .tip, .panel, .toast { transition-duration: 1ms !important; }
-        .hl.flash, .pop, .pin.new, .toast,
-        .dock.armed .mark, .dock.agent-live .av.agent svg { animation: none !important; }
+        *, *::before, *::after { animation: none !important; transition-duration: 1ms !important; }
       }
     </style>
 
@@ -332,6 +366,7 @@
     <div class="dock">
       <button class="toggle" aria-label="Pinpoint: pick an element" aria-pressed="false"><span class="mark" aria-hidden="true"></span><span class="label">Pinpoint</span><span class="hint"></span></button>
       <button class="stop" title="Stop picking">Stop&nbsp;<kbd>Esc</kbd></button>
+      <button class="start" title="Start the Pinpoint bridge"><span class="led" aria-hidden="true"></span><span class="st">Bridge off · Start</span></button>
       <span class="sep"></span>
       <span class="who" title="">
         <span class="av you" aria-label="you"><svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4.4 0-8 2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5Z"/></svg></span>
@@ -344,18 +379,18 @@
       <button class="close" title="Hide on this site" aria-label="Hide Pinpoint on this site">&times;</button>
     </div>
 
-    <div class="pop">
-      <div class="meta"></div>
+    <div class="pop" role="dialog" aria-label="Comment for your coding agent" aria-describedby="pp-meta">
+      <div class="meta" id="pp-meta"></div>
       <div class="scope">
         <button class="wider" title="Select the element around this one">↑ wider</button>
         <button class="narrower" title="Select the element inside this one">↓ narrower</button>
         <span class="scope-hint"></span>
       </div>
-      <textarea rows="3"></textarea>
+      <textarea rows="2" aria-label="What should change"></textarea>
       <div class="row2">
         <button class="send">Send<kbd></kbd></button>
         <button class="ghost copy">Copy</button>
-        <button class="ghost cancel">Cancel</button>
+        <button class="ghost cancel" title="Close this and pick another element">Re-pick</button>
         <span class="status" role="status"></span>
       </div>
     </div>
@@ -377,6 +412,8 @@
     marqueeSize: shadow.querySelector(".marquee .size"),
     dockToggle: shadow.querySelector(".dock .toggle"),
     dockStop: shadow.querySelector(".dock .stop"),
+    dockStart: shadow.querySelector(".dock .start"),
+    dockStartLabel: shadow.querySelector(".dock .start .st"),
     dockHint: shadow.querySelector(".dock .hint"),
     dockCount: shadow.querySelector(".dock .count"),
     dockCountN: shadow.querySelector(".dock .count b"),
@@ -701,7 +738,11 @@
   // ---------- the dock ----------
   // A quiet, always-there marker that Pinpoint is live in this tab, doubling as the on/off switch
   // so you don't have to reach for the keyboard for every note.
-  let bridgeOk = false, dockHidden = false, pendingResume = false;
+  let bridgeOk = false, bridgeCode = null, dockHidden = false, pendingResume = false, unread = false;
+  // The bridge was up recently — so being down now is an interruption worth a pill, not a sign that
+  // Pinpoint is installed and unused (which should leave your pages alone).
+  let usedRecently = false;
+  const RECENT_MS = 12 * 3600 * 1000;
   const HIDE_KEY = "hideDock:" + location.origin;
 
   // A page whose <html> or <body> carries a transform/filter/will-change becomes the containing
@@ -731,11 +772,9 @@
     clearTimeout(agentTimer);
     if (a) agentTimer = setTimeout(paintAgent, 26000);
     // a resolve is worth calling out, and worth flashing the pin it belongs to
-    // `known` is undefined on the first state a page hears about: that resolve happened before this
-    // page loaded, and announcing it on every load (in every frame) is noise, not news.
-    if (isTop && a && a.action === "resolve" && known !== undefined && a.at !== known) {
-      toast(`${agentName(a)} finished ${a.label ? a.label.replace(/^done with /, "") : "a note"}`);
-    }
+    // A finished note is announced from the replies themselves (loadReplies), with what the agent
+    // said — not from this presence ping, which only knew that *something* was resolved.
+    void known;
     if (a && a.id && a.action === "look") {
       const p = pins.find((x) => x.id === a.id);
       if (p) { p.node.classList.add("watched"); setTimeout(() => p.node.classList.remove("watched"), 2600); }
@@ -778,7 +817,12 @@
     ui.dockCount.title = pend ? "Notes on this page" : "What your agent finished here";
     paintAgent();
     ui.dockCount.style.display = pend || done ? "inline-flex" : "none";
-    ui.dock.style.display = bridgeOk && !dockHidden ? "flex" : "none";
+    ui.dockCount.classList.toggle("unread", unread);
+    // Bridge down used to mean no bar at all — the one moment you needed a way back. Now the bar
+    // stays, as a small pill that starts it.
+    ui.dock.classList.toggle("offline", !bridgeOk);
+    ui.dockStartLabel.textContent = bridgeCode === "token" ? "Bridge needs its token" : "Bridge off · Start";
+    ui.dock.style.display = !dockHidden && (bridgeOk || usedRecently) ? "flex" : "none";
     requestAnimationFrame(keepDockOnScreen);
   }
 
@@ -787,7 +831,12 @@
     try {
       const h = await chrome.runtime.sendMessage({ type: "health" });
       bridgeOk = !!h?.ok;
-    } catch { bridgeOk = false; }
+      bridgeCode = h?.code || null;
+    } catch { bridgeOk = false; bridgeCode = null; }
+    try {
+      if (bridgeOk) { usedRecently = true; await chrome.storage.local.set({ lastBridgeAt: Date.now() }); }
+      else usedRecently = bridgeCode === "token" || Date.now() - ((await chrome.storage.local.get({ lastBridgeAt: 0 })).lastBridgeAt || 0) < RECENT_MS;
+    } catch {}
     try {
       const v = await chrome.storage.local.get(HIDE_KEY);
       dockHidden = !!v[HIDE_KEY];
@@ -805,6 +854,25 @@
   ui.dockToggle.addEventListener("click", (e) => { e.stopPropagation(); togglePicking(); });
   ui.dockStop.addEventListener("click", (e) => { e.stopPropagation(); e.preventDefault(); stopPicking(); });
   ui.dockCount.addEventListener("click", (e) => { e.stopPropagation(); togglePanel(); });
+  ui.dockStart.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    if (bridgeCode === "token") return toast("Open the Pinpoint toolbar popup and paste the bridge token — once", 5000);
+    ui.dockStart.classList.add("busy");
+    toast("Starting the bridge…", 6000);
+    const r = await startBridge();
+    ui.dockStart.classList.remove("busy");
+    if (r?.ok) { toast("Bridge started"); await refreshDock(); loadPins(); return; }
+    toast(await whyNoStart(r), 7000);
+  });
+  // The launcher may be missing (a first run, Safari): say exactly what to run instead.
+  const startBridge = () => chrome.runtime.sendMessage({ type: "startBridge" }).catch(() => null);
+  async function whyNoStart(r) {
+    let cli = "<pinpoint>/bridge/cli.js";
+    try { cli = (await chrome.storage.local.get({ cliPath: null })).cliPath || cli; } catch {}
+    return r?.code === "no_host" || r?.code === "no_node"
+      ? `Start it in a terminal: node ${cli} — or run install-native-host once to make this button work`
+      : r?.code === "unsupported" ? `Start it in a terminal: node ${cli}` : (r?.error || "The bridge did not start — start it in a terminal");
+  }
   ui.dockRestart.addEventListener("click", async (e) => {
     e.stopPropagation();
     ui.dockRestart.classList.add("busy");
@@ -824,9 +892,11 @@
   });
 
   let toastTimer = 0;
-  function toast(msg, ms = 2200) {
+  function toast(msg, ms = 2200, onClick = null) {
     ui.toast.textContent = msg;
     ui.toast.style.display = "block";
+    ui.toast.classList.toggle("action", !!onClick);
+    ui.toast.onclick = onClick ? () => { ui.toast.style.display = "none"; onClick(); } : null;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => (ui.toast.style.display = "none"), ms);
   }
@@ -836,6 +906,8 @@
     const open = force !== undefined ? force : ui.panel.style.display !== "flex";
     ui.panel.style.display = open ? "flex" : "none";
     if (!open) return;
+    unread = false;
+    paintDock();
     renderPanel();
     // Opening the panel is a request for the current state: an agent may have finished something
     // since the page loaded, and its reply is the whole point of looking.
@@ -852,7 +924,15 @@
     for (const p of pins) {
       const li = document.createElement("li");
       li.className = "item" + (p.node.dataset.orphan === "1" ? " gone" : "");
-      li.innerHTML = `<span class="n"></span><div class="body"><div class="c"></div><div class="s"></div></div>`;
+      li.innerHTML = `<span class="n"></span><div class="body"><div class="c"></div><div class="s"></div></div><button class="x">&times;</button>`;
+      li.tabIndex = 0;
+      li.setAttribute("role", "button");
+      li.setAttribute("aria-label", `Show note ${p.number}: ${p.comment}`);
+      // The row itself, not its × — Enter on that button must still press it.
+      li.addEventListener("keydown", (e) => { if (e.target === li && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); revealPin(p); } });
+      const x = li.querySelector(".x");
+      x.setAttribute("aria-label", `Remove note ${p.number}`);
+      x.addEventListener("click", (e) => { e.stopPropagation(); deleteNote(p.id); });
       li.querySelector(".n").textContent = p.number;
       li.querySelector(".c").textContent = p.comment;
       li.querySelector(".s").innerHTML = p.node.dataset.orphan === "1"
@@ -869,13 +949,32 @@
     head.className = "group";
     // Name who actually did it when they all agree; otherwise the per-item labels below say it.
     const names = [...new Set(replies.map((a) => a.resolvedBy).filter(Boolean))];
-    head.textContent = names.length === 1 ? `Done by ${names[0]} (${replies.length})` : `Done by your agent (${replies.length})`;
+    head.innerHTML = `<span class="gl"></span><button class="clear-done">Clear done</button>`;
+    head.querySelector(".gl").textContent = names.length === 1 ? `Done by ${names[0]} (${replies.length})` : `Done by your agent (${replies.length})`;
+    head.querySelector(".clear-done").addEventListener("click", async () => {
+      const done = replies.slice();
+      const results = await Promise.all(done.map((a) => chrome.runtime.sendMessage({ type: "delete", id: a.id }).catch(() => null)));
+      if (results.some((r) => !r || r.error)) toast("Some notes were not removed — the bridge isn't answering");
+      await loadReplies();
+      paintDock();
+      renderPanel();
+    });
     ui.panelList.appendChild(head);
 
     for (const a of replies) {
       const li = document.createElement("li");
       li.className = "item done";
-      li.innerHTML = `<span class="n"></span><div class="body"><div class="c"></div><div class="reply"><span class="who"></span><span class="what"></span></div></div>`;
+      li.innerHTML = `<span class="n"></span><div class="body"><div class="c"></div><div class="reply"><span class="who"></span><span class="what"></span></div></div><button class="x">&times;</button>`;
+      const x = li.querySelector(".x");
+      x.setAttribute("aria-label", `Remove done note ${a.number}`);
+      x.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const r = await chrome.runtime.sendMessage({ type: "delete", id: a.id }).catch(() => null);
+        if (!r || r.error) return toast("Not removed — the bridge isn't answering");
+        await loadReplies();
+        paintDock();
+        renderPanel();
+      });
       li.querySelector(".n").textContent = a.number;
       li.querySelector(".c").textContent = a.comment;
       li.querySelector(".who").textContent = a.resolvedBy || "agent";
@@ -980,11 +1079,29 @@
     if (!t) return;
     e.preventDefault();
     e.stopImmediatePropagation();
-    setPickChain(e.clientX, e.clientY, t);
+    pickElement(t, e.clientX, e.clientY);
+  }, true);
+
+  function pickElement(t, x, y) {
+    setPickChain(x, y, t);
     selected = t;
     stopPicking();
     moveHighlight(t, "selected");
     openPopover(t);
+  }
+
+  // Keyboard picking: Tab moves the highlight with focus, the arrows walk the tree from wherever it
+  // is, Enter takes it. Nothing about choosing an element should need a mouse.
+  const pickable = (n) => n && n.nodeType === 1 && !isOurs(n) && n !== document.documentElement && n !== document.body;
+  function hoverTo(n) {
+    if (!pickable(n)) return;
+    hovered = n;
+    moveHighlight(n);
+    n.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }
+  document.addEventListener("focusin", (e) => {
+    if (!picking || !e.isTrusted) return;
+    if (pickable(e.target)) { hovered = e.target; moveHighlight(e.target); }
   }, true);
 
   // ---------- region selection ----------
@@ -1118,8 +1235,20 @@
   let escArmed = false;
   document.addEventListener("keydown", (e) => {
     if (!e.isTrusted) return;
+    const took = () => { e.preventDefault(); e.stopImmediatePropagation(); };
+    if (picking && !e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+      const cur = hovered && hovered.isConnected ? hovered : null;
+      if (e.key === "Enter") {
+        const t = cur || (pickable(document.activeElement) ? document.activeElement : null);
+        if (t) { took(); const r = t.getBoundingClientRect(); return pickElement(t, r.left + r.width / 2, r.top + r.height / 2); }
+      }
+      if (cur) {
+        const next = { ArrowUp: cur.parentElement, ArrowDown: cur.firstElementChild, ArrowLeft: cur.previousElementSibling, ArrowRight: cur.nextElementSibling }[e.key];
+        if (e.key.startsWith("Arrow")) { took(); return hoverTo(next); }
+      }
+    }
     if (e.key === "Escape") {
-      const took = () => { e.preventDefault(); e.stopImmediatePropagation(); };
+      if (tipPinned && !picking && ui.pop.style.display !== "block") { took(); return hideTip(); }
       if (ui.panel.style.display === "flex" && !picking && ui.pop.style.display !== "block") { took(); return togglePanel(false); }
       if (picking) { took(); return stopPicking(); }
       if (ui.pop.style.display === "block") {
@@ -1142,13 +1271,17 @@
   }, true);
 
   // ---------- popover ----------
+  let returnFocus = null;
   function openPopover(el, region = null) {
+    const prev = document.activeElement;
+    returnFocus = prev && prev !== document.body && !isOurs(prev) ? prev : el;
     const r = region
       ? { left: region.x - window.scrollX, top: region.y - window.scrollY,
           right: region.x - window.scrollX + region.width, bottom: region.y - window.scrollY + region.height }
       : el.getBoundingClientRect();
     paintMeta(el, region);
     ui.text.value = "";
+    ui.text.style.height = "";
     delete ui.pop.dataset.saved;
     ui.status.textContent = "";
     ui.status.className = "status";
@@ -1213,6 +1346,9 @@
   }
 
   function hidePopover() {
+    const hadFocus = !!shadow.activeElement && ui.pop.contains(shadow.activeElement);
+    if (hadFocus && returnFocus?.isConnected) { try { returnFocus.focus({ preventScroll: true }); } catch {} }
+    returnFocus = null;
     selectedRegion = null;
     pickChain = []; pickIndex = 0;
     escArmed = false;
@@ -1238,6 +1374,19 @@
   });
   ["keyup", "keypress", "input"].forEach((t) => ui.pop.addEventListener(t, (e) => e.stopPropagation()));
   ui.text.addEventListener("input", () => delete ui.pop.dataset.saved);   // edited since it was copied
+  // Grows with what you write, from two lines to about ten, then scrolls.
+  const fitText = () => { ui.text.style.height = "auto"; ui.text.style.height = Math.min(ui.text.scrollHeight + 2, 220) + "px"; };
+  ui.text.addEventListener("input", fitText);
+  // A dialog keeps Tab inside it; otherwise focus walks off into the page behind.
+  ui.pop.addEventListener("keydown", (e) => {
+    if (e.key !== "Tab") return;
+    const f = [...ui.pop.querySelectorAll("textarea, button:not([disabled])")].filter((n) => n.offsetParent !== null);
+    if (!f.length) return;
+    const i = f.indexOf(shadow.activeElement);
+    const next = e.shiftKey ? (i <= 0 ? f[f.length - 1] : f[i - 1]) : (i === f.length - 1 ? f[0] : f[i + 1]);
+    e.preventDefault();
+    next.focus();
+  });
   ui.send.addEventListener("click", submit);
   ui.copy.addEventListener("click", async () => {
     if (!selected) return;
@@ -1368,7 +1517,14 @@
       if (capture) hideOverlayForCapture();
       // The worker stores the comment first and answers immediately, then takes and attaches the
       // crop on its own. Nothing here is on the page's lifetime.
-      const res = await chrome.runtime.sendMessage({ type: "submit", annotation: a, capture });
+      const sendIt = () => chrome.runtime.sendMessage({ type: "submit", annotation: a, capture }).catch((e) => ({ error: String(e?.message || e) }));
+      let res = await sendIt();
+      if ((!res || res.error) && !/token/.test(res?.error || "")) {
+        // Most often the bridge is simply not running. Where the launcher is installed, start it and
+        // send once more — the note arrives instead of becoming a clipboard chore.
+        setStatus("Starting the bridge…");
+        if ((await startBridge())?.ok) { res = await sendIt(); refreshDock(); }
+      }
       if (!res || res.error) { showOverlay(); throw new Error(res?.error || "no response"); }
       addPin({ id: a.id, number: res.number || pins.length + 1, selector: a.element.selector, comment, el, fp: a.element.fingerprint, region, fresh: true });
       setStatus("Sent ✓", "ok");
@@ -1400,8 +1556,17 @@
     const node = document.createElement("div");
     node.className = "pin";
     node.textContent = p.number;
+    node.setAttribute("role", "button");
+    node.setAttribute("aria-label", `Note ${p.number}: ${p.comment}`);
+    node.tabIndex = -1;   // out of the page's own tab order; the panel is the keyboard route
     node.addEventListener("mouseenter", () => showTip(p, node));
     node.addEventListener("mouseleave", scheduleHideTip);
+    node.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (tipPinned === p.id) return hideTip();
+      tipPinned = p.id;
+      showTip(p, node);
+    });
     shadow.appendChild(node);
     if (p.fresh) {
       node.classList.add("new");
@@ -1500,12 +1665,7 @@
   function showTip(p, node) {
     clearTimeout(tipTimer);
     ui.tip.innerHTML = `<div><span class="num">#${p.number}</span> ${escapeHtml(p.comment)}</div><button class="del">Remove this note</button>`;
-    ui.tip.querySelector(".del").onclick = async () => {
-      const r = await chrome.runtime.sendMessage({ type: "delete", id: p.id }).catch((e) => ({ error: String(e?.message || e) }));
-      if (!r || r.error) return toast("Not removed — the bridge isn't answering");
-      removePin(p.id);
-      ui.tip.style.display = "none";
-    };
+    ui.tip.querySelector(".del").onclick = () => deleteNote(p.id);
     ui.tip.style.display = "block";
     const r = node.getBoundingClientRect();
     ui.tip.style.left = Math.max(8, Math.min(r.left + 14, window.innerWidth - ui.tip.offsetWidth - 8)) + "px";
@@ -1515,7 +1675,17 @@
   }
   function scheduleHideTip() {
     clearTimeout(tipTimer);
+    if (tipPinned) return;
     tipTimer = setTimeout(() => (ui.tip.style.display = "none"), 250);
+  }
+  // A clicked pin keeps its tip open, so the comment can be read and removed without chasing a hover.
+  let tipPinned = null;
+  function hideTip() { tipPinned = null; ui.tip.style.display = "none"; }
+  async function deleteNote(id) {
+    const r = await chrome.runtime.sendMessage({ type: "delete", id }).catch((e) => ({ error: String(e?.message || e) }));
+    if (!r || r.error) return toast("Not removed — the bridge isn't answering");
+    removePin(id);
+    hideTip();
   }
   function removePin(id) {
     const i = pins.findIndex((p) => p.id === id);
@@ -1565,11 +1735,25 @@
   }
 
   // What the agent has already finished on this page, newest first.
+  // Reply ids already known on this page. null until the first load: what was finished before the
+  // page opened is history, not news.
+  let seenReplies = null;
   async function loadReplies() {
     try {
       const res = await chrome.runtime.sendMessage({ type: "list", status: "resolved", url: location.href.split("#")[0] });
       replies = (res?.annotations || []).slice().sort((a, b) => String(b.resolvedAt || "").localeCompare(String(a.resolvedAt || "")));
     } catch { replies = []; }
+    const ids = new Set(replies.map((a) => a.id));
+    if (seenReplies && isTop) {
+      const fresh = replies.filter((a) => !seenReplies.has(a.id));
+      if (fresh.length) {
+        unread = true;
+        const a = fresh[0];
+        const more = fresh.length > 1 ? ` (+${fresh.length - 1} more)` : "";
+        toast(`#${a.number} done — ${clip(a.resolution || "marked done", 90)}${more}`, 6000, () => togglePanel(true));
+      }
+    }
+    seenReplies = ids;
   }
   loadPins();
   refreshDock();
@@ -1645,5 +1829,10 @@
     else if (msg.type === "hideForCapture") { hideOverlayForCapture(); reply({ ok: true }); }
     else if (msg.type === "viewportNow") reply({ x: window.scrollX, y: window.scrollY, w: window.innerWidth, h: window.innerHeight, url: location.href });
     else if (msg.type === "ping") reply({ ok: true, picking, pins: pins.length });
+    else if (msg.type === "reveal") {
+      const p = pins.find((x) => x.id === msg.id);
+      if (p) revealPin(p);
+      reply({ ok: !!p });
+    }
   });
 })();

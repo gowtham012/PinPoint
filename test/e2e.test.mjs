@@ -1317,14 +1317,28 @@ test("the dock can be hidden per site, and brought back from the popup", async (
   await page.close();
 });
 
-test("the dock stays out of the way: hidden when the bridge is off, back when it returns", async () => {
+test("the dock stays out of the way when unused, and offers to start a bridge that went away", async () => {
+  // Never used recently: nothing on the page at all.
+  const sw = ctx.serviceWorkers()[0];
+  await sw.evaluate(() => chrome.storage.local.set({ lastBridgeAt: 0 }));
   await stopDaemon();
   const page = await openPage("/");
   await page.waitForTimeout(900);
   assert.equal((await dock(page)).shown, false, "no floating widget on pages when you are not using it");
+  // Used a moment ago and then gone: a small pill that starts it.
+  await sw.evaluate(() => chrome.storage.local.set({ lastBridgeAt: Date.now() }));
+  await page.reload();
+  await waitShadow(page, () => __pinpointShadow.querySelector(".dock").classList.contains("offline") && __pinpointShadow.querySelector(".dock").style.display === "flex", null, { timeout: 8000 });
+  const pill = await inShadow(page, () => ({ label: __pinpointShadow.querySelector(".dock .start").textContent, shown: getComputedStyle(__pinpointShadow.querySelector(".dock .start")).display }));
+  assert.match(pill.label, /Bridge off/);
+  assert.notEqual(pill.shown, "none");
+  // No launcher in this browser: clicking explains exactly what to run instead.
+  const b = await inShadow(page, () => { const r = __pinpointShadow.querySelector(".dock .start").getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+  await page.mouse.click(b.x, b.y);
+  await waitShadow(page, () => /terminal|install-native-host/.test(__pinpointShadow.querySelector(".toast").textContent), null, { timeout: 8000 });
   await startDaemon();
-  // no tab switch, no reload: the page notices on its own
-  await waitShadow(page, () => __pinpointShadow.querySelector(".dock").style.display === "flex", null, { timeout: 15000 });
+  // no tab switch, no reload: the page notices on its own, and the pill becomes the bar again
+  await waitShadow(page, () => !__pinpointShadow.querySelector(".dock").classList.contains("offline"), null, { timeout: 15000 });
   await page.close();
 });
 
@@ -1908,4 +1922,143 @@ test("S7: re-checking a note made inside an iframe looks in that iframe", async 
   await c.close();
   await disarm(page);
   await page.close();
+});
+
+// ============ 0.6.0 batch 3: fewer clicks ============
+const tapShadow = async (page, sel) => {
+  const b = await inShadow(page, (s) => { const r = __pinpointShadow.querySelector(s).getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; }, sel);
+  await page.mouse.click(b.x, b.y);
+};
+const SEND = process.platform === "darwin" ? "Meta+Enter" : "Control+Enter";
+
+test("U1: when the agent finishes a note, the page says so with its reply, and the counter shows it is unread", async () => {
+  await clearAll();
+  const page = await openPage("/");
+  await annotate(page, page.locator("h1"), "make the headline bigger");
+  const [a] = await pendingWithShots(1);
+  await disarm(page);
+  await fetch(`${BASE}/annotations/${a.id}/resolve`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ note: "bumped h1 to 56px in Hero.tsx", by: "claude-code" }) });
+  await waitShadow(page, () => /#1 done — bumped h1 to 56px/.test(__pinpointShadow.querySelector(".toast").textContent), null, { timeout: 8000 });
+  assert.equal(await inShadow(page, () => __pinpointShadow.querySelector(".dock .count").classList.contains("unread")), true);
+  // the toast opens the notes panel, and reading it clears the dot
+  await tapShadow(page, ".toast");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".panel").style.display === "flex");
+  assert.equal(await inShadow(page, () => __pinpointShadow.querySelector(".dock .count").classList.contains("unread")), false);
+  await page.keyboard.press("Escape");
+  await page.close();
+});
+
+test("U2: the panel removes one note, or clears everything that is done, in one click", async () => {
+  await clearAll();
+  const page = await openPage("/");
+  await annotate(page, page.locator("h1"), "keep this one");
+  await annotate(page, page.locator("#get-started"), "this one gets done");
+  await disarm(page);
+  const items = await pendingWithShots(2);
+  const done = items.find((x) => x.comment === "this one gets done");
+  await fetch(`${BASE}/annotations/${done.id}/resolve`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ note: "done" }) });
+  await waitShadow(page, () => __pinpointShadow.querySelectorAll(".pin").length === 1, null, { timeout: 8000 });
+  await tapShadow(page, ".dock .count");
+  await waitShadow(page, () => !!__pinpointShadow.querySelector(".panel .clear-done"), null, { timeout: 5000 });
+  await tapShadow(page, ".panel .clear-done");
+  await waitShadow(page, () => !__pinpointShadow.querySelector(".panel .item.done"), null, { timeout: 5000 });
+  const all = (await (await fetch(BASE + "/annotations?status=all")).json()).annotations;
+  assert.deepEqual(all.map((x) => x.comment), ["keep this one"], "only the done note was cleared");
+  // the panel re-renders when the bridge reports the clear; let it settle, then use the row's ×
+  await page.waitForTimeout(600);
+  await tapShadow(page, ".panel .item:not(.done) .x");
+  await waitShadow(page, () => __pinpointShadow.querySelectorAll(".pin").length === 0, null, { timeout: 5000 });
+  assert.equal((await pending()).length, 0);
+  await page.close();
+});
+
+test("U3: an element can be picked and annotated with the keyboard alone", async () => {
+  await clearAll();
+  const page = await openPage("/");
+  await page.keyboard.press("Alt+Shift+A");
+  await page.waitForFunction(() => document.documentElement.classList.contains("pinpoint-picking"));
+  for (let i = 0; i < 20; i++) {
+    if (await page.evaluate(() => document.activeElement?.id === "get-started")) break;
+    await page.keyboard.press("Tab");
+  }
+  assert.equal(await page.evaluate(() => document.activeElement?.id), "get-started", "Tab reaches the button");
+  assert.match(await inShadow(page, () => __pinpointShadow.querySelector(".hl .tag").textContent), /button|a\b|get-started/i, "the highlight follows focus");
+  await page.keyboard.press("Enter");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pop").style.display === "block");
+  assert.equal(await inShadow(page, () => __pinpointShadow.querySelector(".pop").getAttribute("role")), "dialog");
+  await typeComment(page, "make this the primary colour");
+  await page.keyboard.press(SEND);
+  const [a] = await pendingWithShots(1);
+  assert.equal(a.comment, "make this the primary colour");
+  assert.match(a.element.selector, /get-started|cta/);
+  // the arrows walk the tree: Up from the headline is its container
+  await page.locator("h1").hover();
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("Enter");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pop").style.display === "block");
+  const meta = await inShadow(page, () => __pinpointShadow.querySelector(".pop .meta").textContent);
+  assert.doesNotMatch(meta, /^h1/, `ArrowUp moved off the h1: ${meta}`);
+  await page.keyboard.press("Escape");
+  await disarm(page);
+  await page.close();
+});
+
+test("U4: closing the comment box puts focus back where it was", async () => {
+  await clearAll();
+  const page = await openPage("/");
+  await page.keyboard.press("Alt+Shift+A");
+  for (let i = 0; i < 20; i++) {
+    if (await page.evaluate(() => document.activeElement?.id === "get-started")) break;
+    await page.keyboard.press("Tab");
+  }
+  await page.keyboard.press("Enter");
+  await waitShadow(page, () => __pinpointShadow.activeElement?.tagName === "TEXTAREA");
+  await page.keyboard.press("Escape");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pop").style.display === "none");
+  assert.equal(await page.evaluate(() => document.activeElement?.id), "get-started");
+  await page.close();
+});
+
+test("U5: a popup row takes you to its note's tab", async () => {
+  await clearAll();
+  const page = await openPage("/");
+  await annotate(page, page.locator("h1"), "jump to me");
+  await disarm(page);
+  await pendingWithShots(1);
+  const other = await openPage("/plain.html");
+  await other.bringToFront();
+  const popup = await ctx.newPage();
+  await popup.goto(`chrome-extension://${extId}/popup.html`);
+  await popup.locator("#list li").first().waitFor();
+  await popup.locator("#list li .t").first().click();
+  const sw = ctx.serviceWorkers()[0];
+  let active = null;
+  for (let i = 0; i < 30; i++) {
+    active = await sw.evaluate(async () => (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0]?.url);
+    if (/:\d+\/$/.test(active || "")) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  assert.match(active || "", new RegExp(`localhost:${SITE}/$`), `the note's tab is in front (got ${active})`);
+  await other.close();
+  await page.close();
+});
+
+test("U6: a bridge on a neighbouring port is found when the saved one does not answer", async () => {
+  const taken = [];
+  for (let p = 7331; p <= 7340; p++) { try { const h = await (await fetch(`http://127.0.0.1:${p}/health`)).json(); if (h.service === "pinpoint-bridge") taken.push(p); } catch {} }
+  if (taken.length) return void console.log(`  skipped: a real bridge is already on ${taken.join(", ")}`);
+  const d = spawn("node", [CLI, "--port", "7336"], { env: ENV, stdio: ["ignore", "ignore", "ignore"] });
+  try {
+    for (let i = 0; i < 50; i++) { try { await fetch("http://127.0.0.1:7336/health"); break; } catch { await new Promise((r) => setTimeout(r, 100)); } }
+    const sw = ctx.serviceWorkers()[0];
+    await sw.evaluate(() => chrome.storage.sync.set({ port: 7338 }));
+    const popup = await ctx.newPage();
+    await popup.goto(`chrome-extension://${extId}/popup.html`);
+    await popup.waitForFunction(() => /bridge on :7336/.test(document.querySelector("#status").textContent), null, { timeout: 8000 });
+    assert.equal(await sw.evaluate(async () => (await chrome.storage.sync.get("port")).port), 7336, "the saved port follows");
+    await popup.close();
+  } finally {
+    d.kill();
+    await ctx.serviceWorkers()[0].evaluate((port) => chrome.storage.sync.set({ port }), PORT);
+  }
 });

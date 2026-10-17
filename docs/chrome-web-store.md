@@ -79,16 +79,15 @@ Open source (MIT).
 
 ## Screenshots
 
-1280×800, from assets already in the repo — no mockups, no stock AI art.
+1280×800, captured from the real extension on `test/site/index.html` — no mockups, no stock AI art.
+They are generated into `dist/store/` (gitignored) and match the README images in `docs/images/`.
 
-| # | Asset | Must show |
+| # | File | Shows |
 |---|---|---|
-| 1 | `docs/images/bar-idle.png` | The bar at rest, with a `localhost` URL visible |
-| 2 | `docs/images/bar-armed.png` | Picking: the outline, the component name, **Stop** |
-| 3 | `docs/images/popover.png` | A typed instruction against the element it picked |
-| 4 | `docs/images/pin.png` | A numbered pin on a real page |
-| 5 | `docs/images/agent-reply.png` | The notes panel with the agent's reply underneath |
-| 6 | optional | Extension → `127.0.0.1:7331` → MCP agents, drawn flat |
+| 1 | `store-1-pick.png` | Picking: the highlight on the CTA and the bar while armed |
+| 2 | `store-2-comment.png` | A typed instruction against the element it picked, with its component |
+| 3 | `store-3-pins.png` | Numbered pins on a real page |
+| 4 | `store-4-reply.png` | The agent's reply: the toast and the notes panel |
 
 Promo tile: *"Click the element. Your coding agent gets the context."* over local dev UI.
 `docs/demo.mp4` works as the promo video if it fits the size limit.

@@ -934,6 +934,9 @@ test("setup wires a project up in one non-interactive run, twice over", async ()
   // the test from running `claude mcp add` against the real CLI.
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), "pp-setup-bin-"));
   fs.writeFileSync(path.join(bin, "claude"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  // Maestro 2.9 prints its version and then never exits. setup's iOS check must not hang on it.
+  fs.mkdirSync(path.join(HOME, ".maestro/bin"), { recursive: true });
+  fs.writeFileSync(path.join(HOME, ".maestro/bin/maestro"), "#!/bin/sh\necho 2.9.0\nexec sleep 600\n", { mode: 0o755 });
   const env = { ...process.env, HOME, USERPROFILE: home, PINPOINT_HOME: path.join(home, ".pinpoint"), PATH: bin + path.delimiter + process.env.PATH };
   const run = (args, cwd = undefined) => new Promise((res) => {
     const p = spawn("node", [CLI, "setup", "--yes", "--no-start", "--port", "7401", ...args], { env, cwd, stdio: ["ignore", "pipe", "pipe"] });

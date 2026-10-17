@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pinpoint — iOS Simulator</title>
 <style>
-  :root { --bg: #f6f6f4; --fg: #1d1d1f; --muted: #6e6e73; --card: #fff; --line: #d9d9d6; --accent: #e5484d; }
+  :root { --bg: #f6f6f4; --fg: #1d1d1f; --muted: #6e6e73; --card: #fff; --line: #d9d9d6; --accent: #6d5ae6; }
   @media (prefers-color-scheme: dark) { :root { --bg: #161617; --fg: #f2f2f2; --muted: #9a9a9f; --card: #232325; --line: #3a3a3d; } }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.4 -apple-system, system-ui, sans-serif; }
@@ -17,7 +17,7 @@
   main { display: flex; justify-content: center; padding: 16px; }
   #stage { position: relative; cursor: crosshair; line-height: 0; }
   #shot { max-height: calc(100vh - 90px); max-width: 100%; border-radius: 12px; box-shadow: 0 2px 16px #0003; user-select: none; }
-  .box { position: absolute; border: 2px solid var(--accent); background: #e5484d22; pointer-events: none; border-radius: 3px; }
+  .box { position: absolute; border: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); pointer-events: none; border-radius: 3px; }
   #tip { position: absolute; transform: translateY(-100%); background: var(--fg); color: var(--bg); font-size: 12px; line-height: 1.3; padding: 2px 6px; border-radius: 4px; white-space: nowrap; pointer-events: none; }
   .pin { position: absolute; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%; background: var(--accent); color: #fff; font: 600 12px/22px system-ui; text-align: center; pointer-events: auto; cursor: help; }
   #pop { position: absolute; width: 280px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px; line-height: 1.4; box-shadow: 0 6px 24px #0004; z-index: 2; cursor: default; }
