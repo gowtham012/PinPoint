@@ -6,13 +6,15 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { DEFAULT_PORT } from "./store.js";
 
 // The command an MCP client should run. `--port` is only added when it is not the default, so a
 // normal config stays as short as the one in the README.
 export function mcpCommand(cliPath, { port } = {}) {
   const args = [cliPath, "mcp"];
-  if (port && Number(port) !== DEFAULT_PORT) args.push("--port", String(port));
+  // Compared with the literal default, not DEFAULT_PORT: that one follows $PINPOINT_PORT, so running
+  // setup with it set wrote a config with no --port, and the client — launched without that env —
+  // then talked to 7331.
+  if (port && Number(port) !== 7331) args.push("--port", String(port));
   return { command: "node", args };
 }
 
@@ -39,7 +41,14 @@ export function writeCodexMcp(cliPath, { port, file = null } = {}) {
   const target = file || path.join(os.homedir(), ".codex", "config.toml");
   const { command, args } = mcpCommand(cliPath, { port });
   const existing = fs.existsSync(target) ? fs.readFileSync(target, "utf8") : "";
-  if (/^\s*\[mcp_servers\.pinpoint\]/m.test(existing)) {
+  // JSON.stringify for the strings: TOML basic strings take the same escapes, so a Windows path
+  // survives with its backslashes intact.
+  const block = `[mcp_servers.pinpoint]\ncommand = ${JSON.stringify(command)}\nargs = [${args.map((a) => JSON.stringify(a)).join(", ")}]\n`;
+  // Our table runs from its header to the next table header (or the end of the file). A rerun with a
+  // new port or a moved checkout replaces exactly that, and leaves every other table alone.
+  const ours = /^[ \t]*\[mcp_servers\.pinpoint\][^\n]*\n(?:(?![ \t]*\[)[^\n]*(?:\n|$))*/m;
+  const current = existing.match(ours);
+  if (current && current[0].trim() === block.trim()) {
     return { file: target, already: true, backup: null, message: `Codex already has Pinpoint in ${target}` };
   }
 
@@ -48,10 +57,10 @@ export function writeCodexMcp(cliPath, { port, file = null } = {}) {
     backup = `${target}.bak`;
     fs.writeFileSync(backup, existing);
   }
-  // JSON.stringify for the strings: TOML basic strings take the same escapes, so a Windows path
-  // survives with its backslashes intact.
-  const block = `\n[mcp_servers.pinpoint]\ncommand = ${JSON.stringify(command)}\nargs = [${args.map((a) => JSON.stringify(a)).join(", ")}]\n`;
+  const next = current
+    ? existing.replace(ours, block + (existing.slice(current.index + current[0].length).trim() ? "\n" : ""))
+    : existing.trim() ? existing.replace(/\n*$/, "\n") + "\n" + block : block;
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(target, existing.replace(/\n*$/, "\n") + block);
-  return { file: target, already: false, backup, message: `Codex will find Pinpoint in ${target}` };
+  fs.writeFileSync(target, next);
+  return { file: target, already: false, backup, message: current ? `Codex entry updated in ${target}` : `Codex will find Pinpoint in ${target}` };
 }

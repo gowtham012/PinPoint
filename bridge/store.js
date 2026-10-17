@@ -189,11 +189,16 @@ const HOW_TO_FINISH = {
   file: "apply the change, then run `pinpoint resolve <id>` (or `node <bridge>/cli.js resolve <id>`) so the pin disappears in the browser.",
 };
 
-export function pendingMarkdown(db, { channel = "mcp", cliPath = null } = {}) {
+// `resolve` with no --port looks for a bridge on 7331; on any other port it finds none, writes the
+// file directly, and the running daemon then overwrites that file with its own copy — the resolve
+// silently disappears. So every command we hand out names the port it was given.
+export const portFlag = (port) => (port && Number(port) !== 7331 ? ` --port ${port}` : "");
+
+export function pendingMarkdown(db, { channel = "mcp", cliPath = null, port = null } = {}) {
   const items = pending(db);
   if (!items.length) return "_No pending annotations._\n";
   let finish = HOW_TO_FINISH[channel] || HOW_TO_FINISH.mcp;
-  if (channel === "file" && cliPath) finish = `apply the change, then run \`node ${cliPath} resolve <id>\` so the pin disappears in the browser.`;
+  if (channel === "file" && cliPath) finish = `apply the change, then run \`node ${cliPath} resolve <id>${portFlag(port)}\` so the pin disappears in the browser.`;
   // How to find the element depends on what the page gave us. On a framework page the component
   // chain is the fastest route; on a template-rendered page the DOM never appears in the source at
   // all and the HTML snippet is the only thing that greps.

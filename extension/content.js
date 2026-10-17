@@ -36,6 +36,8 @@
         --line: rgba(0,0,0,.09);
         --shadow: 0 1px 2px rgba(16,16,24,.06), 0 10px 30px rgba(16,16,24,.16);
         --radius: 12px;
+        /* Status colours at >=4.5:1 on their surface, light and dark. */
+        --danger: #d1343a; --success: #18794e; --warn: #976200;
         /* The logo as drawn — written by tools/make-icons.sh from tools/logo/mark.png. Painted
            as-is rather than masked to the accent colour: this is the mark, not a tinted stand-in.
            It only needs to invert on the violet pill while armed. */
@@ -51,21 +53,24 @@
           --ink: #f2f2f5;
           --ink-dim: #a1a1ab;
           --agent: #e08a5b;
+          --danger: #ff6b6f; --success: #4cc38a; --warn: #f0b43c;
           --line: rgba(255,255,255,.12);
           --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.45);
         }
+        .mark { filter: invert(1); }
       }
       * { box-sizing: border-box; font-family: var(--sans); }
       button { border: 0; background: none; padding: 0; margin: 0; cursor: pointer; color: inherit; font: inherit; outline: none; -webkit-tap-highlight-color: transparent; }
       button:focus { outline: none; }
-      button:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent); }
+      button:focus-visible { box-shadow: 0 0 0 2px var(--surface-2), 0 0 0 4px var(--accent); }
+      @media (forced-colors: active) { button:focus-visible { outline: 2px solid ButtonText; outline-offset: 2px; } }
 
       /* ---------- element highlight ---------- */
       .hl {
         position: fixed; pointer-events: none; display: none; border-radius: 4px;
         outline: 2px solid var(--accent); outline-offset: 1px;
         background: color-mix(in srgb, var(--accent) 9%, transparent);
-        transition: all 60ms cubic-bezier(.2,.8,.2,1);
+        transition: none;
       }
       .hl .tag {
         position: absolute; left: -3px; top: -23px; display: inline-flex; gap: 6px; align-items: center;
@@ -75,6 +80,8 @@
         box-shadow: 0 2px 8px rgba(0,0,0,.2);
       }
       .hl .tag b { font-weight: 700; }
+      /* An element at the very top of the window has no room above it for its label. */
+      .hl .tag.below { top: auto; bottom: -23px; border-radius: 0 5px 5px 5px; }
       /* The element you picked reads as "held", not "wrong" — neutral ink, distinct from the
          accent used while merely hovering. */
       .hl.selected { outline-color: var(--ink); background: color-mix(in srgb, var(--ink) 7%, transparent); }
@@ -143,8 +150,8 @@
       @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .45 } }
       .dock .hint { color: var(--ink-dim); font-size: 11px; }
       .dock.armed .hint { color: var(--accent-ink); opacity: .85; }
-      .dock kbd { font: 11px/1 var(--mono); letter-spacing: .06em; border: 1px solid currentColor;
-                  opacity: .5; border-radius: 4px; padding: 3px 5px 3px 6px;
+      .dock kbd { font: 11px/1 var(--mono); letter-spacing: .06em; border: 1px solid var(--line);
+                  color: var(--ink-dim); background: var(--surface-2); border-radius: 6px; padding: 3px 5px 3px 6px;
                   display: inline-flex; align-items: center; }
       /* who is here — you, and your coding agent when it is doing something */
       /* Two hues, both of which mean something: violet is you (the same violet as your pins and
@@ -198,7 +205,7 @@
 
       /* ---------- comment popover ---------- */
       .pop {
-        position: fixed; z-index: 3; width: 340px; pointer-events: auto; display: none;
+        position: fixed; z-index: 3; width: min(340px, calc(100vw - 16px)); pointer-events: auto; display: none;
         background: var(--surface); color: var(--ink);
         border: 1px solid var(--line); border-radius: var(--radius);
         box-shadow: var(--shadow); padding: 12px;
@@ -234,8 +241,8 @@
       .pop .ghost { background: var(--surface-2); color: var(--ink); }
       .pop .ghost:hover { filter: brightness(.95); }
       .pop .status { margin-left: auto; font-size: 11px; color: var(--ink-dim); }
-      .pop .status.err { color: #e5484d; }
-      .pop .status.ok { color: #2a9d5c; }
+      .pop .status.err { color: var(--danger); }
+      .pop .status.ok { color: var(--success); }
 
       /* ---------- pins ---------- */
       .pin {
@@ -254,14 +261,14 @@
       @keyframes drop { from { transform: translate(-50%, -180%) scale(.4); opacity: 0 } }
 
       .tip {
-        position: fixed; z-index: 4; max-width: 300px; pointer-events: auto; display: none;
+        position: fixed; z-index: 4; max-width: min(300px, calc(100vw - 16px)); pointer-events: auto; display: none;
         background: var(--surface); color: var(--ink); border: 1px solid var(--line);
         border-radius: 10px; box-shadow: var(--shadow); padding: 9px 11px;
         font-size: 12.5px; line-height: 1.45; backdrop-filter: saturate(180%) blur(12px);
       }
       .tip .num { color: var(--accent); font-weight: 700; margin-right: 5px; }
-      .tip .del { display: inline-block; margin-top: 7px; color: var(--ink-dim); cursor: pointer; font-size: 11px; }
-      .tip .del:hover { color: #e5484d; }
+      .tip .del { display: inline-block; margin-top: 7px; color: var(--ink-dim); cursor: pointer; font-size: 11px; border-radius: 4px; }
+      .tip .del:hover { color: var(--danger); }
 
       /* ---------- notes panel ---------- */
       .panel {
@@ -283,7 +290,7 @@
       .panel .item .c { font-size: 12.5px; line-height: 1.4; }
       .panel .item .s { font: 10px/1.5 var(--mono); color: var(--ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .panel .item.gone .c { opacity: .5; }
-      .panel .item .s .warn { color: #c2860a; }
+      .panel .item .s .warn { color: var(--warn); }
       .panel .group { padding: 14px 8px 5px; font: 600 10px/1 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-dim); }
       .panel .item.done { cursor: default; }
       .panel .item.done:hover { background: none; }
@@ -318,7 +325,7 @@
     <div class="marquee"><span class="size"></span></div>
 
     <div class="dock">
-      <button class="toggle"><span class="mark"></span><span class="label">Pinpoint</span><span class="hint"></span></button>
+      <button class="toggle" aria-label="Pinpoint: pick an element" aria-pressed="false"><span class="mark" aria-hidden="true"></span><span class="label">Pinpoint</span><span class="hint"></span></button>
       <button class="stop" title="Stop picking">Stop&nbsp;<kbd>Esc</kbd></button>
       <span class="sep"></span>
       <span class="who" title="">
@@ -328,8 +335,8 @@
       <span class="agent-say"></span>
       <span class="sep"></span>
       <button class="count"><b>0</b>&nbsp;<span class="cw">notes</span></button>
-      <button class="restart" title="Restart the bridge (picks up a new build)">&#8635;</button>
-      <button class="close" title="Hide on this site">&times;</button>
+      <button class="restart" title="Restart the bridge (picks up a new build)" aria-label="Restart the bridge">&#8635;</button>
+      <button class="close" title="Hide on this site" aria-label="Hide Pinpoint on this site">&times;</button>
     </div>
 
     <div class="pop">
@@ -344,18 +351,18 @@
         <button class="send">Send<kbd></kbd></button>
         <button class="ghost copy">Copy</button>
         <button class="ghost cancel">Cancel</button>
-        <span class="status"></span>
+        <span class="status" role="status"></span>
       </div>
     </div>
 
     <div class="tip"></div>
 
     <div class="panel">
-      <h2>Notes on this page <button class="close">&times;</button></h2>
+      <h2>Notes on this page <button class="close" aria-label="Close notes">&times;</button></h2>
       <ul class="list"></ul>
     </div>
 
-    <div class="toast"></div>
+    <div class="toast" role="status"></div>
   `;
   const ui = {
     hl: shadow.querySelector(".hl"),
@@ -457,7 +464,7 @@
     return o;
   }
 
-  const GENERATED = /^(css-|sc-|_|jsx-|svelte-)|[0-9a-f]{6,}|^[A-Za-z0-9_-]*__[A-Za-z0-9_-]+_[A-Za-z0-9]{5,}$/;
+  const GENERATED = /^(css-|sc-|_|jsx-|svelte-)|(?=[a-f]*\d)[0-9a-f]{6,}|^[A-Za-z0-9_-]*__[A-Za-z0-9_-]+_[A-Za-z0-9]{5,}$/;
   const classCount = new Map();
   function rarity(cls) {
     if (!classCount.has(cls)) {
@@ -679,6 +686,7 @@
     const r = el.getBoundingClientRect();
     Object.assign(ui.hl.style, { display: "block", left: r.left + "px", top: r.top + "px", width: r.width + "px", height: r.height + "px" });
     ui.hl.className = "hl " + (cls || "");
+    ui.tag.classList.toggle("below", r.top < 26);
     ui.tag.textContent = describe(el);
   }
 
@@ -715,7 +723,9 @@
     clearTimeout(agentTimer);
     if (a) agentTimer = setTimeout(paintAgent, 26000);
     // a resolve is worth calling out, and worth flashing the pin it belongs to
-    if (a && a.action === "resolve" && a.at !== known) {
+    // `known` is undefined on the first state a page hears about: that resolve happened before this
+    // page loaded, and announcing it on every load (in every frame) is noise, not news.
+    if (isTop && a && a.action === "resolve" && known !== undefined && a.at !== known) {
       toast(`${agentName(a)} finished ${a.label ? a.label.replace(/^done with /, "") : "a note"}`);
     }
     if (a && a.id && a.action === "look") {
@@ -745,6 +755,7 @@
   function paintDock() {
     if (!isTop) return;
     ui.dock.classList.toggle("armed", picking);
+    ui.dockToggle.setAttribute("aria-pressed", String(picking));
     if (picking) { clearTimeout(miniTimer); ui.dock.classList.remove("mini"); }
     else if (!ui.dock.classList.contains("mini")) expandDock();
     // While armed the Stop button carries the Esc affordance, so the hint just names the action.
@@ -894,6 +905,9 @@
   function stopPicking() {
     picking = false;
     hovered = null;
+    if (dragFrom) swallowAfterUp = true;   // the button is still down; its release must not click the page
+    dragFrom = null; dragging = false;
+    ui.marquee.style.display = "none";
     pendingResume = false;
     document.documentElement.classList.remove("pinpoint-picking");
     paintDock();
@@ -932,6 +946,14 @@
   }, true);
 
   document.addEventListener("click", (e) => {
+    // A drag ends with pointerup, which already stopped picking — so the click the browser fires
+    // straight after it would otherwise land on the page and follow whatever link sat under the box.
+    if (performance.now() < swallowClickUntil) {
+      swallowClickUntil = 0;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      return;
+    }
     if (!picking) return;
     const t = targetFromEvent(e);
     if (!t) return;
@@ -951,6 +973,9 @@
   // container to edit rather than four loose coordinates.
   let selectedRegion = null;
   let dragFrom = null, dragging = false;
+  // A timestamp, not a flag: a flag left set by a drag whose click never came would eat the next
+  // real click on the page, however much later that is.
+  let swallowClickUntil = 0, swallowAfterUp = false;
 
   const boxOf = (a, b) => ({
     left: Math.min(a.x, b.x), top: Math.min(a.y, b.y),
@@ -1032,6 +1057,7 @@
   }, true);
 
   document.addEventListener("pointerup", (e) => {
+    if (swallowAfterUp) { swallowAfterUp = false; swallowClickUntil = performance.now() + 400; }
     if (!picking || !dragFrom) return;
     const from = dragFrom;
     dragFrom = null;
@@ -1040,6 +1066,7 @@
     ui.marquee.style.display = "none";
     const box = boxOf(from, { x: e.clientX, y: e.clientY });
     if (box.width < 12 || box.height < 12) return;   // a twitch, not a drag
+    swallowClickUntil = performance.now() + 400;
     const anchor = anchorFor(box);
     const inside = containedIn(anchor, box);
     const ar = anchor.getBoundingClientRect();
@@ -1069,9 +1096,11 @@
   let escArmed = false;
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
-      if (ui.panel.style.display === "flex" && !picking && ui.pop.style.display !== "block") return togglePanel(false);
-      if (picking) return stopPicking();
+      const took = () => { e.preventDefault(); e.stopImmediatePropagation(); };
+      if (ui.panel.style.display === "flex" && !picking && ui.pop.style.display !== "block") { took(); return togglePanel(false); }
+      if (picking) { took(); return stopPicking(); }
       if (ui.pop.style.display === "block") {
+        took();
         // Don't throw away typed text on a stray Esc.
         if (ui.text.value.trim() && !escArmed) {
           escArmed = true;
@@ -1100,8 +1129,8 @@
     ui.status.textContent = "";
     ui.status.className = "status";
     ui.pop.style.display = "block";
-    const W = 340, H = ui.pop.offsetHeight || 170, M = 8;
-    let left = Math.min(Math.max(M, r.left), window.innerWidth - W - M);
+    const W = ui.pop.offsetWidth || 340, H = ui.pop.offsetHeight || 170, M = 8;
+    let left = Math.max(M, Math.min(r.left, window.innerWidth - W - M));
     let top = r.bottom + M;
     if (top + H > window.innerHeight - M) top = Math.max(M, r.top - H - M);
     Object.assign(ui.pop.style, { left: left + "px", top: top + "px" });
@@ -1183,6 +1212,7 @@
     }
     e.stopPropagation();
   });
+  ["keyup", "keypress", "input"].forEach((t) => ui.pop.addEventListener(t, (e) => e.stopPropagation()));
   ui.send.addEventListener("click", submit);
   ui.copy.addEventListener("click", async () => {
     if (!selected) return;
@@ -1212,10 +1242,13 @@
       ? { left: override.x - window.scrollX, top: override.y - window.scrollY, width: override.width, height: override.height }
       : el.getBoundingClientRect();
     const off = await getFrameOffset();
+    // The visible part only. Clamping just the origin kept the full height, so an element scrolled
+    // half off the top was cropped with whatever sat below it.
+    const x0 = Math.max(0, r.left), y0 = Math.max(0, r.top);
     const rect = {
-      x: Math.max(0, r.left) + off.x, y: Math.max(0, r.top) + off.y,
-      width: Math.min(r.width, window.innerWidth - Math.max(0, r.left)),
-      height: Math.min(r.height, window.innerHeight - Math.max(0, r.top)),
+      x: x0 + off.x, y: y0 + off.y,
+      width: Math.min(window.innerWidth, r.left + r.width) - x0,
+      height: Math.min(window.innerHeight, r.top + r.height) - y0,
     };
     if (rect.width < 2 || rect.height < 2) return null;
     // Also send the rect in DOCUMENT space. The worker crops later, and if the page scrolled in
@@ -1291,8 +1324,9 @@
     return lines.join("\n");
   }
 
+  let sending = false;
   async function submit() {
-    if (!selected) return;
+    if (!selected || sending) return;
     const comment = ui.text.value.trim();
     if (!comment) {
       setStatus("Write a comment first", "err");
@@ -1300,6 +1334,7 @@
       return;
     }
     const el = selected;
+    sending = true;
     setStatus("Sending…");
     ui.send.disabled = true;
     try {
@@ -1320,6 +1355,7 @@
       pendingResume = true;
       if (!capture) { showOverlay(); resumePicking(); }
     } catch (e) {
+      showOverlay();
       // Bridge not running? Fall back to clipboard so nothing is lost.
       try {
         const a = await buildAnnotation(el, comment);
@@ -1329,6 +1365,7 @@
         setStatus("Failed: " + (e.message || e), "err");
       }
     } finally {
+      sending = false;
       ui.send.disabled = false;
     }
   }
@@ -1338,7 +1375,6 @@
     const node = document.createElement("div");
     node.className = "pin";
     node.textContent = p.number;
-    node.title = p.comment;
     node.addEventListener("mouseenter", () => showTip(p, node));
     node.addEventListener("mouseleave", scheduleHideTip);
     shadow.appendChild(node);
@@ -1428,15 +1464,16 @@
   let tipTimer = 0;
   function showTip(p, node) {
     clearTimeout(tipTimer);
-    ui.tip.innerHTML = `<div><span class="num">#${p.number}</span> ${escapeHtml(p.comment)}</div><span class="del">Remove this note</span>`;
+    ui.tip.innerHTML = `<div><span class="num">#${p.number}</span> ${escapeHtml(p.comment)}</div><button class="del">Remove this note</button>`;
     ui.tip.querySelector(".del").onclick = async () => {
-      await chrome.runtime.sendMessage({ type: "delete", id: p.id });
+      const r = await chrome.runtime.sendMessage({ type: "delete", id: p.id }).catch((e) => ({ error: String(e?.message || e) }));
+      if (!r || r.error) return toast("Not removed — the bridge isn't answering");
       removePin(p.id);
       ui.tip.style.display = "none";
     };
     ui.tip.style.display = "block";
     const r = node.getBoundingClientRect();
-    ui.tip.style.left = Math.min(r.left + 14, window.innerWidth - 330) + "px";
+    ui.tip.style.left = Math.max(8, Math.min(r.left + 14, window.innerWidth - ui.tip.offsetWidth - 8)) + "px";
     ui.tip.style.top = r.bottom + 6 + "px";
     ui.tip.onmouseenter = () => clearTimeout(tipTimer);
     ui.tip.onmouseleave = scheduleHideTip;
@@ -1465,7 +1502,7 @@
       if (!res || !res.annotations) return;
       pins.forEach((p) => p.node.remove());
       pins = [];
-      for (const a of res.annotations) addPin({ id: a.id, number: a.number, selector: a.element.selector, comment: a.comment, fp: a.element.fingerprint });
+      for (const a of res.annotations) addPin({ id: a.id, number: a.number, selector: a.element.selector, comment: a.comment, fp: a.element.fingerprint, region: a.region || null });
       positionAll();
       paintDock();
       setAgent(res.agent ? { ...res.agent, seenAt: Date.now() } : null);

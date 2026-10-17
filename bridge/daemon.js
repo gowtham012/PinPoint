@@ -17,6 +17,17 @@ const MAX_RESOLVED = Number(process.env.PINPOINT_MAX_RESOLVED) || 200;
 // find us. process.argv[1] is wrong under the `bin` shim; this is the file that is actually here.
 const CLI_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "cli.js");
 
+// What a restart runs: always `cli.js start` with this daemon's own options. Re-running process.argv
+// was wrong whenever the daemon was not started by `start` — `cli.js setup` starts one in-process,
+// so a restart re-ran the whole setup wizard instead of coming back.
+export function restartArgs({ port, project = null, quiet = false, print = false }) {
+  const a = [CLI_PATH, "start", "--port", String(port)];
+  if (project) a.push("--project", project);
+  if (quiet) a.push("--quiet");
+  if (print) a.push("--print");
+  return a;
+}
+
 // `restartable` is off by default on purpose: POST /restart re-execs the process and exits it, and
 // a daemon embedded in someone else's process (the test suite) must never do that to its host.
 export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOINT_PROJECT || null, print = false, quiet = false, restartable = false } = {}) {
@@ -51,7 +62,7 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
       // Keep the mirror out of git without making the user edit .gitignore.
       const ignore = path.join(dir, ".gitignore");
       if (!fs.existsSync(ignore)) fs.writeFileSync(ignore, "*\n");
-      fs.writeFileSync(path.join(dir, "pending.md"), pendingMarkdown(db, { channel: "file", cliPath: CLI_PATH }));
+      fs.writeFileSync(path.join(dir, "pending.md"), pendingMarkdown(db, { channel: "file", cliPath: CLI_PATH, port }));
       const stripped = pending(db).map((a) => ({
         ...a,
         screenshot: a.screenshot ? { width: a.screenshot.width, height: a.screenshot.height, note: "not included in this file; read it over MCP (get_annotation) or from the bridge" } : null,
@@ -370,7 +381,11 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
         const u = url.searchParams.get("url");
         const items = db.annotations.filter((a) => (status === "all" || a.status === status) && (!u || a.page.url.split("#")[0] === u));
         const withImages = url.searchParams.get("images") === "1";
-        return json(res, 200, { version, agent: api.agent(), annotations: withImages ? items : items.map(({ screenshot, ...a }) => ({ ...a, hasScreenshot: !!screenshot })) });
+        return json(res, 200, { version, agent: api.agent(), annotations: withImages ? items : items.map(({ screenshot, ...a }) => ({
+          // Keep the size, drop the pixels: text consumers (the hook, the popup) still say "a 340×120
+          // screenshot is stored" without pulling megabytes of base64 on every prompt.
+          ...a, hasScreenshot: !!screenshot, screenshot: screenshot ? { width: screenshot.width, height: screenshot.height } : null,
+        })) });
       }
 
       if (p === "/annotations" && req.method === "POST") {
@@ -441,7 +456,7 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
 
       if (p === "/pending.md") {
         res.writeHead(200, { "content-type": "text/markdown", "access-control-allow-origin": "*" });
-        return res.end(pendingMarkdown(db, { channel: "file", cliPath: CLI_PATH }));
+        return res.end(pendingMarkdown(db, { channel: "file", cliPath: CLI_PATH, port }));
       }
 
       json(res, 404, { error: "not found" });
@@ -458,7 +473,7 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
     server.close(() => {
       // Close BEFORE spawning or the replacement hits EADDRINUSE against us. stdio is inherited on
       // purpose: started from a terminal, Ctrl-C must still work on the new one.
-      spawn(process.execPath, process.argv.slice(1), { stdio: "inherit", cwd: process.cwd() }).unref();
+      spawn(process.execPath, restartArgs({ port, project, quiet, print }), { stdio: "inherit", cwd: process.cwd() }).unref();
       process.exit(0);
     });
   }

@@ -25,7 +25,7 @@ async function refresh() {
     // Not a local dev page. Say so plainly rather than failing when the button is pressed.
     $("#where").textContent = where.reason;
     $("#where").style.display = "block";
-    const browserPage = /browser pages/.test(where.reason || "");
+    const browserPage = where.code === "browser_page";
     pick.disabled = browserPage;
     pick.querySelector(".pl").textContent = browserPage ? "Not available here" : "Turn on for this page anyway";
   } else {
@@ -59,7 +59,7 @@ async function refresh() {
   const here = (where?.url || "").split("#")[0];
   for (const a of items) {
     const li = document.createElement("li");
-    li.innerHTML = `<span class="n">${a.number}</span><div class="c"><div class="t"></div><div class="s"></div><div class="u"></div></div><span class="x" title="Remove">✕</span>`;
+    li.innerHTML = `<span class="n">${a.number}</span><div class="c"><div class="t"></div><div class="s"></div><div class="u"></div></div><button class="x" title="Remove" aria-label="Remove note ${a.number}">✕</button>`;
     li.querySelector(".t").textContent = a.comment;
     li.querySelector(".s").textContent = (a.source?.components?.[0] ? `<${a.source.components[0]}> ` : "") + a.element.selector;
     const u = li.querySelector(".u");

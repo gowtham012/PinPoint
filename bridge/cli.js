@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { DEFAULT_PORT, DATA_FILE, load, save, pending, pendingMarkdown, findAnnotation } from "./store.js";
+import { DEFAULT_PORT, DATA_FILE, load, save, pending, pendingMarkdown, findAnnotation, portFlag } from "./store.js";
 
 const SELF = fileURLToPath(import.meta.url);
 
@@ -92,7 +92,8 @@ async function up() {
 }
 // Reads work whether or not the daemon is running: both sides share the same JSON store.
 async function readDb() {
-  if (await up()) return { annotations: (await bridge("/annotations?status=all&images=1")).annotations };
+  // No images: everything printed here is text, and the hook runs on every prompt.
+  if (await up()) return { annotations: (await bridge("/annotations?status=all")).annotations };
   return load();
 }
 
@@ -180,11 +181,11 @@ switch (cmd) {
         `Do this now, before anything else:`,
         `1. Say in one short line what is waiting (for example: "2 notes pending: the Registration ID label, the Email label").`,
         `2. If their message below is about the interface, or if they have not asked for anything else, make ${fresh.length || older.length === 1 ? "the change" : "the changes"}.`,
-        `3. After each one is done, resolve it WITH a note saying what you changed and where — \`node ${SELF} resolve <id> --note "what you changed"\`, or the pinpoint MCP tool resolve_annotation. The marker clears in their browser and your note is shown there as your reply, so "done" is not an answer. Never say something is done without resolving it.`,
+        `3. After each one is done, resolve it WITH a note saying what you changed and where — \`node ${SELF} resolve <id>${portFlag(port)} --note "what you changed"\`, or the pinpoint MCP tool resolve_annotation. The marker clears in their browser and your note is shown there as your reply, so "done" is not an answer. Never say something is done without resolving it.`,
         `Never ignore this block silently — if you are not going to act on it now, say so.`,
         ``
       );
-      if (fresh.length) lines.push(pendingMarkdown({ annotations: fresh }, { channel: "file", cliPath: SELF }));
+      if (fresh.length) lines.push(pendingMarkdown({ annotations: fresh }, { channel: "file", cliPath: SELF, port }));
       if (older.length) {
         lines.push(
           fresh.length ? `\nAlso still unresolved from earlier — details via the pinpoint MCP tool get_annotation:` : `Details via the pinpoint MCP tool get_annotation:`,
@@ -198,7 +199,7 @@ switch (cmd) {
       for (const a of fresh) await markNotified(a.id);
       break;
     }
-    process.stdout.write(pendingMarkdown(db, { channel: "file", cliPath: SELF }));
+    process.stdout.write(pendingMarkdown(db, { channel: "file", cliPath: SELF, port }));
     if (flag("consume")) {
       for (const a of items) await resolveOne(a.id);
     }

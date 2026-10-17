@@ -124,14 +124,22 @@ const pngSize = (buf) => ({ width: buf.readUInt32BE(16), height: buf.readUInt32B
 
 export async function snapshot() {
   const device = await bootedDevice();
-  const file = path.join(os.tmpdir(), `pinpoint-ios-${process.pid}.png`);
-  const [, tree] = await Promise.all([
-    run("xcrun", ["simctl", "io", device.udid, "screenshot", "--type=png", file]),
-    hierarchy(device.udid).catch((e) => { throw new Error(`Maestro could not read the screen (is it installed, with Java?): ${e.message}`); }),
-  ]);
-  const png = fs.readFileSync(file);
-  fs.rmSync(file, { force: true });
+  // A directory per call: two picker tabs asking at once used to share one pid-named file, and one
+  // read the other's half-written screenshot.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pinpoint-ios-"));
+  const file = path.join(dir, "screen.png");
+  let tree, png;
+  try {
+    [, tree] = await Promise.all([
+      run("xcrun", ["simctl", "io", device.udid, "screenshot", "--type=png", file]),
+      hierarchy(device.udid).catch((e) => { throw new Error(`Maestro could not read the screen (is it installed, with Java?): ${e.message}`); }),
+    ]);
+    png = fs.readFileSync(file);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
   const nodes = flatten(tree);
+  if (!nodes.length) throw new Error("Maestro returned an empty screen — is an app open in the Simulator?");
   // The screen in points is the window, the first node in the tree. Not the largest or the furthest
   // edge: a scroll view's content runs off-screen and would skew the scale.
   const viewport = { width: nodes[0].bounds.width, height: nodes[0].bounds.height };

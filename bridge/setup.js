@@ -53,13 +53,13 @@ function installDeps() {
 function claudeMcp(port) {
   if (!has("claude")) {
     say("the `claude` CLI is not on PATH. When you have it, run:");
-    say(`    claude mcp add pinpoint -s user -- node ${CLI} mcp${port === DEFAULT_PORT ? "" : ` --port ${port}`}`);
+    say(`    claude mcp add pinpoint -s user -- node ${CLI} mcp${Number(port) === 7331 ? "" : ` --port ${port}`}`);
     return false;
   }
   // Remove first so re-running updates a stale path instead of failing on "already exists".
   spawnSync("claude", ["mcp", "remove", "pinpoint", "-s", "user"], { stdio: "ignore" });
   const args = ["mcp", "add", "pinpoint", "-s", "user", "--", "node", CLI, "mcp"];
-  if (port !== DEFAULT_PORT) args.push("--port", String(port));
+  if (Number(port) !== 7331) args.push("--port", String(port));
   const r = spawnSync("claude", args, { stdio: "ignore" });
   if (r.status !== 0) { say("`claude mcp add` failed — run it yourself, the line is in the README"); return false; }
   say("Claude Code: MCP server registered");

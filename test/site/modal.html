@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Esc and click-through fixture</title>
+<style>
+  body { font-family: system-ui; margin: 0; padding: 24px; background: #fafafa; }
+  #biglink { display: block; width: 520px; height: 260px; background: #eef; border-radius: 12px;
+             padding: 20px; color: #224; text-decoration: none; }
+  #biglink .inner { display: block; width: 200px; height: 60px; background: #dde; border-radius: 8px; margin-top: 40px; }
+  .modal { position: fixed; right: 24px; top: 24px; width: 220px; padding: 16px; background: #fff;
+           border: 1px solid #ddd; border-radius: 10px; }
+  #tall { height: 1600px; }
+</style>
+</head>
+<body>
+<!-- A whole card that is a link: a region drag that starts and ends on it must not follow it. -->
+<a id="biglink" href="/plain.html"><span class="label">Open the plain page</span><span class="inner"></span></a>
+
+<!-- The page's own Esc handling, the way a modal library does it: a bubbling document listener. -->
+<div class="modal" id="modal">Page modal — Esc closes me</div>
+<div id="tall"><p id="below">A paragraph far enough down to be scrolled half off-screen.</p></div>
+<script>
+  window.__esc = 0;
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { window.__esc++; document.getElementById("modal").style.display = "none"; }
+  });
+</script>
+</body>
+</html>

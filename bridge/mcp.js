@@ -180,6 +180,7 @@ export function createMcpServer(api) {
     async ({ timeoutSeconds = 120 }) => {
       api.touch?.("wait", null, "waiting for your next note", who());
       let a = await api.waitForNext(timeoutSeconds * 1000);
+      if (a === false) return { content: [{ type: "text", text: "The Pinpoint bridge is not running, so no note can arrive. Ask the developer to start it (node <pinpoint>/bridge/cli.js start), then wait again." }], isError: true };
       if (!a) return { content: [{ type: "text", text: "Timed out, no new annotation." }] };
       // The comment is stored before its screenshot; give the crop a moment to land.
       if (!a.screenshot && api.waitForScreenshot) a = (await api.waitForScreenshot(a.id)) || a;

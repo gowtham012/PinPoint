@@ -30,10 +30,12 @@ function isLocalDev(url) {
     h.endsWith(".local") || h.endsWith(".test") || h.endsWith(".localhost");
 }
 
+const isBrowserPage = (url) => /^(chrome|edge|brave|about|devtools|view-source|chrome-extension|moz-extension|safari-web-extension|favorites):/.test(url || "");
+
 async function whyNot(url) {
   if (!url) return "Open a page first.";
-  if (/^(chrome|edge|about|devtools|view-source|chrome-extension|moz-extension):/.test(url)) {
-    return "Chrome doesn't let extensions run on browser pages like this one.";
+  if (isBrowserPage(url)) {
+    return "Browsers don't let extensions run on browser pages like this one.";
   }
   // Chrome keeps file:// access off per-extension, and off is the default. Without it we are never
   // injected into a file:// page at all — so name the switch instead of claiming the page is fine.
@@ -69,7 +71,8 @@ async function health() {
 async function updateBadge(count) {
   try {
     await chrome.action.setBadgeText({ text: count > 0 ? String(count) : "" });
-    await chrome.action.setBadgeBackgroundColor({ color: "#e5484d" });
+    await chrome.action.setBadgeBackgroundColor({ color: "#6d5ae6" });
+    await chrome.action.setBadgeTextColor?.({ color: "#ffffff" });
   } catch {}
 }
 
@@ -108,6 +111,9 @@ async function watch() {
         await updateBadge(0);
         return; // bridge down: the alarm will try again shortly
       }
+      // Something that is not our bridge answers instantly with no version, which turned this loop
+      // into a busy spin against it. Only our /events has a numeric version.
+      if (typeof res?.version !== "number") { await updateBadge(0); return; }
       if (first) { first = false; broadcastReload(); }   // tell open tabs the bridge is up
       if (res.rechecks?.length) for (const r of res.rechecks) answerRecheck(r);
       if (res.version !== since) {
@@ -224,8 +230,10 @@ async function finishCapture(tab, capture, id, expectedUrl) {
         }
         if (vp) {
           const left = capture.doc.x - vp.x, top = capture.doc.y - vp.y;
-          const w = Math.min(capture.doc.width, vp.w - Math.max(0, left));
-          const h = Math.min(capture.doc.height, vp.h - Math.max(0, top));
+          // The visible part only: clamping just the origin kept the full size, so an element
+          // half off the top was cropped together with whatever sat below it.
+          const w = Math.min(vp.w, left + capture.doc.width) - Math.max(0, left);
+          const h = Math.min(vp.h, top + capture.doc.height) - Math.max(0, top);
           if (left > vp.w - 2 || top > vp.h - 2 || left + capture.doc.width < 2 || top + capture.doc.height < 2 || w < 2 || h < 2) {
             why = "the page scrolled away from it before the picture could be taken";
             return null;
@@ -233,11 +241,12 @@ async function finishCapture(tab, capture, id, expectedUrl) {
           rect = { x: Math.max(0, left), y: Math.max(0, top), width: w, height: h };
         }
       }
+      const win = (await chrome.tabs.get(tab.id).catch(() => null))?.windowId ?? tab.windowId;
       try {
-        return await captureElement(tab.windowId, rect, capture.dpr);
+        return await captureElement(win, rect, capture.dpr);
       } catch {
         await new Promise((r) => setTimeout(r, 700));
-        return captureElement(tab.windowId, rect, capture.dpr);
+        return captureElement(win, rect, capture.dpr);
       }
     });
     // Either way the bridge is told, so nothing silently pretends a picture exists.
@@ -272,7 +281,9 @@ async function answerRecheck({ reqId, id, url }) {
     // Prefer a tab that is in front: only a visible tab can be photographed.
     const tab = tabs.find((t) => t.active) || tabs[0];
 
-    const found = await chrome.tabs.sendMessage(tab.id, { type: "recheck", ...(await annotationBits(id)) }, { frameId: 0 }).catch(() => null);
+    const bits = await annotationBits(id);
+    if (!bits.selector) return void (await send({ status: "no_answer", error: "could not read the annotation from the bridge" }));
+    const found = await chrome.tabs.sendMessage(tab.id, { type: "recheck", ...bits }, { frameId: 0 }).catch(() => null);
     if (!found) return void (await send({ status: "no_answer" }));
     if (!found.found) return void (await send({ status: "ok", element: null, url: found.url }));
 
@@ -284,7 +295,8 @@ async function answerRecheck({ reqId, id, url }) {
           const state = await waitUntilCapturable(tab, tab.url, 2000);
           if (state !== "ready") return { skipped: { navigated: "the page changed", gone: "the tab was closed", hidden: "the tab was not in front" }[state] };
           await new Promise((r) => setTimeout(r, 60));
-          return { shot: await captureElement(tab.windowId, found.capture.rect, found.capture.dpr) };
+          const win = (await chrome.tabs.get(tab.id).catch(() => null))?.windowId ?? tab.windowId;
+          return { shot: await captureElement(win, found.capture.rect, found.capture.dpr) };
         });
         screenshot = shot.shot || null;
         screenshotSkipped = shot.skipped || null;
@@ -338,6 +350,11 @@ async function startBridge() {
     r = await chrome.runtime.sendNativeMessage(NATIVE_HOST, { cmd: "start", port });
   } catch (e) {
     return { ok: false, code: hostError(e), error: String(e.message || e) };
+  }
+  // Safari has sendNativeMessage, but it reaches the containing app's handler, not our Node host — and
+  // that answers with something that is not our reply at all. Say what to do instead of a vague failure.
+  if (r && typeof r.ok !== "boolean") {
+    return { ok: false, code: "unsupported", error: "This browser can't start the bridge for you — run `node <pinpoint>/bridge/cli.js start` in a terminal." };
   }
   if (r?.ok) { refreshBadge(); watch(); broadcastReload(); }
   return r || { ok: false, code: "no_host", error: "no reply from the launcher" };
@@ -446,7 +463,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       case "canRun": {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        return { url: tab?.url || null, local: isLocalDev(tab?.url), reason: await whyNot(tab?.url) };
+        return { url: tab?.url || null, local: isLocalDev(tab?.url), reason: await whyNot(tab?.url), code: isBrowserPage(tab?.url) ? "browser_page" : null };
       }
       default:
         return { error: `unknown message ${msg.type}` };

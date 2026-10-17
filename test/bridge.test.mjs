@@ -1,7 +1,7 @@
 // Bridge daemon, CLI and MCP tests. Run: node --test bridge.test.mjs
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
@@ -73,7 +73,8 @@ test("POST assigns sequential numbers and persists; GET strips screenshots unles
   assert.equal(a.number, 1); assert.equal(b.number, 1);
   const { annotations } = await get("/annotations");
   assert.equal(annotations.length, 2);
-  assert.equal(annotations[0].screenshot, undefined);
+  assert.equal(annotations[0].screenshot.base64, undefined, "no pixels without images=1");
+  assert.equal(annotations[0].screenshot.width, 10, "but the size is still there to describe it");
   assert.equal(annotations[0].hasScreenshot, true);
   const withImg = await get("/annotations?images=1");
   assert.ok(withImg.annotations[0].screenshot.base64);
@@ -324,7 +325,9 @@ test("stdio MCP falls back to the JSON file when the daemon is down (reads and r
   assert.match(list, /conc0001/);
   assert.match(text(await c.callTool({ name: "resolve_annotation", arguments: { id: "conc0001", note: "changed it" } })), /Resolved/);
   const to = await c.callTool({ name: "wait_for_annotation", arguments: { timeoutSeconds: 1 } });
-  assert.match(text(to), /Timed out/);
+  // With no bridge nothing can ever arrive: say so, rather than a "timeout" that invites waiting again.
+  assert.match(text(to), /not running/);
+  assert.equal(to.isError, true);
   await c.close();
   const onDisk = JSON.parse(fs.readFileSync(path.join(HOME, "annotations.json"), "utf8"));
   assert.equal(onDisk.annotations.find((a) => a.id === "conc0001").status, "resolved");
@@ -1111,4 +1114,58 @@ test("ios: an accessibility tree flattens to clickable nodes and becomes a norma
 
   const evil = await fetch(BASE + "/ios/annotations", { method: "POST", headers: { origin: "http://localhost:3000" }, body: "{}" });
   assert.equal(evil.status, 403, "a dev site on another port is still refused");
+});
+
+// ============ 0.6.0 batch 1: guards the deep review found missing ============
+
+test("R-b1: the resolve command an agent is given carries a non-default port", async () => {
+  const { pendingMarkdown } = await import("../bridge/store.js");
+  const db = { annotations: [{ ...sample({ id: "port0001" }), status: "pending", number: 1 }] };
+  assert.match(pendingMarkdown(db, { channel: "file", cliPath: "/x/cli.js", port: 7398 }), /cli\.js resolve <id> --port 7398/);
+  assert.doesNotMatch(pendingMarkdown(db, { channel: "file", cliPath: "/x/cli.js", port: 7331 }), /--port/, "the default port stays implicit");
+  // Without the flag, `resolve` looks for a bridge on 7331, finds none, writes the file — and the
+  // daemon on the real port overwrites it with its own copy, silently undoing the resolve.
+  await fetch(BASE + "/annotations", { method: "DELETE" });
+  await post(sample({ id: "port0002", comment: "port check" }));
+  const out = await new Promise((res) => {
+    const p = spawn("node", [CLI, "print", "--hook", "--port", String(PORT)], { env: ENV });
+    let o = ""; p.stdout.on("data", (d) => (o += d)); p.once("exit", () => res(o));
+  });
+  assert.match(out, new RegExp(`resolve <id> --port ${PORT}`), "the hook's own instruction");
+  assert.match(fs.readFileSync(path.join(PROJECT, ".pinpoint", "pending.md"), "utf8"), new RegExp(`--port ${PORT}`), "and the project mirror");
+  assert.match(await (await fetch(BASE + "/pending.md")).text(), new RegExp(`--port ${PORT}`), "and /pending.md");
+});
+
+test("R-b2: /restart relaunches the daemon itself, never the command that started it", async () => {
+  const { restartArgs } = await import("../bridge/daemon.js");
+  const CLIP = path.resolve(here, "../bridge/cli.js");
+  // A daemon started by `cli.js setup` used to re-run the setup wizard on restart.
+  assert.deepEqual(restartArgs({ port: 7444, project: "/p", quiet: true }), [CLIP, "start", "--port", "7444", "--project", "/p", "--quiet"]);
+  assert.deepEqual(restartArgs({ port: 7331 }), [CLIP, "start", "--port", "7331"]);
+  assert.deepEqual(restartArgs({ port: 7331, print: true }), [CLIP, "start", "--port", "7331", "--print"]);
+});
+
+test("R-b3: re-running Codex setup with a new port rewrites the Pinpoint block in place", async () => {
+  const { writeCodexMcp } = await import("../bridge/agents.js");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pp-codex2-"));
+  const file = path.join(dir, "config.toml");
+  fs.writeFileSync(file, "[other]\nkey = 1\n");
+  writeCodexMcp(CLI, { file });
+  fs.appendFileSync(file, "\n[after]\nz = 2\n");
+  const r = writeCodexMcp(CLI, { file, port: 7444 });
+  assert.equal(r.already, false, "a changed entry is an update, not a no-op");
+  const t = fs.readFileSync(file, "utf8");
+  assert.equal(t.match(/\[mcp_servers\.pinpoint\]/g).length, 1);
+  assert.match(t, /"--port", "7444"/);
+  assert.match(t, /\[other\]\nkey = 1/);
+  assert.match(t, /\[after\]\nz = 2/, "tables after ours survive");
+  assert.equal(writeCodexMcp(CLI, { file, port: 7444 }).already, true);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("R-b4: PINPOINT_PORT in the environment does not drop --port from a written config", async () => {
+  const out = execFileSync("node", ["--input-type=module", "-e",
+    `const { mcpCommand } = await import(${JSON.stringify(path.resolve(here, "../bridge/agents.js"))}); console.log(JSON.stringify(mcpCommand("/c.js", { port: 7444 })));`],
+    { env: { ...process.env, PINPOINT_PORT: "7444" } }).toString();
+  assert.deepEqual(JSON.parse(out).args, ["/c.js", "mcp", "--port", "7444"], "a client launched without that env would talk to 7331");
 });

@@ -29,7 +29,7 @@ const site = http.createServer((req, res) => {
   const files = {
     "/": "site/index.html", "/react.development.js": "node_modules/react/umd/react.development.js", "/react-dom.development.js": "node_modules/react-dom/umd/react-dom.development.js",
     "/vue.html": "site/vue.html", "/vue.global.js": "node_modules/vue/dist/vue.global.js",
-    "/plain.html": "site/plain.html", "/region.html": "site/region.html", "/rerender.html": "site/rerender.html", "/frame.html": "site/frame.html", "/csp.html": "site/csp.html", "/stress.html": "site/stress.html",
+    "/plain.html": "site/plain.html", "/region.html": "site/region.html", "/rerender.html": "site/rerender.html", "/frame.html": "site/frame.html", "/csp.html": "site/csp.html", "/stress.html": "site/stress.html", "/modal.html": "site/modal.html",
   };
   const f = files[p];
   if (!f) { res.writeHead(404); return res.end(); }
@@ -1561,4 +1561,164 @@ test("B6: a page that changes under a pin tells the agent, and re-check shows wh
   assert.match(blind, /No tab is open/);
   assert.doesNotMatch(blind, /Verdict/, "silence is not a clean bill of health");
   await c.close();
+});
+
+// ============ 0.6.0 batch 1: guards the deep review found missing ============
+const shadowEval = (page, fn, arg) => page.evaluate(fn, arg);
+
+test("R1: finishing a region drag over a link does not follow the link", async () => {
+  await clearAll();
+  const page = await openPage("/modal.html");
+  await arm(page);
+  const b = await page.locator("#biglink").boundingBox();
+  await page.mouse.move(b.x + 30, b.y + 30);
+  await page.mouse.down();
+  await page.mouse.move(b.x + 120, b.y + 100, { steps: 5 });
+  await page.mouse.move(b.x + 300, b.y + 200, { steps: 5 });
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+  assert.match(page.url(), /modal\.html$/, "the drag's trailing click must not navigate");
+  assert.equal((await S(page)).popOpen, true, "the region popover opened instead");
+  await page.close();
+});
+
+test("R2: Esc in the middle of a drag clears the marquee and opens nothing", async () => {
+  await clearAll();
+  const page = await openPage("/modal.html");
+  await arm(page);
+  const b = await page.locator("#biglink").boundingBox();
+  await page.mouse.move(b.x + 30, b.y + 30);
+  await page.mouse.down();
+  await page.mouse.move(b.x + 200, b.y + 150, { steps: 6 });
+  await page.keyboard.press("Escape");
+  const marquee = await shadowEval(page, () => getComputedStyle(document.querySelector("pinpoint-root").shadowRoot.querySelector(".marquee")).display);
+  assert.equal(marquee, "none", "no marquee left stuck on screen");
+  await page.mouse.move(b.x + 260, b.y + 180, { steps: 3 });
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  const s = await S(page);
+  assert.equal(s.popOpen, false);
+  assert.equal(s.picking, false);
+  await page.close();
+});
+
+test("R3: an Esc Pinpoint used never reaches the page's own Esc handler", async () => {
+  await clearAll();
+  const page = await openPage("/modal.html");
+  await arm(page);
+  await page.keyboard.press("Escape");
+  assert.equal((await S(page)).picking, false);
+  assert.equal(await page.evaluate(() => window.__esc), 0, "stopping the picker is not the page's Esc");
+  // with Pinpoint idle, Esc belongs to the page again
+  await page.keyboard.press("Escape");
+  assert.equal(await page.evaluate(() => window.__esc), 1);
+  await page.close();
+});
+
+test("R4: pressing Cmd+Enter twice posts the note once", async () => {
+  await clearAll();
+  const page = await openPage("/");
+  await arm(page);
+  await page.locator("h1").hover();
+  await page.locator("h1").click();
+  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".pop").style.display === "block");
+  await page.evaluate(() => { const t = document.querySelector("pinpoint-root").shadowRoot.querySelector("textarea"); t.value = "only once"; t.focus(); });
+  await page.keyboard.down("Meta");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Enter");
+  await page.keyboard.up("Meta");
+  await page.waitForTimeout(1500);
+  assert.equal((await pending()).filter((a) => a.comment === "only once").length, 1);
+  await disarm(page);
+  await page.close();
+});
+
+test("R5: a region pin keeps its place on the box after a reload", async () => {
+  await clearAll();
+  const page = await openPage("/region.html");
+  await arm(page);
+  const f1 = await page.locator("#first .field").nth(0).boundingBox();
+  const f2 = await page.locator("#first .field").nth(1).boundingBox();
+  await page.mouse.move(f1.x + 5, f1.y + 5);
+  await page.mouse.down();
+  await page.mouse.move(f1.x + 60, f1.y + 30, { steps: 4 });
+  await page.mouse.move(f2.x + f2.width / 2, f2.y + f2.height - 5, { steps: 6 });
+  await page.mouse.up();
+  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".pop").style.display === "block");
+  await page.evaluate(() => { const t = document.querySelector("pinpoint-root").shadowRoot.querySelector("textarea"); t.value = "two-up"; document.querySelector("pinpoint-root").shadowRoot.querySelector(".send").click(); });
+  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelectorAll(".pin").length === 1, null, { timeout: 6000 });
+  await page.waitForFunction(() => document.querySelector("pinpoint-root").style.display !== "none", null, { timeout: 8000 });
+  await disarm(page);
+  const where = () => page.evaluate(() => { const b = document.querySelector("pinpoint-root").shadowRoot.querySelector(".pin").getBoundingClientRect(); return { x: b.x, y: b.y }; });
+  // The bridge pushes a reload moments after a send, and a real reload follows: through both, the
+  // pin must stay on the box that was drawn, not jump to the corner of the element it anchors to.
+  const [a] = await pending();
+  const want = async () => { const s = await page.evaluate(() => ({ x: window.scrollX, y: window.scrollY })); return { x: a.region.x + a.region.width - s.x, y: a.region.y - s.y }; };
+  const near = (p, w) => Math.abs(p.x + 10 - w.x) <= 16 && Math.abs(p.y + 10 - w.y) <= 16;
+  await page.waitForTimeout(1200);
+  const before = await where();
+  assert.ok(near(before, await want()), `after the live reload the pin ${JSON.stringify(before)} should sit on the box corner ${JSON.stringify(await want())}`);
+  await page.reload();
+  await page.waitForFunction(() => document.querySelector("pinpoint-root")?.shadowRoot.querySelectorAll(".pin").length === 1);
+  await page.waitForTimeout(300);
+  const after = await where();
+  assert.ok(near(after, await want()), `after a page reload the pin ${JSON.stringify(after)} should sit on the box corner ${JSON.stringify(await want())}`);
+  await page.close();
+});
+
+test("R6: an element scrolled half off the top is cropped to its visible part only", async () => {
+  await clearAll();
+  const page = await openPage("/modal.html");
+  const top = await page.evaluate(() => document.getElementById("biglink").getBoundingClientRect().top + window.scrollY);
+  await page.evaluate((y) => window.scrollTo(0, y), top + 150);
+  await page.waitForTimeout(200);
+  const b = await page.evaluate(() => { const r = document.getElementById("biglink").getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left }; });
+  assert.ok(b.top < -100 && b.bottom > 50, `fixture is half off-screen: ${JSON.stringify(b)}`);
+  await arm(page);
+  await page.mouse.move(b.left + 450, b.bottom - 20);
+  await page.mouse.click(b.left + 450, b.bottom - 20);
+  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".pop").style.display === "block");
+  await page.evaluate(() => { const r = document.querySelector("pinpoint-root").shadowRoot; r.querySelector("textarea").value = "crop me"; r.querySelector(".send").click(); });
+  const [a] = await pendingWithShots(1);
+  assert.ok(a.screenshot, `a screenshot was taken: ${a.screenshotSkipped}`);
+  const visible = b.bottom;
+  assert.ok(a.screenshot.height <= visible + 16 + 2, `crop height ${a.screenshot.height} should be the visible ${Math.round(visible)}px plus padding, not the whole element`);
+  await disarm(page);
+  await page.close();
+});
+
+test("R7: Remove this note with the bridge down keeps the pin and says why", async () => {
+  await clearAll();
+  const page = await openPage("/");
+  await annotate(page, page.locator("h1"), "keep me");
+  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelectorAll(".pin").length === 1);
+  // let the send finish (screenshot taken, "still picking" toast shown) before the bridge goes away
+  await pendingWithShots(1);
+  await page.waitForFunction(() => document.querySelector("pinpoint-root").style.display !== "none", null, { timeout: 8000 });
+  await page.waitForTimeout(300);
+  await disarm(page);
+  await stopDaemon();
+  try {
+    await page.evaluate(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".pin").dispatchEvent(new MouseEvent("mouseenter")));
+    await page.evaluate(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".tip .del").click());
+    await page.waitForFunction(() => /not removed/i.test(document.querySelector("pinpoint-root").shadowRoot.querySelector(".toast").textContent), null, { timeout: 4000 });
+    assert.equal((await S(page)).pins.length, 1, "a note the bridge did not delete stays on the page");
+  } finally {
+    await startDaemon();
+  }
+  await page.close();
+});
+
+test("R8: the popover stays inside a narrow viewport", async () => {
+  await clearAll();
+  const page = await openPage("/");
+  await page.setViewportSize({ width: 320, height: 640 });
+  await arm(page);
+  await page.locator("h1").hover();
+  await page.locator("h1").click();
+  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".pop").style.display === "block");
+  const r = await page.evaluate(() => { const b = document.querySelector("pinpoint-root").shadowRoot.querySelector(".pop").getBoundingClientRect(); return { left: b.left, right: b.right }; });
+  assert.ok(r.left >= 0 && r.right <= 320, `popover ${JSON.stringify(r)} must fit 320px`);
+  await page.keyboard.press("Escape");
+  await page.close();
 });

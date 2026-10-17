@@ -48,7 +48,9 @@ export async function startStdio({ port = DEFAULT_PORT } = {}) {
       return result;
     },
     async waitForNext(timeoutMs) {
-      if (!(await up())) return null;
+      // false, not null: null means "timed out", and with no bridge nothing can ever arrive — an
+      // agent told "timed out" just waits again, forever.
+      if (!(await up())) return false;
       const { annotation } = await call(`/annotations/wait?timeout=${timeoutMs}`);
       return annotation;
     },
