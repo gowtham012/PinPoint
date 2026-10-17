@@ -5,7 +5,9 @@
 
 // Safari and Firefox expose the promise-based extension API as `browser`; Chrome only has
 // `chrome`. Prefer `browser` where it exists so every `await chrome.…` below works on all three.
-const chrome = globalThis.browser ?? globalThis.chrome;
+// Not named `chrome`: at the top level of a classic script that redeclares the global, and some
+// Chrome builds refuse it ("Identifier 'chrome' has already been declared"), which kills the worker.
+const api = globalThis.browser ?? globalThis.chrome;
 
 const DEFAULT_PORT = 7331;
 const WATCH_ALARM = "pinpoint-watch";
@@ -39,17 +41,17 @@ async function whyNot(url) {
   }
   // Chrome keeps file:// access off per-extension, and off is the default. Without it we are never
   // injected into a file:// page at all — so name the switch instead of claiming the page is fine.
-  // chrome.extension.isAllowedFileSchemeAccess is Chrome-only — Safari has no chrome.extension
+  // api.extension.isAllowedFileSchemeAccess is Chrome-only — Safari has no api.extension
   // and Firefox no equivalent, so ask only where the question can be answered.
-  const fileAccess = chrome.extension?.isAllowedFileSchemeAccess;
-  if (url.startsWith("file:") && fileAccess && !(await fileAccess.call(chrome.extension))) {
+  const fileAccess = api.extension?.isAllowedFileSchemeAccess;
+  if (url.startsWith("file:") && fileAccess && !(await fileAccess.call(api.extension))) {
     return 'Turn on "Allow access to file URLs" for Pinpoint on chrome://extensions, then reload this page.';
   }
   return "Pinpoint runs on local development pages — localhost, 127.0.0.1, a .local/.test host, or a file:// page.";
 }
 
 async function getPort() {
-  const { port } = await chrome.storage.sync.get({ port: DEFAULT_PORT });
+  const { port } = await api.storage.sync.get({ port: DEFAULT_PORT });
   return port;
 }
 
@@ -61,15 +63,15 @@ let tokenCache = null;
 async function getToken({ refresh = false } = {}) {
   if (!refresh && tokenCache) return tokenCache;
   if (!refresh) {
-    const { token } = await chrome.storage.local.get({ token: null });
+    const { token } = await api.storage.local.get({ token: null });
     if (token) return (tokenCache = token);
   }
-  if (typeof chrome.runtime.sendNativeMessage === "function") {
+  if (typeof api.runtime.sendNativeMessage === "function") {
     try {
-      const r = await chrome.runtime.sendNativeMessage(NATIVE_HOST, { cmd: "token" });
+      const r = await api.runtime.sendNativeMessage(NATIVE_HOST, { cmd: "token" });
       if (r?.ok === true && typeof r.token === "string") {
         tokenCache = r.token;
-        await chrome.storage.local.set({ token: r.token });
+        await api.storage.local.set({ token: r.token });
         return r.token;
       }
     } catch {}
@@ -78,8 +80,8 @@ async function getToken({ refresh = false } = {}) {
 }
 async function setToken(t) {
   tokenCache = t || null;
-  if (t) await chrome.storage.local.set({ token: t });
-  else await chrome.storage.local.remove("token");
+  if (t) await api.storage.local.set({ token: t });
+  else await api.storage.local.remove("token");
 }
 
 async function bridgeFetch(path, init = {}, retried = false) {
@@ -123,7 +125,7 @@ async function discoverPort() {
   if (!SCAN.includes(current) || Date.now() - lastScan < 5000) return null;
   lastScan = Date.now();
   const found = await findBridges(current);
-  if (found.length === 1) await chrome.storage.sync.set({ port: found[0].port });
+  if (found.length === 1) await api.storage.sync.set({ port: found[0].port });
   return found;
 }
 
@@ -145,9 +147,9 @@ async function health() {
 
 async function updateBadge(count) {
   try {
-    await chrome.action.setBadgeText({ text: count > 0 ? String(count) : "" });
-    await chrome.action.setBadgeBackgroundColor({ color: "#6d5ae6" });
-    await chrome.action.setBadgeTextColor?.({ color: "#ffffff" });
+    await api.action.setBadgeText({ text: count > 0 ? String(count) : "" });
+    await api.action.setBadgeBackgroundColor({ color: "#6d5ae6" });
+    await api.action.setBadgeTextColor?.({ color: "#ffffff" });
   } catch {}
 }
 
@@ -166,8 +168,8 @@ async function refreshBadge() {
 async function broadcastReload() {
   // Every tab: one we were opted into by hand needs this as much as a localhost one, and a tab with
   // no content script simply refuses the message.
-  const tabs = await chrome.tabs.query({});
-  await Promise.all(tabs.map((t) => t.id && chrome.tabs.sendMessage(t.id, { type: "reloadPins" }).catch(() => {})));
+  const tabs = await api.tabs.query({});
+  await Promise.all(tabs.map((t) => t.id && api.tabs.sendMessage(t.id, { type: "reloadPins" }).catch(() => {})));
 }
 
 // ---------- change watcher ----------
@@ -178,7 +180,7 @@ async function watch() {
   if (watching) return;
   watching = true;
   try {
-    let since = (await chrome.storage.session.get({ storeVersion: 0 })).storeVersion;
+    let since = (await api.storage.session.get({ storeVersion: 0 })).storeVersion;
     let first = true;
     for (;;) {
       let res;
@@ -195,7 +197,7 @@ async function watch() {
       if (res.rechecks?.length) for (const r of res.rechecks) answerRecheck(r);
       if (res.version !== since) {
         since = res.version;
-        await chrome.storage.session.set({ storeVersion: since });
+        await api.storage.session.set({ storeVersion: since });
         await refreshBadge();
         await broadcastReload();
       }
@@ -205,15 +207,15 @@ async function watch() {
   }
 }
 
-chrome.alarms.create(WATCH_ALARM, { periodInMinutes: 0.5 });
-chrome.alarms.onAlarm.addListener((a) => a.name === WATCH_ALARM && watch());
-chrome.runtime.onStartup.addListener(() => { refreshBadge(); watch(); });
-chrome.runtime.onInstalled.addListener(() => { refreshBadge(); watch(); });
+api.alarms.create(WATCH_ALARM, { periodInMinutes: 0.5 });
+api.alarms.onAlarm.addListener((a) => a.name === WATCH_ALARM && watch());
+api.runtime.onStartup.addListener(() => { refreshBadge(); watch(); });
+api.runtime.onInstalled.addListener(() => { refreshBadge(); watch(); });
 watch();
 
 // Crop the visible tab to `rect` (CSS px, top-document viewport coordinates) at ratio `dpr`.
 async function captureElement(windowId, rect, dpr, pad = 8) {
-  const dataUrl = await chrome.tabs.captureVisibleTab(windowId, { format: "png" });
+  const dataUrl = await api.tabs.captureVisibleTab(windowId, { format: "png" });
   const blob = await (await fetch(dataUrl)).blob();
   const bitmap = await createImageBitmap(blob);
 
@@ -256,7 +258,7 @@ function queueCapture(fn) {
 // or is no longer the visible one, we skip the picture rather than attach a misleading one.
 async function tabState(tab, expectedUrl) {
   try {
-    const t = await chrome.tabs.get(tab.id);
+    const t = await api.tabs.get(tab.id);
     if (!t) return "gone";
     if ((t.url || "").split("#")[0] !== (expectedUrl || "").split("#")[0]) return "navigated";
     return t.active ? "ready" : "hidden";
@@ -285,7 +287,7 @@ async function rectNow(tab, capture, expectedUrl) {
   if (!capture.doc) return { rect: capture.rect };
   // frameId 0 — the top document. Without it this goes to every frame and an iframe can answer
   // first, reporting its own scroll and its own URL.
-  const vp = await chrome.tabs.sendMessage(tab.id, { type: "viewportNow" }, { frameId: 0 }).catch(() => null);
+  const vp = await api.tabs.sendMessage(tab.id, { type: "viewportNow" }, { frameId: 0 }).catch(() => null);
   if (!vp) return { rect: capture.rect };
   // This round trip is itself a window in which the page can navigate. The content script reports
   // the URL it is actually on, so a navigation during the query is caught rather than widened.
@@ -315,7 +317,7 @@ async function finishCapture(tab, capture, id, expectedUrl) {
       const where = await rectNow(tab, capture, expectedUrl);
       if (where.why) { why = where.why; return null; }
       const rect = where.rect;
-      const win = (await chrome.tabs.get(tab.id).catch(() => null))?.windowId ?? tab.windowId;
+      const win = (await api.tabs.get(tab.id).catch(() => null))?.windowId ?? tab.windowId;
       try {
         return await captureElement(win, rect, capture.dpr);
       } catch {
@@ -332,7 +334,7 @@ async function finishCapture(tab, capture, id, expectedUrl) {
     console.warn("[pinpoint] screenshot not attached:", e);
   } finally {
     // Let the page show its overlay again (harmless if the tab has already gone).
-    chrome.tabs.sendMessage(tab.id, { type: "captureDone" }).catch(() => {});
+    api.tabs.sendMessage(tab.id, { type: "captureDone" }).catch(() => {});
   }
 }
 
@@ -354,13 +356,13 @@ async function answerRecheck({ reqId, id, url }) {
     if (!bits.selector) return void (await send({ status: "no_answer", error: "could not read the annotation from the bridge" }));
     // An element inside an iframe has the frame's url; the tab shows the top page's.
     const tabUrl = (bits.topUrl || url).split("#")[0];
-    const tabs = (await chrome.tabs.query({})).filter((t) => (t.url || "").split("#")[0] === tabUrl);
+    const tabs = (await api.tabs.query({})).filter((t) => (t.url || "").split("#")[0] === tabUrl);
     if (!tabs.length) return void (await send({ status: "no_tab" }));
     // Prefer a tab that is in front: only a visible tab can be photographed.
     const tab = tabs.find((t) => t.active) || tabs[0];
 
     const { topUrl, frameId, ...ask } = bits;
-    const askFrame = (f) => chrome.tabs.sendMessage(tab.id, { type: "recheck", ...ask }, { frameId: f }).catch(() => null);
+    const askFrame = (f) => api.tabs.sendMessage(tab.id, { type: "recheck", ...ask }, { frameId: f }).catch(() => null);
     // Frame ids do not survive a reload; if that frame is gone, the top document is the best guess.
     const found = (frameId ? await askFrame(frameId) : null) || await askFrame(0);
     if (!found) return void (await send({ status: "no_answer" }));
@@ -368,7 +370,7 @@ async function answerRecheck({ reqId, id, url }) {
 
     let screenshot = null, screenshotSkipped = null;
     if (found.capture) {
-      await chrome.tabs.sendMessage(tab.id, { type: "hideForCapture" }).catch(() => {});
+      await api.tabs.sendMessage(tab.id, { type: "hideForCapture" }).catch(() => {});
       try {
         const shot = await queueCapture(async () => {
           const state = await waitUntilCapturable(tab, tab.url, 2000);
@@ -376,7 +378,7 @@ async function answerRecheck({ reqId, id, url }) {
           await new Promise((r) => setTimeout(r, 60));
           const where = await rectNow(tab, found.capture, tab.url);
           if (where.why) return { skipped: where.why };
-          const win = (await chrome.tabs.get(tab.id).catch(() => null))?.windowId ?? tab.windowId;
+          const win = (await api.tabs.get(tab.id).catch(() => null))?.windowId ?? tab.windowId;
           return { shot: await captureElement(win, where.rect, found.capture.dpr) };
         });
         screenshot = shot.shot || null;
@@ -384,7 +386,7 @@ async function answerRecheck({ reqId, id, url }) {
       } catch (e) {
         screenshotSkipped = "the picture could not be taken";
       }
-      chrome.tabs.sendMessage(tab.id, { type: "captureDone" }).catch(() => {});
+      api.tabs.sendMessage(tab.id, { type: "captureDone" }).catch(() => {});
     } else {
       screenshotSkipped = "the element is not visible on screen";
     }
@@ -412,7 +414,7 @@ async function annotationBits(id) {
 
 // ---------- starting and restarting the bridge ----------
 // A content script cannot reach native messaging — only this worker, the popup and other extension
-// pages can. Never add a chrome.runtime.onMessageExternal handler: without one, other installed
+// pages can. Never add a api.runtime.onMessageExternal handler: without one, other installed
 // extensions cannot reach these cases either, and that is the whole containment.
 //
 // The port is read from storage here and NEVER taken from the message, so the most a compromised
@@ -425,13 +427,13 @@ function hostError(e) {
 }
 
 async function startBridge() {
-  if (typeof chrome.runtime.sendNativeMessage !== "function") {
+  if (typeof api.runtime.sendNativeMessage !== "function") {
     return { ok: false, code: "unsupported", error: "This browser cannot start the bridge for you — start it in a terminal." };
   }
   const port = await getPort();
   let r;
   try {
-    r = await chrome.runtime.sendNativeMessage(NATIVE_HOST, { cmd: "start", port });
+    r = await api.runtime.sendNativeMessage(NATIVE_HOST, { cmd: "start", port });
   } catch (e) {
     return { ok: false, code: hostError(e), error: String(e.message || e) };
   }
@@ -459,11 +461,11 @@ async function restartBridge() {
   return { ok: false, error: "the bridge did not come back — start it in a terminal to see why" };
 }
 
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     switch (msg.type) {
       case "capture": {
-        const windowId = sender.tab ? sender.tab.windowId : chrome.windows.WINDOW_ID_CURRENT;
+        const windowId = sender.tab ? sender.tab.windowId : api.windows.WINDOW_ID_CURRENT;
         return captureElement(windowId, msg.rect, msg.dpr);
       }
       // Two-phase send: the comment is stored first so nothing is lost if the page navigates
@@ -554,17 +556,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       // A content script that handled the shortcut itself asks us to mirror it into sibling frames.
       case "mirrorPicking": {
         if (sender.tab?.id) {
-          chrome.tabs.sendMessage(sender.tab.id, { type: "setPicking", picking: msg.picking, from: sender.frameId ?? 0 }).catch(() => {});
+          api.tabs.sendMessage(sender.tab.id, { type: "setPicking", picking: msg.picking, from: sender.frameId ?? 0 }).catch(() => {});
         }
         return { ok: true };
       }
       case "pick": {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        const [tab] = await api.tabs.query({ active: true, currentWindow: true });
         if (!tab?.id) return { ok: false, error: "No active tab." };
         return togglePicker(tab, true);
       }
       case "canRun": {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        const [tab] = await api.tabs.query({ active: true, currentWindow: true });
         const reason = await whyNot(tab?.url);
         const code = isBrowserPage(tab?.url) ? "browser_page" : /Allow access to file URLs/.test(reason) ? "file_access" : null;
         // A file:// page without file access is "local" but unreachable: say so, with the switch.
@@ -584,24 +586,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 async function togglePicker(tab, force) {
   const msg = { type: force ? "startPicker" : "togglePicker" };
   try {
-    await chrome.tabs.sendMessage(tab.id, msg);
+    await api.tabs.sendMessage(tab.id, msg);
     return { ok: true };
   } catch {}
   // Not injected yet — either the page pre-dates the extension, or the user is opting in on a
   // page outside the local-dev list (the toolbar click grants us this one tab).
   try {
-    await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, files: ["inspector.js"], world: "MAIN" });
-    await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, files: ["content.js"] });
-    await chrome.scripting.insertCSS({ target: { tabId: tab.id, allFrames: true }, files: ["content.css"] });
-    await chrome.tabs.sendMessage(tab.id, msg);
+    await api.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, files: ["inspector.js"], world: "MAIN" });
+    await api.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, files: ["content.js"] });
+    await api.scripting.insertCSS({ target: { tabId: tab.id, allFrames: true }, files: ["content.css"] });
+    await api.tabs.sendMessage(tab.id, msg);
     return { ok: true };
   } catch (e) {
     return { ok: false, error: await whyNot(tab.url) };
   }
 }
 
-chrome.commands.onCommand.addListener(async (command) => {
+api.commands.onCommand.addListener(async (command) => {
   if (command !== "toggle-picker") return;
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const [tab] = await api.tabs.query({ active: true, currentWindow: true });
   if (tab?.id) togglePicker(tab, false).catch(() => {});
 });

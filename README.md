@@ -41,7 +41,8 @@ it, let your tests drive the browser.
 
 ## Quick start
 
-**You need** Node 18+ and a Chromium browser (Chrome, Edge, Brave, Arc, Opera, Vivaldi).
+**You need** Node 18+ and a Chromium browser (Chrome, Edge, Brave, Arc, Opera, Vivaldi). Prefer every
+step spelled out, copy-paste ready? See [docs/quick-install.md](docs/quick-install.md).
 
 ```bash
 git clone https://github.com/gowtham012/pinpoint

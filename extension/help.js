@@ -1,10 +1,12 @@
 // The setup guide shows real commands: once the bridge has run, the extension knows where cli.js
 // lives, so the /ABS/PATH placeholders become paths you can copy as they are.
-const chrome = globalThis.browser ?? globalThis.chrome;
+// Not named `chrome`: at the top level of a classic script that redeclares the global, and some
+// Chrome builds refuse it ("Identifier 'chrome' has already been declared"), which kills the worker.
+const api = globalThis.browser ?? globalThis.chrome;
 
 (async () => {
   let cliPath = null;
-  try { ({ cliPath } = await chrome.storage.local.get({ cliPath: null })); } catch {}
+  try { ({ cliPath } = await api.storage.local.get({ cliPath: null })); } catch {}
   if (cliPath) {
     const bridge = cliPath.replace(/[\\/]cli\.js$/, "");
     for (const el of document.querySelectorAll("pre, code")) {

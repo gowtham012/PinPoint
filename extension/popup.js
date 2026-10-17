@@ -1,13 +1,15 @@
 // Safari and Firefox expose the promise-based extension API as `browser`; Chrome only has
 // `chrome`. Prefer `browser` where it exists so every `await chrome.…` below works on all three.
-const chrome = globalThis.browser ?? globalThis.chrome;
+// Not named `chrome`: at the top level of a classic script that redeclares the global, and some
+// Chrome builds refuse it ("Identifier 'chrome' has already been declared"), which kills the worker.
+const api = globalThis.browser ?? globalThis.chrome;
 
 const $ = (s) => document.querySelector(s);
-const send = (msg) => chrome.runtime.sendMessage(msg);
+const send = (msg) => api.runtime.sendMessage(msg);
 const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
 async function activeTab() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const [tab] = await api.tabs.query({ active: true, currentWindow: true });
   return tab;
 }
 
@@ -31,7 +33,7 @@ async function refresh({ keepHint = false } = {}) {
     if (where.code === "file_access") {
       const b = document.createElement("button");
       b.textContent = "Open Pinpoint's settings";
-      b.onclick = () => chrome.tabs.create({ url: `chrome://extensions/?id=${chrome.runtime.id}` });
+      b.onclick = () => api.tabs.create({ url: `chrome://extensions/?id=${api.runtime.id}` });
       $("#where").appendChild(b);
     }
     const browserPage = where.code === "browser_page";
@@ -53,7 +55,7 @@ async function refresh({ keepHint = false } = {}) {
   $("#tokenBox").hidden = !needsToken;
   // The bridge tells us where it lives, so once it has run once we can name the real command
   // instead of a <pinpoint> placeholder nobody can copy.
-  if (h.cliPath) { cliPath = h.cliPath; chrome.storage.local.set({ cliPath }).catch(() => {}); }
+  if (h.cliPath) { cliPath = h.cliPath; api.storage.local.set({ cliPath }).catch(() => {}); }
   paintBridgeButton(h);
   if (!(keepHint && !h.ok)) $("#hint").innerHTML = h.ok
     ? (h.movedTo ? `Found the bridge on port ${h.movedTo} and switched to it.` : "")
@@ -96,10 +98,10 @@ async function refresh({ keepHint = false } = {}) {
 
 // ---------- starting / restarting the bridge ----------
 let cliPath = null;
-chrome.storage.local.get({ cliPath: null }).then((v) => { cliPath = v.cliPath; }).catch(() => {});
+api.storage.local.get({ cliPath: null }).then((v) => { cliPath = v.cliPath; }).catch(() => {});
 const esc = (t) => String(t).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 // Safari has no native messaging host of this kind, so it gets Restart (plain HTTP) but not Start.
-const canStart = typeof chrome.runtime.sendNativeMessage === "function";
+const canStart = typeof api.runtime.sendNativeMessage === "function";
 
 const ICON = {
   start: `<svg viewBox="0 0 24 24"><path d="M7 5l12 7-12 7z"/></svg>`,
@@ -137,11 +139,11 @@ $("#watch").onclick = async () => {
 
 async function jumpTo(a) {
   const want = (a.page.topUrl || a.page.url).split("#")[0];
-  const tab = (await chrome.tabs.query({})).find((t) => (t.url || "").split("#")[0] === want);
-  if (!tab) { await chrome.tabs.create({ url: a.page.topUrl || a.page.url }); window.close(); return; }
-  await chrome.tabs.update(tab.id, { active: true });
-  try { await chrome.windows.update(tab.windowId, { focused: true }); } catch {}
-  chrome.tabs.sendMessage(tab.id, { type: "reveal", id: a.id }).catch(() => {});
+  const tab = (await api.tabs.query({})).find((t) => (t.url || "").split("#")[0] === want);
+  if (!tab) { await api.tabs.create({ url: a.page.topUrl || a.page.url }); window.close(); return; }
+  await api.tabs.update(tab.id, { active: true });
+  try { await api.windows.update(tab.windowId, { focused: true }); } catch {}
+  api.tabs.sendMessage(tab.id, { type: "reveal", id: a.id }).catch(() => {});
   window.close();
 }
 
@@ -204,7 +206,7 @@ $("#clear").onclick = async () => {
 $("#showbar").onclick = async () => {
   const tab = await activeTab();
   if (!tab?.id) return;
-  try { await chrome.tabs.sendMessage(tab.id, { type: "showDock" }); } catch {}
+  try { await api.tabs.sendMessage(tab.id, { type: "showDock" }); } catch {}
   window.close();
 };
 
@@ -217,20 +219,20 @@ window.addEventListener("unhandledrejection", (e) => {
 
 $("#help").onclick = (e) => {
   e.preventDefault();
-  chrome.tabs.create({ url: chrome.runtime.getURL("help.html") });
+  api.tabs.create({ url: api.runtime.getURL("help.html") });
 };
 
-chrome.storage.sync.get({ port: 7331, dockPos: "tr" }).then(({ port, dockPos }) => {
+api.storage.sync.get({ port: 7331, dockPos: "tr" }).then(({ port, dockPos }) => {
   $("#port").value = port;
   $("#dockPos").value = dockPos;
 });
 $("#dockPos").onchange = async (e) => {
-  await chrome.storage.sync.set({ dockPos: e.target.value });
+  await api.storage.sync.set({ dockPos: e.target.value });
   const tab = await activeTab();
-  if (tab?.id) chrome.tabs.sendMessage(tab.id, { type: "showDock" }).catch(() => {});
+  if (tab?.id) api.tabs.sendMessage(tab.id, { type: "showDock" }).catch(() => {});
 };
 $("#port").onchange = async (e) => {
-  await chrome.storage.sync.set({ port: Number(e.target.value) || 7331 });
+  await api.storage.sync.set({ port: Number(e.target.value) || 7331 });
   refresh();
 };
 
