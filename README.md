@@ -142,7 +142,9 @@ it converts, builds, and prints the four Safari settings to flip (the important 
 **Develop ▸ Allow Unsigned Extensions**, which resets every time Safari quits). One capability is
 missing there: `"world": "MAIN"` content scripts are unsupported, so `inspector.js` cannot read React
 fibers or Vue instances, which costs you the **component chain and source-file hint**. Everything else
-— picking, regions, comments, pins, screenshots, the bridge, MCP — is unchanged.
+— picking, regions, comments, pins, screenshots, the bridge, MCP — is unchanged. Safari has no native
+host to hand the extension its bridge token, so the popup asks for it once: run `node bridge/cli.js token`
+and paste the output.
 
 Firefox is closer than it was (every script prefers `browser` where it exists), but two manifest
 blockers remain: `background: { service_worker }` where Firefox MV3 wants `background: { scripts }`,
@@ -472,7 +474,8 @@ and a form that rebuilds its whole DOM. See [CONTRIBUTING.md](CONTRIBUTING.md) f
 ## Safety and storage
 
 The bridge binds to `127.0.0.1`, refuses any request carrying a web page's `Origin` (the one exception
-is its own, for the `/ios` page it serves, which also refuses to be framed), and identifies
+is its own, for the `/ios` page it serves, which also refuses to be framed), accepts an extension only
+with the token in `~/.pinpoint/token`, and identifies
 itself with a `service` marker; everything scraped from the page is labelled untrusted where it reaches
 your agent, and only your typed comment is presented as an instruction. Screenshots live base64-encoded
 inside `~/.pinpoint/annotations.json` rather than as loose files. [SECURITY.md](SECURITY.md) has the full

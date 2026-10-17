@@ -22,7 +22,12 @@
   // ---------- shadow UI ----------
   const host = document.createElement("pinpoint-root");
   host.setAttribute("data-pinpoint", "");
-  const shadow = host.attachShadow({ mode: "open" });
+  // Closed: with an open root any script on the page could reach our textarea and Send button and
+  // file a note the developer never wrote — which the hook then hands the agent as their request.
+  const shadow = host.attachShadow({ mode: "closed" });
+  // For the test suite, which reads the UI from this isolated world over CDP. The page's own scripts
+  // live in a different world and never see this global.
+  globalThis.__pinpointShadow = shadow;
   shadow.innerHTML = `
     <style>
       :host {
@@ -438,8 +443,11 @@
       const el = frames.find((f) => f.contentWindow === e.source);
       if (!el) return;
       const r = el.getBoundingClientRect();
+      // The frame's document starts inside its border and padding, not at its outer edge.
+      const cs = getComputedStyle(el);
+      const ix = el.clientLeft + (parseFloat(cs.paddingLeft) || 0), iy = el.clientTop + (parseFloat(cs.paddingTop) || 0);
       const mine = isTop ? { x: 0, y: 0 } : await askParent();
-      e.source.postMessage({ __pinpoint: "youAreAt", token: d.token, x: mine.x + r.left, y: mine.y + r.top }, "*");
+      e.source.postMessage({ __pinpoint: "youAreAt", token: d.token, x: mine.x + r.left + ix, y: mine.y + r.top + iy }, "*");
     }
   });
 
@@ -895,14 +903,27 @@
   }
 
   // ---------- picker ----------
-  function startPicking() {
+  // Frames each run their own copy of this script, so picking has to be told to all of them — or an
+  // element in an iframe could be clicked while the top frame thought it had stopped. `fromMirror`
+  // is the message coming back; it must not be sent on again.
+  const mirror = (on) => { try { chrome.runtime.sendMessage({ type: "mirrorPicking", picking: on }); } catch {} };
+  function startPicking(fromMirror = false) {
     if (picking) return;
+    // The shortcut while a comment is half-written would otherwise wipe it without a word. Once the
+    // offline fallback has put it on the clipboard it is safe, and moving on is fine.
+    if (ui.pop.style.display === "block" && ui.text.value.trim() && !ui.pop.dataset.saved) {
+      setStatus("Send or discard this note first (Esc twice)", "err");
+      ui.text.focus();
+      return;
+    }
     picking = true;
     document.documentElement.classList.add("pinpoint-picking");
     paintDock();
     hidePopover();
+    if (!fromMirror) mirror(true);
   }
-  function stopPicking() {
+  function stopPicking(fromMirror = false) {
+    const was = picking;
     picking = false;
     hovered = null;
     if (dragFrom) swallowAfterUp = true;   // the button is still down; its release must not click the page
@@ -912,11 +933,10 @@
     document.documentElement.classList.remove("pinpoint-picking");
     paintDock();
     if (!selected) moveHighlight(null);
+    if (was && !fromMirror) mirror(false);
   }
   function togglePicking() {
     picking ? stopPicking() : startPicking();
-    // Mirror into sibling frames so an element inside an iframe can be picked too.
-    try { chrome.runtime.sendMessage({ type: "mirrorPicking", picking }); } catch {}
   }
 
   function targetFromEvent(e) {
@@ -929,7 +949,7 @@
 
   let hoverTimer = 0;
   document.addEventListener("mousemove", (e) => {
-    if (!picking) return;
+    if (!picking || !e.isTrusted) return;
     const t = targetFromEvent(e);
     if (t && t !== hovered) {
       hovered = t;
@@ -948,6 +968,7 @@
   document.addEventListener("click", (e) => {
     // A drag ends with pointerup, which already stopped picking — so the click the browser fires
     // straight after it would otherwise land on the page and follow whatever link sat under the box.
+    if (!e.isTrusted) return;    // a page script "clicking" must never pick, or eat a real click
     if (performance.now() < swallowClickUntil) {
       swallowClickUntil = 0;
       e.preventDefault();
@@ -1037,13 +1058,13 @@
   // and per spec that cancels the compatibility mousedown/mouseup/click that would otherwise
   // follow — so a mousedown listener here would never fire at all.
   document.addEventListener("pointerdown", (e) => {
-    if (!picking || isOurs(e.target)) return;
+    if (!picking || !e.isTrusted || isOurs(e.target)) return;
     dragFrom = { x: e.clientX, y: e.clientY };
     dragging = false;
   }, true);
 
   document.addEventListener("pointermove", (e) => {
-    if (!picking || !dragFrom) return;
+    if (!picking || !dragFrom || !e.isTrusted) return;
     const to = { x: e.clientX, y: e.clientY };
     if (!dragging && Math.hypot(to.x - dragFrom.x, to.y - dragFrom.y) < 6) return;
     dragging = true;
@@ -1057,6 +1078,7 @@
   }, true);
 
   document.addEventListener("pointerup", (e) => {
+    if (!e.isTrusted) return;
     if (swallowAfterUp) { swallowAfterUp = false; swallowClickUntil = performance.now() + 400; }
     if (!picking || !dragFrom) return;
     const from = dragFrom;
@@ -1086,7 +1108,7 @@
 
   ["mousedown", "mouseup", "pointerdown", "pointerup"].forEach((ev) =>
     document.addEventListener(ev, (e) => {
-      if (picking && targetFromEvent(e)) {
+      if (picking && e.isTrusted && targetFromEvent(e)) {
         e.preventDefault();
         e.stopImmediatePropagation();
       }
@@ -1095,6 +1117,7 @@
 
   let escArmed = false;
   document.addEventListener("keydown", (e) => {
+    if (!e.isTrusted) return;
     if (e.key === "Escape") {
       const took = () => { e.preventDefault(); e.stopImmediatePropagation(); };
       if (ui.panel.style.display === "flex" && !picking && ui.pop.style.display !== "block") { took(); return togglePanel(false); }
@@ -1126,6 +1149,7 @@
       : el.getBoundingClientRect();
     paintMeta(el, region);
     ui.text.value = "";
+    delete ui.pop.dataset.saved;
     ui.status.textContent = "";
     ui.status.className = "status";
     ui.pop.style.display = "block";
@@ -1213,12 +1237,12 @@
     e.stopPropagation();
   });
   ["keyup", "keypress", "input"].forEach((t) => ui.pop.addEventListener(t, (e) => e.stopPropagation()));
+  ui.text.addEventListener("input", () => delete ui.pop.dataset.saved);   // edited since it was copied
   ui.send.addEventListener("click", submit);
   ui.copy.addEventListener("click", async () => {
     if (!selected) return;
     const a = await buildAnnotation(selected, ui.text.value.trim());
-    await navigator.clipboard.writeText(formatPrompt(a));
-    setStatus("Copied prompt", "ok");
+    setStatus(...(await copyText(formatPrompt(a)) ? ["Copied prompt", "ok"] : ["This page does not allow copying", "err"]));
   });
 
   function resumePicking() {
@@ -1359,7 +1383,8 @@
       // Bridge not running? Fall back to clipboard so nothing is lost.
       try {
         const a = await buildAnnotation(el, comment);
-        await navigator.clipboard.writeText(formatPrompt(a));
+        if (!(await copyText(formatPrompt(a)))) throw new Error("the bridge is offline and this page does not allow copying");
+        ui.pop.dataset.saved = "1";
         setStatus("Bridge offline — prompt copied to clipboard", "err");
       } catch {
         setStatus("Failed: " + (e.message || e), "err");
@@ -1443,7 +1468,17 @@
       return el;
     } catch { return null; }
   }
+  // A modal <dialog> or a fullscreen element sits in the top layer, above every z-index — including
+  // ours — and makes the rest of the page inert. Living inside it is the only way to stay usable.
+  function followTopLayer() {
+    let top = document.fullscreenElement || null;
+    if (!top) { try { top = document.querySelector("dialog:modal"); } catch {} }
+    const parent = top || document.documentElement;
+    if (parent && host.parentNode !== parent) parent.appendChild(host);
+  }
+  document.addEventListener("fullscreenchange", () => { followTopLayer(); repositionAll(); });
   function positionAll() {
+    followTopLayer();
     keepDockOnScreen();
     const taken = new Set();
     pins.forEach((p) => positionPin(p, taken));
@@ -1491,6 +1526,23 @@
       if (ui.panel.style.display === "flex") renderPanel();
     }
   }
+  // navigator.clipboard needs a secure context, and http://app.test is not one. The old route works
+  // there: a selected textarea and execCommand. Ours lives in the shadow root, out of the page's way.
+  async function copyText(text) {
+    try { await navigator.clipboard.writeText(text); return true; } catch {}
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.cssText = "position:fixed;left:-9999px;top:0;opacity:0";
+    shadow.appendChild(ta);
+    const prev = shadow.activeElement;
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch {}
+    ta.remove();
+    prev?.focus?.();
+    return ok;
+  }
+
   function escapeHtml(s) {
     return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   }
@@ -1521,8 +1573,21 @@
   }
   loadPins();
   refreshDock();
-  // Cheap retry so the dock appears on pages that were open before you started the bridge.
-  setInterval(() => { if (isTop && !bridgeOk && !dockHidden) refreshDock(); }, 6000);
+  // A client-side route change (pushState, a router) is a new page to the developer and to the
+  // bridge, which keys notes by URL — but not to us: no reload, so the old route's pins stayed up.
+  let lastUrl = location.href.split("#")[0];
+  const routeCheck = () => {
+    const now = location.href.split("#")[0];
+    if (now === lastUrl) return;
+    lastUrl = now;
+    if (ui.pop.style.display === "block" && !ui.text.value.trim()) hidePopover();
+    loadPins();
+  };
+  window.addEventListener("popstate", routeCheck);
+  try { window.navigation?.addEventListener("navigatesuccess", routeCheck); } catch {}
+  setInterval(routeCheck, 500);   // pushState fires no event at all outside the page's own world
+  // Notice the bridge going away too, not only coming back: the dock should not offer a dead bridge.
+  setInterval(() => { if (isTop && !dockHidden && !document.hidden) refreshDock(); }, 6000);
   // The background worker pushes "reloadPins" when the bridge changes; these are the belt-and-braces
   // paths for a tab that was backgrounded while the worker was asleep.
   document.addEventListener("visibilitychange", () => { if (!document.hidden) { loadPins(); refreshDock(); } });
@@ -1539,7 +1604,10 @@
   chrome.runtime.onMessage.addListener((msg, _s, reply) => {
     if (msg.type === "togglePicker") { togglePicking(); reply({ picking }); }
     else if (msg.type === "startPicker") { startPicking(); reply({ picking }); }
-    else if (msg.type === "setPicking") { msg.picking ? startPicking() : stopPicking(); reply({ picking }); }
+    else if (msg.type === "setPicking") {
+      if (msg.picking !== picking) msg.picking ? startPicking(true) : stopPicking(true);
+      reply({ picking });
+    }
     else if (msg.type === "captureDone") { showOverlay(); resumePicking(); reply({ ok: true }); }
     else if (msg.type === "reloadPins") { loadPins().then(() => { refreshDock(); reply({ ok: true }); }); return true; }
     else if (msg.type === "showDock") { chrome.storage.local.remove(HIDE_KEY).finally(() => { dockHidden = false; refreshDock(); reply({ ok: true }); }); return true; }

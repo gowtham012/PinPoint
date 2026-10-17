@@ -16,7 +16,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
-import { DATA_DIR, DEFAULT_PORT } from "./store.js";
+import { DATA_DIR, DEFAULT_PORT, bridgeToken } from "./store.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.join(HERE, "cli.js");
@@ -122,6 +122,11 @@ const msg = frame.msg;
 switch (msg?.cmd) {
   case "ping":
     send({ ok: true, cmd: "ping", version: createRequire(import.meta.url)("./package.json").version, cli: CLI, defaultPort: DEFAULT_PORT });
+    break;
+  // The bridge token, so our extension — and only ours: Chrome gates this host to its id — can
+  // prove itself to the bridge. Nothing crosses in; the reply is read from PINPOINT_HOME.
+  case "token":
+    send({ ok: true, cmd: "token", token: bridgeToken() });
     break;
   case "start": {
     const port = msg.port;

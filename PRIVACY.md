@@ -30,7 +30,8 @@ the full screenshot and tree are discarded.
 
 To `http://127.0.0.1:<port>` (7331 by default) and nowhere else. The extension contains no other
 network destination — no telemetry endpoint, no remote code, no update service beyond the browser's
-own. The bridge refuses any request carrying a web page's `Origin`, and only listens on loopback.
+own. The bridge refuses any request carrying a web page's `Origin`, accepts an extension only with the
+token in `~/.pinpoint/token`, and only listens on loopback.
 
 **The one place data leaves Pinpoint is the one you asked for:** the coding agent you connect. Over
 MCP, or through the Claude Code hooks, your annotations are handed to Claude Code, Cursor, Codex or
@@ -44,8 +45,9 @@ Pinpoint has no control over what your agent does with what it is given.
   (`PINPOINT_MAX_RESOLVED`); pending ones stay until you resolve or clear them.
 - `<your project>/.pinpoint/pending.md` — only when the bridge is run with `--project`. It carries
   its own `.gitignore`, so it stays out of your commits.
+- `~/.pinpoint/token` — a random secret the bridge checks, so only Pinpoint's extension can talk to it.
 - **Browser storage** — settings only: the bridge port, which corner the bar sits in, the sites you
-  hid it on, and the path shown in the popup. No page content.
+  hid it on, the path shown in the popup, and the bridge token. No page content.
 
 `node bridge/cli.js clear` empties the store. Deleting `~/.pinpoint` and removing the extension
 leaves nothing behind.

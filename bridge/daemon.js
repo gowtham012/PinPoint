@@ -10,7 +10,7 @@ import { EventEmitter } from "node:events";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createMcpServer } from "./mcp.js";
 import { snapshot as iosSnapshot, toAnnotation as iosAnnotation } from "./ios.js";
-import { DEFAULT_PORT, DATA_FILE, load, save, pending, pendingMarkdown, summaryLine, findAnnotation, pageKeyOf } from "./store.js";
+import { DEFAULT_PORT, DATA_FILE, load, save, pending, pendingMarkdown, summaryLine, findAnnotation, pageKeyOf, bridgeToken } from "./store.js";
 
 const MAX_RESOLVED = Number(process.env.PINPOINT_MAX_RESOLVED) || 200;
 // Our own launch command, so the extension can tell you how to start us and the native host can
@@ -32,6 +32,7 @@ export function restartArgs({ port, project = null, quiet = false, print = false
 // a daemon embedded in someone else's process (the test suite) must never do that to its host.
 export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOINT_PROJECT || null, print = false, quiet = false, restartable = false } = {}) {
   let db = load();
+  const token = bridgeToken();
   const events = new EventEmitter();
   events.setMaxListeners(1000);
   const log = (...a) => !quiet && console.error("[pinpoint]", ...a);
@@ -148,9 +149,18 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
       persist();
       log(`cleared ${n} annotation${n === 1 ? "" : "s"}`);
     },
-    waitForNext(timeoutMs) {
+    // `signal` aborts when the caller has gone (an agent that hung up). Without it a dead waiter
+    // stayed registered and claimed the next note for nobody — that note never reached anyone.
+    waitForNext(timeoutMs, signal) {
       return new Promise((resolve) => {
-        const t = setTimeout(() => { events.off("added", on); resolve(null); }, timeoutMs);
+        const finish = (v) => {
+          clearTimeout(t);
+          events.off("added", on);
+          signal?.removeEventListener?.("abort", abort);
+          resolve(v);
+        };
+        const t = setTimeout(() => finish(null), timeoutMs);
+        const abort = () => finish(null);
         // Listeners run in registration order, so the first waiter claims the note and every other
         // one stays blocked for the NEXT one. A null payload (a restart) releases everybody.
         const on = (a) => {
@@ -159,12 +169,17 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
             if (taken.size > 500) taken.clear(); // ponytail: ids only matter while a waiter is live
             taken.add(a.id);
           }
-          clearTimeout(t);
-          events.off("added", on);
-          resolve(a);
+          finish(a);
         };
+        if (signal?.aborted) return finish(null);
+        signal?.addEventListener?.("abort", abort, { once: true });
         events.on("added", on);
       });
+    },
+    // A claim whose caller vanished before it could be told: hand the note to the next waiter.
+    release(a) {
+      taken.delete(a.id);
+      events.emit("added", a);
     },
     // Give a just-arrived annotation a moment for its screenshot to land before handing it to an agent.
     waitForScreenshot(id, timeoutMs = 2500) {
@@ -260,8 +275,10 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
     agents: () => [...agents.values()].map((a) => ({ ...a, secondsAgo: Math.round((Date.now() - a.at) / 1000) })),
   };
 
+  // CORS names the one origin that asked (already vetted below) rather than "*".
+  const allowOrigin = (res) => res.req?.headers.origin || "*";
   function json(res, code, body) {
-    res.writeHead(code, { "content-type": "application/json", "access-control-allow-origin": "*" });
+    res.writeHead(code, { "content-type": "application/json", "access-control-allow-origin": allowOrigin(res), vary: "origin" });
     res.end(JSON.stringify(body));
   }
   function readBody(req, limitBytes = 32 * 1024 * 1024) {
@@ -301,19 +318,30 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
     if (origin && !self && !/^(chrome|moz|safari-web)-extension:\/\//.test(origin)) {
       return json(res, 403, { error: "origin not allowed" });
     }
-    // Anything else that gets past that check with an Origin at all is the extension. Recording when we
-    // last heard from it is what lets `cli.js setup` say "it is loaded" instead of "now go and load it".
-    if (origin && !self) extensionSeenAt = new Date().toISOString();
-
     if (req.method === "OPTIONS") {
       res.writeHead(204, {
-        "access-control-allow-origin": "*",
+        "access-control-allow-origin": allowOrigin(res), vary: "origin",
         "access-control-allow-methods": "GET,POST,PUT,DELETE,OPTIONS",
-        "access-control-allow-headers": "content-type, mcp-session-id, mcp-protocol-version, accept",
+        "access-control-allow-headers": "content-type, mcp-session-id, mcp-protocol-version, accept, x-pinpoint, x-pinpoint-token",
         "access-control-max-age": "86400",
       });
       return res.end();
     }
+
+    // An extension origin proves only that SOME extension is asking. Ours also carries the token;
+    // any other installed extension does not have it. /health stays answerable so the popup can tell
+    // "bridge is up, but this browser needs the token" from "bridge is down".
+    const fromExtension = !!origin && !self;
+    if ((p === "/annotations/wait" || p === "/ios/screen") && req.headers["x-pinpoint"] !== "1") {
+      // A plain GET carries no Origin — so <img src="http://127.0.0.1:7331/annotations/wait"> on any
+      // website would claim a note, or start Maestro. A custom header needs a preflight we refuse.
+      return json(res, 403, { error: "x-pinpoint header required" });
+    }
+    const tokenOk = !fromExtension || req.headers["x-pinpoint-token"] === token;
+    if (!tokenOk && p !== "/health" && p !== "/") return json(res, 401, { error: "this extension has not got the bridge token", code: "token" });
+    // Recording when we last heard from the extension is what lets `cli.js setup` say "it is loaded"
+    // instead of "now go and load it".
+    if (fromExtension && tokenOk) extensionSeenAt = new Date().toISOString();
 
     try {
       // ---- MCP over Streamable HTTP (stateless: one transport per request) ----
@@ -328,7 +356,10 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
 
       // `service` identifies us so the extension never mistakes another localhost server for the bridge.
       if (p === "/" || p === "/health") {
+        // Without the token, say who we are and nothing about the project or the notes.
+        if (!tokenOk) return json(res, 200, { service: "pinpoint-bridge", ok: true, version: 1, port, tokenOk: false });
         return json(res, 200, {
+          tokenOk: true,
           service: "pinpoint-bridge", ok: true, version: 1, port, project,
           pending: pending(db).length, dataFile: DATA_FILE, storeVersion: version, agent: api.agent(), extensionSeenAt,
           agents: api.agents(), cliPath: CLI_PATH, restartable, pid: process.pid,
@@ -402,8 +433,14 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
       }
 
       if (p === "/annotations/wait") {
-        const a = await api.waitForNext(Number(url.searchParams.get("timeout") || 120000));
-        return json(res, 200, { annotation: a ? await api.waitForScreenshot(a.id) : null });
+        const ac = new AbortController();
+        res.on("close", () => { if (!res.writableEnded) ac.abort(); });
+        // Capped: the tool allows ten minutes, and an unbounded wait is a leaked socket.
+        const ms = Math.min(Number(url.searchParams.get("timeout") || 120000), 600000);
+        const a = await api.waitForNext(ms, ac.signal);
+        const full = a ? await api.waitForScreenshot(a.id) : null;
+        if (res.destroyed || ac.signal.aborted) { if (a) api.release(a); return; }
+        return json(res, 200, { annotation: full });
       }
 
       const m = p.match(/^\/annotations\/([^/]+)(\/resolve|\/screenshot|\/notified|\/element-state|\/recheck)?$/);
@@ -455,7 +492,7 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
       }
 
       if (p === "/pending.md") {
-        res.writeHead(200, { "content-type": "text/markdown", "access-control-allow-origin": "*" });
+        res.writeHead(200, { "content-type": "text/markdown", "access-control-allow-origin": allowOrigin(res), vary: "origin" });
         return res.end(pendingMarkdown(db, { channel: "file", cliPath: CLI_PATH, port }));
       }
 

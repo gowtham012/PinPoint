@@ -58,6 +58,11 @@
   #bridge .bg { width: 14px; text-align: center; }
   .where { display: none; font-size: 11.5px; line-height: 1.45; color: var(--note-ink); background: var(--note-bg); border: 1px solid var(--note-line); border-radius: 8px; padding: 8px 10px; }
   button kbd { margin-left: auto; }
+  .tokenbox { display: grid; gap: 6px; font-size: 11.5px; }
+  .tokenbox[hidden] { display: none; }
+  .tokenbox .row { display: flex; gap: 6px; }
+  .tokenbox input { flex: 1; min-width: 0; border: 1px solid var(--field); border-radius: 6px; padding: 6px 8px; font: 11px var(--mono); background: var(--surface); color: var(--ink); }
+  .tokenbox button { padding: 6px 12px; }
 </style>
 </head>
 <body>
@@ -73,6 +78,10 @@
     <button id="clear"><span aria-hidden="true">🗑</span> Clear all annotations</button>
     <button id="showbar"><span aria-hidden="true">▾</span> Show the on-page bar here</button>
     <button id="bridge"><span class="bg" aria-hidden="true">▶</span><span class="bl">Start bridge</span></button>
+    <div class="tokenbox" id="tokenBox" hidden>
+      <label for="token">Bridge token</label>
+      <div class="row"><input id="token" autocomplete="off" spellcheck="false" placeholder="paste the output of: cli.js token" /><button id="tokenSave">Save</button></div>
+    </div>
     <div class="hint" id="hint" role="status"></div>
   </main>
   <ul id="list"></ul>

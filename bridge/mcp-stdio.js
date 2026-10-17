@@ -47,12 +47,24 @@ export async function startStdio({ port = DEFAULT_PORT } = {}) {
       const { result } = await call(`/annotations/${encodeURIComponent(id)}/recheck?timeout=${timeoutMs}`, { method: "POST" });
       return result;
     },
-    async waitForNext(timeoutMs) {
+    async waitForNext(timeoutMs, signal) {
       // false, not null: null means "timed out", and with no bridge nothing can ever arrive — an
       // agent told "timed out" just waits again, forever.
       if (!(await up())) return false;
-      const { annotation } = await call(`/annotations/wait?timeout=${timeoutMs}`);
-      return annotation;
+      // In slices under four minutes: Node's fetch gives up waiting for response headers at five,
+      // while the tool allows ten. The signal reaches the bridge as a closed socket, which releases
+      // the claim there too.
+      const until = Date.now() + timeoutMs;
+      while (Date.now() < until && !signal?.aborted) {
+        const slice = Math.min(until - Date.now(), 240000);
+        let res;
+        try { res = await fetch(`${base}/annotations/wait?timeout=${slice}`, { headers: { "x-pinpoint": "1" }, signal }); }
+        catch (e) { if (signal?.aborted) return null; throw e; }
+        if (!res.ok) throw new Error(`bridge ${res.status}`);
+        const { annotation } = await res.json();
+        if (annotation) return annotation;
+      }
+      return null;
     },
   };
 

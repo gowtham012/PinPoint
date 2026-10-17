@@ -18,7 +18,9 @@ function shortUrl(u) {
   } catch { return u; }
 }
 
-async function refresh() {
+// keepHint: a button just explained what went wrong; the refresh after it must not replace that with
+// the generic "start it in a terminal" line before anyone has read it.
+async function refresh({ keepHint = false } = {}) {
   const where = await send({ type: "canRun" });
   const pick = $("#pick");
   if (where && !where.local) {
@@ -35,14 +37,18 @@ async function refresh() {
   }
 
   const h = await send({ type: "health" });
+  const needsToken = h.code === "token";
   $("#dot").className = "dot " + (h.ok ? "on" : "off");
-  $("#status").textContent = h.ok ? `bridge on :${h.port}${h.project ? " · " + h.project.split("/").pop() : ""}` : "bridge offline";
+  $("#status").textContent = h.ok ? `bridge on :${h.port}${h.project ? " · " + h.project.split("/").pop() : ""}` : needsToken ? "bridge needs its token" : "bridge offline";
+  $("#tokenBox").hidden = !needsToken;
   // The bridge tells us where it lives, so once it has run once we can name the real command
   // instead of a <pinpoint> placeholder nobody can copy.
   if (h.cliPath) { cliPath = h.cliPath; chrome.storage.local.set({ cliPath }).catch(() => {}); }
   paintBridgeButton(h);
-  $("#hint").innerHTML = h.ok
+  if (!(keepHint && !h.ok)) $("#hint").innerHTML = h.ok
     ? ""
+    : needsToken
+      ? `The bridge is running, but this browser has not got its token. Run <code>node ${esc(cliPath || "<pinpoint>/bridge/cli.js")} token</code> and paste the output above — once.`
     : /Another server/.test(h.error || "")
       ? `Port ${$("#port").value} is taken by something else — change the port below, or start the bridge with --port.`
       : `Or start it in a terminal: <code>node ${esc(cliPath || "<pinpoint>/bridge/cli.js")} --project &lt;your repo&gt;</code>`;
@@ -82,7 +88,8 @@ const canStart = typeof chrome.runtime.sendNativeMessage === "function";
 
 function paintBridgeButton(h) {
   const btn = $("#bridge");
-  btn.style.display = h.ok || canStart ? "flex" : "none";
+  // Up but locked out (no token yet) is not "start it" — the token box is the next step.
+  btn.style.display = h.code === "token" ? "none" : h.ok || canStart ? "flex" : "none";
   btn.disabled = false;
   btn.querySelector(".bg").textContent = h.ok ? "↻" : "▶";
   btn.querySelector(".bl").textContent = h.ok ? "Restart bridge" : "Start bridge";
@@ -103,7 +110,15 @@ $("#bridge").onclick = async () => {
     : r?.code === "no_node" ? `The launcher couldn't find Node. Run this again, then press again:<br><code>${install}</code>`
     : r?.code === "unsupported" ? esc(r.error)
     : `<span style="white-space:pre-wrap">${esc(r?.error || "the bridge did not start")}</span>`;
-  refresh();
+  refresh({ keepHint: true });
+};
+
+$("#tokenSave").onclick = async () => {
+  const token = $("#token").value.trim();
+  if (!token) return;
+  const r = await send({ type: "setToken", token });
+  if (!r?.ok) $("#hint").textContent = r?.code === "token" ? "That token was not accepted — copy it again from cli.js token." : (r?.error || "could not reach the bridge");
+  else { $("#token").value = ""; refresh(); }
 };
 
 $("#pick").onclick = async () => {

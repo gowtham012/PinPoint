@@ -1,0 +1,12 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8" /><title>Modal dialog</title>
+<style>body { font-family: system-ui; padding: 24px; } dialog { width: 420px; border-radius: 12px; } #in-dialog { padding: 16px; background: #eef; border-radius: 8px; }</style>
+</head>
+<body>
+<button id="open">Open settings</button>
+<!-- showModal() puts this in the top layer: above every z-index, and the rest of the page goes inert. -->
+<dialog id="dlg"><h2 id="in-dialog">Notification settings</h2><p>Some text in the modal.</p></dialog>
+<script>document.getElementById("open").onclick = () => document.getElementById("dlg").showModal();</script>
+</body>
+</html>

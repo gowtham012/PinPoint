@@ -74,7 +74,7 @@ function pointFrom(e) {
 async function load() {
   $("status").textContent = "Reading the simulator… (the first time takes a few seconds)";
   closePop();
-  const res = await fetch("/ios/screen");
+  const res = await fetch("/ios/screen", { headers: { "x-pinpoint": "1" } });
   const body = await res.json();
   if (!res.ok) { $("status").textContent = body.error; return; }
   screen = body;

@@ -177,9 +177,10 @@ export function createMcpServer(api) {
       description: "Block until the developer adds a new annotation in the browser (or timeout). Useful for a live 'watch' loop: wait → apply → resolve → wait. Each new annotation is handed to exactly one waiting agent, so several agents can watch at once without doing the same note twice.",
       inputSchema: { timeoutSeconds: z.number().min(1).max(600).optional().describe("Default 120") },
     },
-    async ({ timeoutSeconds = 120 }) => {
+    async ({ timeoutSeconds = 120 }, extra) => {
       api.touch?.("wait", null, "waiting for your next note", who());
-      let a = await api.waitForNext(timeoutSeconds * 1000);
+      // extra.signal fires when the agent cancels the call or disconnects; the claim is dropped then.
+      let a = await api.waitForNext(timeoutSeconds * 1000, extra?.signal);
       if (a === false) return { content: [{ type: "text", text: "The Pinpoint bridge is not running, so no note can arrive. Ask the developer to start it (node <pinpoint>/bridge/cli.js start), then wait again." }], isError: true };
       if (!a) return { content: [{ type: "text", text: "Timed out, no new annotation." }] };
       // The comment is stored before its screenshot; give the crop a moment to land.

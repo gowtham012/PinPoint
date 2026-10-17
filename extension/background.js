@@ -53,9 +53,49 @@ async function getPort() {
   return port;
 }
 
-async function bridgeFetch(path, init) {
-  const res = await fetch(`http://127.0.0.1:${await getPort()}${path}`, init);
-  if (!res.ok) throw new Error(`Bridge ${res.status} ${res.statusText}`);
+// ---------- the bridge token ----------
+// Any installed extension can call 127.0.0.1, so the bridge wants proof that this one is ours: a
+// token it keeps in ~/.pinpoint/token. Chrome hands it over through the native host (which only this
+// extension's id may reach); Safari and Firefox users paste it into the popup once (`cli.js token`).
+let tokenCache = null;
+async function getToken({ refresh = false } = {}) {
+  if (!refresh && tokenCache) return tokenCache;
+  if (!refresh) {
+    const { token } = await chrome.storage.local.get({ token: null });
+    if (token) return (tokenCache = token);
+  }
+  if (typeof chrome.runtime.sendNativeMessage === "function") {
+    try {
+      const r = await chrome.runtime.sendNativeMessage(NATIVE_HOST, { cmd: "token" });
+      if (r?.ok === true && typeof r.token === "string") {
+        tokenCache = r.token;
+        await chrome.storage.local.set({ token: r.token });
+        return r.token;
+      }
+    } catch {}
+  }
+  return null;
+}
+async function setToken(t) {
+  tokenCache = t || null;
+  if (t) await chrome.storage.local.set({ token: t });
+  else await chrome.storage.local.remove("token");
+}
+
+async function bridgeFetch(path, init = {}, retried = false) {
+  const token = await getToken();
+  const headers = { ...(init.headers || {}), ...(token ? { "x-pinpoint-token": token } : {}) };
+  const res = await fetch(`http://127.0.0.1:${await getPort()}${path}`, { ...init, headers });
+  if (res.status === 401 && !retried) {
+    // The bridge has a different token now (a new PINPOINT_HOME, a deleted file): ask once more.
+    const fresh = await getToken({ refresh: true });
+    if (fresh && fresh !== token) return bridgeFetch(path, init, true);
+  }
+  if (!res.ok) {
+    const e = new Error(res.status === 401 ? "the bridge is running but wants its token — open the Pinpoint popup" : `Bridge ${res.status} ${res.statusText}`);
+    if (res.status === 401) e.code = "token";
+    throw e;
+  }
   const ct = res.headers.get("content-type") || "";
   return ct.includes("application/json") ? res.json() : res.text();
 }
@@ -63,8 +103,16 @@ async function bridgeFetch(path, init) {
 // Any server can sit on 7331; only ours answers with this marker. Without the check the popup
 // would show a green dot for an unrelated dev server and every send would fail.
 async function health() {
-  const h = await bridgeFetch("/health");
+  let h = await bridgeFetch("/health");
   if (!h || h.service !== "pinpoint-bridge") throw new Error("Another server is on this port");
+  if (h.tokenOk === false) {
+    if (await getToken({ refresh: true })) h = await bridgeFetch("/health");
+    if (h.tokenOk === false) {
+      const e = new Error("The bridge is running, but this browser needs its token");
+      e.code = "token";
+      throw e;
+    }
+  }
   return h;
 }
 
@@ -89,7 +137,9 @@ async function refreshBadge() {
 
 // Tell every tab (and every frame in it) to re-read its pins from the bridge.
 async function broadcastReload() {
-  const tabs = (await chrome.tabs.query({})).filter((t) => isLocalDev(t.url));
+  // Every tab: one we were opted into by hand needs this as much as a localhost one, and a tab with
+  // no content script simply refuses the message.
+  const tabs = await chrome.tabs.query({});
   await Promise.all(tabs.map((t) => t.id && chrome.tabs.sendMessage(t.id, { type: "reloadPins" }).catch(() => {})));
 }
 
@@ -201,6 +251,29 @@ async function waitUntilCapturable(tab, expectedUrl, ms = 5000) {
   }
 }
 
+// capture.rect was measured when it was asked for; the queue may have waited since, and the page may
+// have scrolled. Re-derive the rect from document space, which does not move. Returns { rect } or
+// { why } when the element is no longer where a picture of it could be taken.
+async function rectNow(tab, capture, expectedUrl) {
+  if (!capture.doc) return { rect: capture.rect };
+  // frameId 0 — the top document. Without it this goes to every frame and an iframe can answer
+  // first, reporting its own scroll and its own URL.
+  const vp = await chrome.tabs.sendMessage(tab.id, { type: "viewportNow" }, { frameId: 0 }).catch(() => null);
+  if (!vp) return { rect: capture.rect };
+  // This round trip is itself a window in which the page can navigate. The content script reports
+  // the URL it is actually on, so a navigation during the query is caught rather than widened.
+  if (expectedUrl && vp.url && vp.url.split("#")[0] !== expectedUrl.split("#")[0]) return { why: "the page changed before it could be taken" };
+  const left = capture.doc.x - vp.x, top = capture.doc.y - vp.y;
+  // The visible part only: clamping just the origin kept the full size, so an element half off the
+  // top was cropped together with whatever sat below it.
+  const w = Math.min(vp.w, left + capture.doc.width) - Math.max(0, left);
+  const h = Math.min(vp.h, top + capture.doc.height) - Math.max(0, top);
+  if (left > vp.w - 2 || top > vp.h - 2 || left + capture.doc.width < 2 || top + capture.doc.height < 2 || w < 2 || h < 2) {
+    return { why: "the page scrolled away from it before the picture could be taken" };
+  }
+  return { rect: { x: Math.max(0, left), y: Math.max(0, top), width: w, height: h } };
+}
+
 async function finishCapture(tab, capture, id, expectedUrl) {
   try {
     let why = null;
@@ -212,35 +285,9 @@ async function finishCapture(tab, capture, id, expectedUrl) {
       }
       // Give the compositor a frame to paint without our overlay before grabbing the pixels.
       await new Promise((r) => setTimeout(r, 60));
-      // Where is the page NOW? capture.rect was measured when Send was pressed; scrolling since
-      // then would leave it pointing at whatever has moved into that spot. Re-derive it from the
-      // document-space rect, which does not move.
-      let rect = capture.rect;
-      if (capture.doc) {
-        // frameId 0 — the top document. Without it this goes to every frame and an iframe can
-        // answer first, reporting its own scroll and its own URL: on a page with an iframe that
-        // made the URL check below fire on every capture.
-        const vp = await chrome.tabs.sendMessage(tab.id, { type: "viewportNow" }, { frameId: 0 }).catch(() => null);
-        // This round trip is itself a window in which the page can navigate — and it did, in the
-        // "page changed" test, which then cropped the new page. The content script reports the URL
-        // it is actually on, so a navigation during the query is caught rather than widened.
-        if (vp && expectedUrl && vp.url && vp.url.split("#")[0] !== expectedUrl.split("#")[0]) {
-          why = "the page changed before it could be taken";
-          return null;
-        }
-        if (vp) {
-          const left = capture.doc.x - vp.x, top = capture.doc.y - vp.y;
-          // The visible part only: clamping just the origin kept the full size, so an element
-          // half off the top was cropped together with whatever sat below it.
-          const w = Math.min(vp.w, left + capture.doc.width) - Math.max(0, left);
-          const h = Math.min(vp.h, top + capture.doc.height) - Math.max(0, top);
-          if (left > vp.w - 2 || top > vp.h - 2 || left + capture.doc.width < 2 || top + capture.doc.height < 2 || w < 2 || h < 2) {
-            why = "the page scrolled away from it before the picture could be taken";
-            return null;
-          }
-          rect = { x: Math.max(0, left), y: Math.max(0, top), width: w, height: h };
-        }
-      }
+      const where = await rectNow(tab, capture, expectedUrl);
+      if (where.why) { why = where.why; return null; }
+      const rect = where.rect;
       const win = (await chrome.tabs.get(tab.id).catch(() => null))?.windowId ?? tab.windowId;
       try {
         return await captureElement(win, rect, capture.dpr);
@@ -276,34 +323,41 @@ async function answerRecheck({ reqId, id, url }) {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
   }).catch(() => {});
   try {
-    const tabs = (await chrome.tabs.query({})).filter((t) => (t.url || "").split("#")[0] === url);
+    const bits = await annotationBits(id);
+    if (!bits.selector) return void (await send({ status: "no_answer", error: "could not read the annotation from the bridge" }));
+    // An element inside an iframe has the frame's url; the tab shows the top page's.
+    const tabUrl = (bits.topUrl || url).split("#")[0];
+    const tabs = (await chrome.tabs.query({})).filter((t) => (t.url || "").split("#")[0] === tabUrl);
     if (!tabs.length) return void (await send({ status: "no_tab" }));
     // Prefer a tab that is in front: only a visible tab can be photographed.
     const tab = tabs.find((t) => t.active) || tabs[0];
 
-    const bits = await annotationBits(id);
-    if (!bits.selector) return void (await send({ status: "no_answer", error: "could not read the annotation from the bridge" }));
-    const found = await chrome.tabs.sendMessage(tab.id, { type: "recheck", ...bits }, { frameId: 0 }).catch(() => null);
+    const { topUrl, frameId, ...ask } = bits;
+    const askFrame = (f) => chrome.tabs.sendMessage(tab.id, { type: "recheck", ...ask }, { frameId: f }).catch(() => null);
+    // Frame ids do not survive a reload; if that frame is gone, the top document is the best guess.
+    const found = (frameId ? await askFrame(frameId) : null) || await askFrame(0);
     if (!found) return void (await send({ status: "no_answer" }));
     if (!found.found) return void (await send({ status: "ok", element: null, url: found.url }));
 
     let screenshot = null, screenshotSkipped = null;
     if (found.capture) {
-      await chrome.tabs.sendMessage(tab.id, { type: "hideForCapture" }, { frameId: 0 }).catch(() => {});
+      await chrome.tabs.sendMessage(tab.id, { type: "hideForCapture" }).catch(() => {});
       try {
         const shot = await queueCapture(async () => {
           const state = await waitUntilCapturable(tab, tab.url, 2000);
           if (state !== "ready") return { skipped: { navigated: "the page changed", gone: "the tab was closed", hidden: "the tab was not in front" }[state] };
           await new Promise((r) => setTimeout(r, 60));
+          const where = await rectNow(tab, found.capture, tab.url);
+          if (where.why) return { skipped: where.why };
           const win = (await chrome.tabs.get(tab.id).catch(() => null))?.windowId ?? tab.windowId;
-          return { shot: await captureElement(win, found.capture.rect, found.capture.dpr) };
+          return { shot: await captureElement(win, where.rect, found.capture.dpr) };
         });
         screenshot = shot.shot || null;
         screenshotSkipped = shot.skipped || null;
       } catch (e) {
         screenshotSkipped = "the picture could not be taken";
       }
-      chrome.tabs.sendMessage(tab.id, { type: "captureDone" }, { frameId: 0 }).catch(() => {});
+      chrome.tabs.sendMessage(tab.id, { type: "captureDone" }).catch(() => {});
     } else {
       screenshotSkipped = "the element is not visible on screen";
     }
@@ -320,7 +374,10 @@ async function answerRecheck({ reqId, id, url }) {
 async function annotationBits(id) {
   try {
     const { annotation } = await bridgeFetch(`/annotations/${encodeURIComponent(id)}`);
-    return { selector: annotation.element.selector, fingerprint: annotation.element.fingerprint, region: annotation.region || null };
+    return {
+      selector: annotation.element.selector, fingerprint: annotation.element.fingerprint, region: annotation.region || null,
+      topUrl: annotation.page.topUrl || null, frameId: annotation.page.frameId || 0,
+    };
   } catch {
     return {};
   }
@@ -385,6 +442,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       // Two-phase send: the comment is stored first so nothing is lost if the page navigates
       // while the screenshot is being taken.
       case "submit": {
+        if (sender.tab) msg.annotation.page = { ...msg.annotation.page, topUrl: sender.tab.url || null, frameId: sender.frameId || 0 };
         const result = await bridgeFetch("/annotations", {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -440,8 +498,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           watch();
           return { ok: true, ...h };
         } catch (e) {
-          return { ok: false, error: String(e.message || e) };
+          return { ok: false, error: String(e.message || e), code: e.code || null };
         }
+      }
+      // Only the popup asks this (content scripts have no reason to): the token pasted by hand where
+      // there is no native host to fetch it.
+      case "setToken": {
+        if (sender.tab) return { ok: false, error: "not from a page" };
+        await setToken(String(msg.token || "").trim());
+        try { return { ok: true, ...(await health()) }; }
+        catch (e) { return { ok: false, error: String(e.message || e), code: e.code || null }; }
       }
       case "startBridge":
         return startBridge();

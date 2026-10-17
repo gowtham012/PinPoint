@@ -29,7 +29,7 @@ const site = http.createServer((req, res) => {
   const files = {
     "/": "site/index.html", "/react.development.js": "node_modules/react/umd/react.development.js", "/react-dom.development.js": "node_modules/react-dom/umd/react-dom.development.js",
     "/vue.html": "site/vue.html", "/vue.global.js": "node_modules/vue/dist/vue.global.js",
-    "/plain.html": "site/plain.html", "/region.html": "site/region.html", "/rerender.html": "site/rerender.html", "/frame.html": "site/frame.html", "/csp.html": "site/csp.html", "/stress.html": "site/stress.html", "/modal.html": "site/modal.html",
+    "/plain.html": "site/plain.html", "/region.html": "site/region.html", "/rerender.html": "site/rerender.html", "/frame.html": "site/frame.html", "/csp.html": "site/csp.html", "/stress.html": "site/stress.html", "/modal.html": "site/modal.html", "/spa.html": "site/spa.html", "/dialog.html": "site/dialog.html",
   };
   const f = files[p];
   if (!f) { res.writeHead(404); return res.end(); }
@@ -61,15 +61,80 @@ async function launch(extra = {}) {
   let [sw] = c.serviceWorkers();
   if (!sw) sw = await c.waitForEvent("serviceworker");
   // A just-spawned worker may not have the extension APIs bound yet.
+  // The token the bridge wrote under HOME — what the native host would hand a real install.
+  const token = fs.readFileSync(path.join(HOME, "token"), "utf8").trim();
   for (let i = 0; i < 40; i++) {
-    try { await sw.evaluate((port) => chrome.storage.sync.set({ port }), PORT); break; }
+    try { await sw.evaluate(async ({ port, token }) => { await chrome.storage.sync.set({ port }); await chrome.storage.local.set({ token }); }, { port: PORT, token }); break; }
     catch { await new Promise((r) => setTimeout(r, 150)); }
   }
   return { c, sw, id: new URL(sw.url()).host };
 }
 
+// ---------- the extension's own world ----------
+// Pinpoint's UI lives in a CLOSED shadow root, so the page's scripts cannot reach it — and neither
+// can page.evaluate, which runs as one. Tests read it the way the extension itself does: from the
+// content script's isolated world (where content.js leaves __pinpointShadow), found over CDP.
+const worlds = new WeakMap();
+async function worldOf(page) {
+  let w = worlds.get(page);
+  if (w) return w;
+  const cdp = await page.context().newCDPSession(page);
+  const ctxs = new Map();
+  cdp.on("Runtime.executionContextCreated", ({ context }) => {
+    if (context.auxData?.type === "isolated" && /Pinpoint/.test(context.name)) ctxs.set(context.id, context);
+  });
+  cdp.on("Runtime.executionContextDestroyed", ({ executionContextId }) => ctxs.delete(executionContextId));
+  cdp.on("Runtime.executionContextsCleared", () => ctxs.clear());
+  await cdp.send("Runtime.enable");
+  w = { cdp, ctxs };
+  worlds.set(page, w);
+  return w;
+}
+async function frameIdOf(w, target, isPage) {
+  const { frameTree } = await w.cdp.send("Page.getFrameTree");
+  if (isPage) return frameTree.frame.id;
+  const want = target.url();
+  const walk = (n) => (n.frame.url === want ? n.frame.id : (n.childFrames || []).map(walk).find(Boolean));
+  return walk(frameTree);
+}
+// Like page.evaluate(fn, arg), in Pinpoint's world. `target` is a Page or a Frame.
+async function inShadow(target, fn, arg) {
+  const isPage = typeof target.mainFrame === "function";
+  const page = isPage ? target : target.page();
+  const w = await worldOf(page);
+  const decl = `async function (a) {
+    for (let i = 0; i < 60 && !globalThis.__pinpointShadow; i++) await new Promise((r) => setTimeout(r, 50));
+    return (${fn.toString()})(a);
+  }`;
+  for (let i = 0; ; i++) {
+    const fid = await frameIdOf(w, target, isPage);
+    const ctx = [...w.ctxs.values()].reverse().find((c) => c.auxData.frameId === fid);
+    if (ctx) {
+      const r = await w.cdp.send("Runtime.callFunctionOn", {
+        functionDeclaration: decl, executionContextId: ctx.id,
+        arguments: [{ value: arg === undefined ? null : arg }], returnByValue: true, awaitPromise: true,
+      }).catch((e) => ({ gone: String(e.message || e) }));
+      if (r.gone) { if (i < 40) { await new Promise((res) => setTimeout(res, 100)); continue; } throw new Error(r.gone); }
+      if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text);
+      return r.result.value;
+    }
+    if (i > 60) throw new Error("Pinpoint's content script is not running in this frame");
+    await new Promise((res) => setTimeout(res, 100));
+  }
+}
+// Like page.waitForFunction(fn, arg, { timeout }), in Pinpoint's world.
+async function waitShadow(target, fn, arg, { timeout = 30000 } = {}) {
+  const t0 = Date.now();
+  let last = null;
+  for (;;) {
+    try { const v = await inShadow(target, fn, arg); if (v) return v; } catch (e) { last = e; }
+    if (Date.now() - t0 > timeout) throw new Error(`waitShadow timed out after ${timeout}ms: ${fn.toString().slice(0, 140)}${last ? " — " + last.message : ""}`);
+    await new Promise((res) => setTimeout(res, 50));
+  }
+}
+
 const url = (p) => `http://localhost:${SITE}${p}`;
-const S = (page) => page.evaluate(() => { const r = document.querySelector("pinpoint-root").shadowRoot; return { status: r.querySelector(".pop .status").textContent, popOpen: r.querySelector(".pop").style.display === "block", picking: document.documentElement.classList.contains("pinpoint-picking"), pins: [...r.querySelectorAll(".pin")].map((p) => ({ n: p.textContent, shown: p.style.display !== "none" })), hl: r.querySelector(".hl").style.display, tag: r.querySelector(".hl .tag").textContent }; });
+const S = (page) => inShadow(page, () => { const r = __pinpointShadow; return { status: r.querySelector(".pop .status").textContent, popOpen: r.querySelector(".pop").style.display === "block", picking: document.documentElement.classList.contains("pinpoint-picking"), pins: [...r.querySelectorAll(".pin")].map((p) => ({ n: p.textContent, shown: p.style.display !== "none" })), hl: r.querySelector(".hl").style.display, tag: r.querySelector(".hl .tag").textContent }; });
 async function openPage(p) {
   const page = await ctx.newPage();
   await page.goto(url(p));
@@ -87,12 +152,18 @@ async function annotate(page, locator, comment, { submit = "click" } = {}) {
   await arm(page);
   await locator.hover();
   await locator.click();
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".pop").style.display === "block");
-  await page.evaluate((c) => { const t = document.querySelector("pinpoint-root").shadowRoot.querySelector("textarea"); t.value = c; t.focus(); }, comment);
-  if (submit === "click") await page.evaluate(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".send").click());
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pop").style.display === "block");
+  await inShadow(page, (c) => { const t = __pinpointShadow.querySelector("textarea"); t.value = c; t.focus(); }, comment);
+  if (submit === "click") await inShadow(page, () => __pinpointShadow.querySelector(".send").click());
   else await page.keyboard.press(submit);
-  await page.waitForFunction(() => /Sent|offline|Failed|first/.test(document.querySelector("pinpoint-root").shadowRoot.querySelector(".pop .status").textContent), null, { timeout: 15000 });
+  await waitShadow(page, () => /Sent|offline|Failed|first/.test(__pinpointShadow.querySelector(".pop .status").textContent), null, { timeout: 15000 });
   return (await S(page)).status;
+}
+// The popover focuses its textarea a tick after it opens; Playwright types faster than any person,
+// so wait for focus first or the first characters go to the page.
+async function typeComment(page, text) {
+  await waitShadow(page, () => __pinpointShadow.activeElement?.tagName === "TEXTAREA", null, { timeout: 4000 });
+  await page.keyboard.type(text);
 }
 const pending = async () => (await (await fetch(BASE + "/annotations?status=pending&images=1")).json()).annotations;
 // The comment is stored first and the crop attached right after, so tests that care about the
@@ -124,8 +195,8 @@ test("Esc cancels picking; highlight hidden; Esc/Cancel close popover without se
   // rewrites `display` on every stopPicking(). Hide it in a way nothing else touches — paintDock
   // only sets `display`, so visibility and pointer-events stick. What is under test here is
   // Esc/Cancel, not placement.
-  await page.evaluate(() => {
-    const d = document.querySelector("pinpoint-root").shadowRoot.querySelector(".dock");
+  await inShadow(page, () => {
+    const d = __pinpointShadow.querySelector(".dock");
     d.style.visibility = "hidden";
     d.style.pointerEvents = "none";
   });
@@ -140,7 +211,7 @@ test("Esc cancels picking; highlight hidden; Esc/Cancel close popover without se
   await page.keyboard.press("Escape");
   assert.equal((await S(page)).popOpen, false);
   await arm(page); await page.locator("h1").click();
-  await page.evaluate(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".cancel").click());
+  await inShadow(page, () => __pinpointShadow.querySelector(".cancel").click());
   assert.equal((await S(page)).popOpen, false);
   assert.equal((await S(page)).picking, true, "cancelling a note leaves you ready to pick the next one");
   assert.equal((await pending()).length, 0);
@@ -188,8 +259,8 @@ test("React page: Cmd+Enter submits; payload complete; pin appears; shortcut in 
 test("Copy prompt writes a markdown prompt to the clipboard", async () => {
   const page = await openPage("/");
   await arm(page); await page.locator("#get-started").click();
-  await page.evaluate(() => { const r = document.querySelector("pinpoint-root").shadowRoot; r.querySelector("textarea").value = "copy me"; r.querySelector(".copy").click(); });
-  await page.waitForFunction(() => /Copied/.test(document.querySelector("pinpoint-root").shadowRoot.querySelector(".pop .status").textContent));
+  await inShadow(page, () => { const r = __pinpointShadow; r.querySelector("textarea").value = "copy me"; r.querySelector(".copy").click(); });
+  await waitShadow(page, () => /Copied/.test(__pinpointShadow.querySelector(".pop .status").textContent));
   const clip = await page.evaluate(() => navigator.clipboard.readText());
   assert.match(clip, /## Change request/); assert.match(clip, /\*\*Change:\*\* copy me/); assert.match(clip, /Hero ← App/); assert.match(clip, /`#get-started`/);
   await disarm(page);
@@ -219,16 +290,16 @@ test("pins: hover tip shows comment, Remove deletes at bridge; multiple pins num
   await annotate(page, page.locator(".card").nth(2), "two");
   assert.deepEqual((await S(page)).pins.map((p) => p.n), ["1", "2"]);
   const other = await openPage("/");
-  await other.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelectorAll(".pin").length === 2);
+  await waitShadow(other, () => __pinpointShadow.querySelectorAll(".pin").length === 2);
   await other.close();
-  await page.evaluate(() => document.querySelector("pinpoint-root").shadowRoot.querySelectorAll(".pin")[0].dispatchEvent(new MouseEvent("mouseenter")));
-  const tip = await page.evaluate(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".tip").textContent);
+  await inShadow(page, () => __pinpointShadow.querySelectorAll(".pin")[0].dispatchEvent(new MouseEvent("mouseenter")));
+  const tip = await inShadow(page, () => __pinpointShadow.querySelector(".tip").textContent);
   assert.match(tip, /#1 one/);
-  await page.evaluate(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".tip .del").click());
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelectorAll(".pin").length === 1);
+  await inShadow(page, () => __pinpointShadow.querySelector(".tip .del").click());
+  await waitShadow(page, () => __pinpointShadow.querySelectorAll(".pin").length === 1);
   assert.equal((await pending()).length, 1);
   assert.equal((await pending())[0].comment, "two");
-  await page.reload(); await page.waitForFunction(() => document.querySelector("pinpoint-root")?.shadowRoot.querySelectorAll(".pin").length === 1);
+  await page.reload(); await waitShadow(page, () => __pinpointShadow.querySelectorAll(".pin").length === 1);
   assert.deepEqual((await S(page)).pins.map((p) => p.n), ["2"]);
   // a different URL shows no pins
   await page.goto(url("/plain.html")); await page.waitForFunction(() => !!document.querySelector("pinpoint-root"));
@@ -320,8 +391,8 @@ test("edge elements: wider-than-viewport gets a clipped crop; 5000-char text is 
   const frame = page.frameLocator("#frame");
   await arm(page);
   await frame.locator("#in-frame").click();
-  await page.frame({ url: /frame\.html/ }).evaluate(() => { const r = document.querySelector("pinpoint-root").shadowRoot; r.querySelector("textarea").value = "in frame"; r.querySelector(".send").click(); });
-  await page.frame({ url: /frame\.html/ }).waitForFunction(() => /Sent/.test(document.querySelector("pinpoint-root").shadowRoot.querySelector(".pop .status").textContent));
+  await inShadow(page.frame({ url: /frame\.html/ }), () => { const r = __pinpointShadow; r.querySelector("textarea").value = "in frame"; r.querySelector(".send").click(); });
+  await waitShadow(page.frame({ url: /frame\.html/ }), () => /Sent/.test(__pinpointShadow.querySelector(".pop .status").textContent));
   const inFrame = (await pendingWithShots(3)).find((a) => a.comment === "in frame");
   assert.equal(inFrame.element.selector, "#in-frame");
   assert.match(inFrame.page.url, /frame\.html$/);
@@ -339,7 +410,7 @@ test("shadow DOM: element inside a web component gets a host >>> inner selector 
   assert.equal(a.element.selector, "#widget >>> span.chip:nth-of-type(2)");
   assert.match(a.element.domPath, /my-widget#widget > #shadow-root > div\.inner > span\.chip/);
   assert.equal(a.element.text, "Second chip");
-  await page.reload(); await page.waitForFunction(() => document.querySelector("pinpoint-root")?.shadowRoot.querySelectorAll(".pin").length === 1);
+  await page.reload(); await waitShadow(page, () => __pinpointShadow.querySelectorAll(".pin").length === 1);
   assert.deepEqual((await S(page)).pins, [{ n: "1", shown: true }]);
   await page.close();
 });
@@ -435,7 +506,7 @@ test("Bug 1: resolving from an agent clears the pin live, with no reload", async
   await c.callTool({ name: "resolve_annotation", arguments: { id: a.id, note: "done" } });
   await c.close();
   // no reload, no interaction: the extension is told and updates itself
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelectorAll(".pin").length === 0, null, { timeout: 8000 });
+  await waitShadow(page, () => __pinpointShadow.querySelectorAll(".pin").length === 0, null, { timeout: 8000 });
   assert.equal((await S(page)).pins.length, 0);
   await page.close();
 });
@@ -445,12 +516,12 @@ test("Bug 1b: a pin added in one tab appears in another tab on the same page, li
   const a = await openPage("/");
   const b = await openPage("/");
   await annotate(a, a.locator("h1"), "seen from the other tab");
-  await b.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelectorAll(".pin").length === 1, null, { timeout: 8000 });
+  await waitShadow(b, () => __pinpointShadow.querySelectorAll(".pin").length === 1, null, { timeout: 8000 });
   // and deleting it from the popup clears both
   const [ann] = await pending();
   await fetch(`${BASE}/annotations/${ann.id}`, { method: "DELETE" });
-  await b.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelectorAll(".pin").length === 0, null, { timeout: 8000 });
-  await a.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelectorAll(".pin").length === 0, null, { timeout: 8000 });
+  await waitShadow(b, () => __pinpointShadow.querySelectorAll(".pin").length === 0, null, { timeout: 8000 });
+  await waitShadow(a, () => __pinpointShadow.querySelectorAll(".pin").length === 0, null, { timeout: 8000 });
   await a.close(); await b.close();
 });
 
@@ -459,13 +530,13 @@ test("Bug 2: two comments on one element get separate, reachable pins", async ()
   const page = await openPage("/");
   await annotate(page, page.locator("#get-started"), "first note");
   await annotate(page, page.locator("#get-started"), "second note");
-  const pos = await page.evaluate(() => [...document.querySelector("pinpoint-root").shadowRoot.querySelectorAll(".pin")].map((p) => ({ n: p.textContent, top: p.style.top, left: p.style.left })));
+  const pos = await inShadow(page, () => [...__pinpointShadow.querySelectorAll(".pin")].map((p) => ({ n: p.textContent, top: p.style.top, left: p.style.left })));
   assert.equal(pos.length, 2);
   assert.notEqual(pos[0].top, pos[1].top, "pins must not sit on the same pixel");
   assert.equal(pos[0].left, pos[1].left);
   // both are hoverable: the older one still shows its own comment
-  const tip = await page.evaluate(() => {
-    const r = document.querySelector("pinpoint-root").shadowRoot;
+  const tip = await inShadow(page, () => {
+    const r = __pinpointShadow;
     r.querySelectorAll(".pin")[0].dispatchEvent(new MouseEvent("mouseenter"));
     return r.querySelector(".tip").textContent;
   });
@@ -478,9 +549,9 @@ test("Bug 6: navigating immediately after Send still keeps the annotation", asyn
   const page = await openPage("/");
   await arm(page);
   await page.locator("#get-started").click();
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".pop").style.display === "block");
-  await page.evaluate(() => {
-    const r = document.querySelector("pinpoint-root").shadowRoot;
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pop").style.display === "block");
+  await inShadow(page, () => {
+    const r = __pinpointShadow;
     r.querySelector("textarea").value = "typed then fled";
     r.querySelector(".send").click();
   });
@@ -503,9 +574,9 @@ test("Bug 8: an element inside an iframe can be picked and is cropped from the r
   await page.waitForFunction(() => document.querySelector("iframe").contentDocument.documentElement.classList.contains("pinpoint-picking"), null, { timeout: 5000 });
   await frame.locator("#in-frame").click();
   const f = page.frame({ url: /frame\.html/ });
-  await f.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".pop").style.display === "block");
-  await f.evaluate(() => {
-    const r = document.querySelector("pinpoint-root").shadowRoot;
+  await waitShadow(f, () => __pinpointShadow.querySelector(".pop").style.display === "block");
+  await inShadow(f, () => {
+    const r = __pinpointShadow;
     r.querySelector("textarea").value = "heading inside the frame";
     r.querySelector(".send").click();
   });
@@ -532,7 +603,7 @@ test("hover tag names the React component once the pointer settles", async () =>
   const page = await openPage("/");
   await arm(page);
   await page.locator("#get-started").hover();
-  await page.waitForFunction(() => /<Hero>/.test(document.querySelector("pinpoint-root").shadowRoot.querySelector(".hl .tag").textContent), null, { timeout: 4000 });
+  await waitShadow(page, () => /<Hero>/.test(__pinpointShadow.querySelector(".hl .tag").textContent), null, { timeout: 4000 });
   const tag = (await S(page)).tag;
   assert.match(tag, /^<Hero>\s+button#get-started/);
   await disarm(page);
@@ -595,7 +666,7 @@ test("Esc keeps a typed draft until you confirm", async () => {
   const page = await openPage("/");
   await arm(page);
   await page.locator("h1").click();
-  await page.evaluate(() => { document.querySelector("pinpoint-root").shadowRoot.querySelector("textarea").value = "half-written thought"; });
+  await inShadow(page, () => { __pinpointShadow.querySelector("textarea").value = "half-written thought"; });
   await page.keyboard.press("Escape");
   let s = await S(page);
   assert.equal(s.popOpen, true, "first Esc does not discard");
@@ -629,15 +700,15 @@ test("B1: after a full re-render, pins stay on their own element or disappear �
   await annotate(page, page.locator('label[for="first_name"] span'), "should read Given Name");
   await annotate(page, page.locator(".check-item").first(), "chips need more padding");
 
-  const before = await page.evaluate(() => [...document.querySelector("pinpoint-root").shadowRoot.querySelectorAll(".pin")].map((p) => p.textContent));
+  const before = await inShadow(page, () => [...__pinpointShadow.querySelectorAll(".pin")].map((p) => p.textContent));
   assert.deepEqual(before, ["1", "2", "3"]);
 
   // step 2 replaces every one of those nodes with same-classed ones in a different order
   await page.evaluate(() => window.__setStep(2));
   await page.waitForTimeout(400);
 
-  const state = await page.evaluate(() => {
-    const r = document.querySelector("pinpoint-root").shadowRoot;
+  const state = await inShadow(page, () => {
+    const r = __pinpointShadow;
     const pins = [...r.querySelectorAll(".pin")];
     // what does each visible pin actually sit on?
     return pins.map((p) => {
@@ -657,7 +728,7 @@ test("B1: after a full re-render, pins stay on their own element or disappear �
   // coming back restores everything
   await page.evaluate(() => window.__setStep(1));
   await page.waitForTimeout(400);
-  const after = await page.evaluate(() => [...document.querySelector("pinpoint-root").shadowRoot.querySelectorAll(".pin")].filter((p) => p.style.display !== "none").map((p) => p.textContent));
+  const after = await inShadow(page, () => [...__pinpointShadow.querySelectorAll(".pin")].filter((p) => p.style.display !== "none").map((p) => p.textContent));
   assert.deepEqual(after.sort(), ["1", "2", "3"], "back on step 1 all three pins return");
   await page.close();
 });
@@ -671,11 +742,11 @@ test("what you picked can be widened and narrowed after the fact", async () => {
   await arm(page);
   const h1 = await page.locator("h1").boundingBox();
   await page.mouse.click(h1.x + h1.width / 2, h1.y + h1.height / 2);
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".pop").style.display === "block");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pop").style.display === "block");
 
   // .hl animates over 60ms, so measuring it immediately reads the previous size.
-  const read = async () => (await page.waitForTimeout(140), page.evaluate(() => {
-    const r = document.querySelector("pinpoint-root").shadowRoot;
+  const read = async () => (await page.waitForTimeout(140), inShadow(page, () => {
+    const r = __pinpointShadow;
     const hl = r.querySelector(".hl").getBoundingClientRect();
     return { meta: r.querySelector(".pop .meta").textContent.trim(),
              hint: r.querySelector(".pop .scope-hint").textContent,
@@ -690,32 +761,32 @@ test("what you picked can be widened and narrowed after the fact", async () => {
   assert.equal(first.canWiden, true);
 
   // widen: the highlight must actually grow onto a real ancestor
-  await page.evaluate(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".pop .wider").click());
+  await inShadow(page, () => __pinpointShadow.querySelector(".pop .wider").click());
   const wider = await read();
   assert.ok(wider.w > first.w + 20, `widening should select something bigger: ${first.w} -> ${wider.w}`);
   assert.match(wider.hint, /2\/\d/);
   assert.equal(wider.canNarrow, true);
 
   // and back again, to exactly what it was
-  await page.evaluate(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".pop .narrower").click());
+  await inShadow(page, () => __pinpointShadow.querySelector(".pop .narrower").click());
   const back = await read();
   assert.equal(back.w, first.w, "narrowing returns to the original pick");
   assert.equal(back.meta, first.meta);
 
   // typing survives an adjustment — the meta repaints, the comment does not
-  await page.evaluate(() => {
-    const t = document.querySelector("pinpoint-root").shadowRoot.querySelector("textarea");
+  await inShadow(page, () => {
+    const t = __pinpointShadow.querySelector("textarea");
     t.value = "half typed"; t.dispatchEvent(new Event("input", { bubbles: true }));
   });
-  await page.evaluate(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".pop .wider").click());
+  await inShadow(page, () => __pinpointShadow.querySelector(".pop .wider").click());
   assert.equal(
-    await page.evaluate(() => document.querySelector("pinpoint-root").shadowRoot.querySelector("textarea").value),
+    await inShadow(page, () => __pinpointShadow.querySelector("textarea").value),
     "half typed", "adjusting must not wipe what you have written"
   );
 
   // and what gets sent is the adjusted element, not the original
-  await page.evaluate(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".send").click());
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelectorAll(".pin").length === 1, null, { timeout: 6000 });
+  await inShadow(page, () => __pinpointShadow.querySelector(".send").click());
+  await waitShadow(page, () => __pinpointShadow.querySelectorAll(".pin").length === 1, null, { timeout: 6000 });
   const [a] = await pending();
   assert.notEqual(a.element.selector, "h1", `should have sent the widened element, got ${a.element.selector}`);
   assert.ok(a.element.rect.width > h1.width, "and it is the bigger one");
@@ -726,7 +797,7 @@ test("B4: the popover shows the text of what you picked, and distinguishes near-
   const page = await openPage("/rerender.html");
   await arm(page);
   await page.locator('[data-action="next"]').click();
-  const meta = await page.evaluate(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".pop .meta").textContent);
+  const meta = await inShadow(page, () => __pinpointShadow.querySelector(".pop .meta").textContent);
   assert.match(meta, /Continue to Step 2/, `popover must quote the element's text, got: ${meta}`);
   assert.match(meta, /btn-primary/, "the distinguishing class must survive, not just 'btn'");
   await disarm(page);
@@ -752,9 +823,9 @@ test("B2: switching tabs right after Send still gets the screenshot", async () =
   await page.bringToFront();
   await arm(page);
   await page.locator("#page-title").click();
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".pop").style.display === "block");
-  await page.evaluate(() => {
-    const r = document.querySelector("pinpoint-root").shadowRoot;
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pop").style.display === "block");
+  await inShadow(page, () => {
+    const r = __pinpointShadow;
     r.querySelector("textarea").value = "away to the editor";
     r.querySelector(".send").click();
   });
@@ -780,13 +851,13 @@ test("scrolling right after Send never attaches a picture of somewhere else", as
   await arm(page);
   const h1 = await page.locator("h1").boundingBox();
   await page.mouse.click(h1.x + h1.width / 2, h1.y + h1.height / 2);
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".pop").style.display === "block");
-  await page.evaluate(() => {
-    const t = document.querySelector("pinpoint-root").shadowRoot.querySelector("textarea");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pop").style.display === "block");
+  await inShadow(page, () => {
+    const t = __pinpointShadow.querySelector("textarea");
     t.value = "headline note"; t.dispatchEvent(new Event("input", { bubbles: true }));
   });
   // Send, then immediately scroll far away — what a person does moving to the next note.
-  await page.evaluate(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".send").click());
+  await inShadow(page, () => __pinpointShadow.querySelector(".send").click());
   await page.evaluate(() => window.scrollTo(0, 1400));
   await page.waitForTimeout(3500);
 
@@ -806,13 +877,16 @@ test("B2b: when a screenshot truly can't be taken, the agent is told so instead 
   const page = await openPage("/rerender.html");
   await arm(page);
   await page.locator("#page-title").click();
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".pop").style.display === "block");
-  await page.evaluate(() => {
-    const r = document.querySelector("pinpoint-root").shadowRoot;
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pop").style.display === "block");
+  await inShadow(page, () => {
+    const r = __pinpointShadow;
     r.querySelector("textarea").value = "gone before the shot";
     r.querySelector(".send").click();
+    // Navigate the instant Send is pressed: the send's own microtasks have run by the time this
+    // macrotask does, so the note is out — and the page is gone before any screenshot can be taken.
+    setTimeout(() => { location.href = "/plain.html"; }, 0);
   });
-  await page.goto(url("/plain.html"));   // different page: the crop would be of the wrong thing
+  await page.waitForURL(/plain\.html/);   // different page: the crop would be of the wrong thing
   const t0 = Date.now();
   let a;
   do { [a] = await pending(); await new Promise((r) => setTimeout(r, 150)); } while (!a?.screenshotSkipped && Date.now() - t0 < 10000);
@@ -827,8 +901,8 @@ test("B3: pin badges stay inside the viewport, even for full-width and top-edge 
   await clearAll();
   const page = await openPage("/rerender.html");
   await annotate(page, page.locator(".powered-by"), "footer type is too small");
-  const pos = await page.evaluate(() => {
-    const p = document.querySelector("pinpoint-root").shadowRoot.querySelector(".pin");
+  const pos = await inShadow(page, () => {
+    const p = __pinpointShadow.querySelector(".pin");
     return { left: parseFloat(p.style.left), top: parseFloat(p.style.top), w: window.innerWidth };
   });
   assert.ok(pos.left <= pos.w - 10, `pin at ${pos.left} must not hang off a ${pos.w}px viewport`);
@@ -856,8 +930,8 @@ test("agent guidance adapts when the page has no framework metadata", async () =
 
 // ================= the on-page dock, sticky mode and the notes panel =================
 
-const dock = (page) => page.evaluate(() => {
-  const r = document.querySelector("pinpoint-root").shadowRoot;
+const dock = (page) => inShadow(page, () => {
+  const r = __pinpointShadow;
   const d = r.querySelector(".dock");
   const cs = getComputedStyle(d);
   return {
@@ -875,7 +949,7 @@ const dock = (page) => page.evaluate(() => {
 test("the dock says Pinpoint is live in this tab, and doubles as the on/off switch", async () => {
   await clearAll();
   const page = await openPage("/");
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".dock").style.display === "flex", null, { timeout: 6000 });
+  await waitShadow(page, () => __pinpointShadow.querySelector(".dock").style.display === "flex", null, { timeout: 6000 });
   let d = await dock(page);
   assert.equal(d.shown, true);
   assert.equal(d.armed, false);
@@ -885,13 +959,13 @@ test("the dock says Pinpoint is live in this tab, and doubles as the on/off swit
   assert.equal(d.right, "16px", "defaults to the top-right corner");
 
   // clicking it arms the picker — no keyboard needed
-  await page.evaluate(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".dock .toggle").click());
+  await inShadow(page, () => __pinpointShadow.querySelector(".dock .toggle").click());
   await page.waitForFunction(() => document.documentElement.classList.contains("pinpoint-picking"));
   d = await dock(page);
   assert.equal(d.armed, true);
   assert.match(d.hint, /Click any element/);
   // while armed the bar is inert, so it can never block the element you are trying to click
-  const inert = await page.evaluate(() => getComputedStyle(document.querySelector("pinpoint-root").shadowRoot.querySelector(".dock")).pointerEvents);
+  const inert = await inShadow(page, () => getComputedStyle(__pinpointShadow.querySelector(".dock")).pointerEvents);
   assert.equal(inert, "none");
   await page.keyboard.press("Escape");
   assert.equal((await S(page)).picking, false, "Esc turns it off");
@@ -923,8 +997,8 @@ test("a box drawn loosely around a card anchors to the card, not the page", asyn
 
   // Geometry, not names: the label would read "main" or "div.section-card" and a loose regex
   // would accept either. The highlight has to hug the card.
-  const hl = await page.evaluate(() => {
-    const el = document.querySelector("pinpoint-root").shadowRoot.querySelector(".hl");
+  const hl = await inShadow(page, () => {
+    const el = __pinpointShadow.querySelector(".hl");
     const b = el.getBoundingClientRect();
     return { w: b.width, h: b.height, label: el.querySelector(".tag").textContent };
   });
@@ -955,8 +1029,8 @@ test("drag marks a region: anchored to the container, cropped to the box", async
   await page.mouse.move(from.x + 40, from.y + 30, { steps: 4 });
   await page.mouse.move(to.x, to.y, { steps: 8 });
   // the marquee is on screen mid-drag, with its running size
-  const marquee = await page.evaluate(() => {
-    const r = document.querySelector("pinpoint-root").shadowRoot.querySelector(".marquee");
+  const marquee = await inShadow(page, () => {
+    const r = __pinpointShadow.querySelector(".marquee");
     return { shown: getComputedStyle(r).display, size: r.querySelector(".size").textContent };
   });
   assert.equal(marquee.shown, "block", "a drag draws the marquee");
@@ -964,13 +1038,13 @@ test("drag marks a region: anchored to the container, cropped to the box", async
   await page.mouse.up();
 
   assert.equal((await S(page)).popOpen, true, "releasing opens the comment box");
-  await page.evaluate(() => {
-    const t = document.querySelector("pinpoint-root").shadowRoot.querySelector("textarea");
+  await inShadow(page, () => {
+    const t = __pinpointShadow.querySelector("textarea");
     t.value = "make these cards two-up on mobile";
     t.dispatchEvent(new Event("input", { bubbles: true }));
   });
-  await page.evaluate(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".send").click());
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelectorAll(".pin").length === 1, null, { timeout: 6000 });
+  await inShadow(page, () => __pinpointShadow.querySelector(".send").click());
+  await waitShadow(page, () => __pinpointShadow.querySelectorAll(".pin").length === 1, null, { timeout: 6000 });
 
   const [a] = await pending();
   assert.ok(a.region, "the annotation carries a region");
@@ -994,8 +1068,8 @@ test("drag marks a region: anchored to the container, cropped to the box", async
   );
 
   // the pin sits on the region's own corner, not the anchor's
-  const placed = await page.evaluate(() => {
-    const pin = document.querySelector("pinpoint-root").shadowRoot.querySelector(".pin");
+  const placed = await inShadow(page, () => {
+    const pin = __pinpointShadow.querySelector(".pin");
     const b = pin.getBoundingClientRect();
     const cs = getComputedStyle(pin);
     return { x: b.x, y: b.y, display: cs.display, left: pin.style.left, top: pin.style.top, orphan: pin.dataset.orphan || null };
@@ -1012,13 +1086,13 @@ test("drag marks a region: anchored to the container, cropped to the box", async
 test("Stop ends picking with a real click, while the rest of the bar stays inert", async () => {
   await clearAll();
   const page = await openPage("/");
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".dock").style.display === "flex", null, { timeout: 6000 });
-  await page.evaluate(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".dock .toggle").click());
+  await waitShadow(page, () => __pinpointShadow.querySelector(".dock").style.display === "flex", null, { timeout: 6000 });
+  await inShadow(page, () => __pinpointShadow.querySelector(".dock .toggle").click());
   await page.waitForFunction(() => document.documentElement.classList.contains("pinpoint-picking"));
 
   // The bar as a whole must stay click-through — it can never block the element you are aiming at.
-  const pe = await page.evaluate(() => {
-    const r = document.querySelector("pinpoint-root").shadowRoot;
+  const pe = await inShadow(page, () => {
+    const r = __pinpointShadow;
     return {
       bar: getComputedStyle(r.querySelector(".dock")).pointerEvents,
       stop: getComputedStyle(r.querySelector(".dock .stop")).pointerEvents,
@@ -1029,8 +1103,8 @@ test("Stop ends picking with a real click, while the rest of the bar stays inert
 
   // Clickable is not the same as visible. A first cut of this control was white-on-white — it
   // rendered, it was 85x26, it passed every behavioural assertion, and no one could see it.
-  const legible = await page.evaluate(() => {
-    const r = document.querySelector("pinpoint-root").shadowRoot;
+  const legible = await inShadow(page, () => {
+    const r = __pinpointShadow;
     const el = r.querySelector(".dock .stop");
     const box = el.getBoundingClientRect();
     const cs = getComputedStyle(el);
@@ -1057,8 +1131,8 @@ test("Stop ends picking with a real click, while the rest of the bar stays inert
 
   // A real mouse click at Stop's own coordinates. A scripted .click() would bypass pointer-events
   // and prove nothing; this is the exact gesture that used to fall through and annotate the page.
-  const box = await page.evaluate(() => {
-    const b = document.querySelector("pinpoint-root").shadowRoot.querySelector(".dock .stop").getBoundingClientRect();
+  const box = await inShadow(page, () => {
+    const b = __pinpointShadow.querySelector(".dock .stop").getBoundingClientRect();
     return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
   });
   await page.mouse.click(box.x, box.y);
@@ -1083,9 +1157,9 @@ test("comment mode stays on: three notes without touching the keyboard shortcut 
   for (const [i, sel] of targets.entries()) {
     assert.equal((await S(page)).picking, true, `still picking before note ${i + 1}`);
     await page.locator(sel).first().click();
-    await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".pop").style.display === "block");
-    await page.evaluate((c) => {
-      const r = document.querySelector("pinpoint-root").shadowRoot;
+    await waitShadow(page, () => __pinpointShadow.querySelector(".pop").style.display === "block");
+    await inShadow(page, (c) => {
+      const r = __pinpointShadow;
       r.querySelector("textarea").value = c;
       r.querySelector(".send").click();
     }, `note ${i + 1}`);
@@ -1103,14 +1177,14 @@ test("comment mode stays on: three notes without touching the keyboard shortcut 
 
 test("the dock shows a live count and opens a list of this page's notes", async () => {
   const page = await openPage("/");
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelectorAll(".pin").length === 3, null, { timeout: 8000 });
+  await waitShadow(page, () => __pinpointShadow.querySelectorAll(".pin").length === 3, null, { timeout: 8000 });
   let d = await dock(page);
   assert.equal(d.countShown, true);
   assert.equal(d.count, "3");
 
-  await page.evaluate(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".dock .count").click());
+  await inShadow(page, () => __pinpointShadow.querySelector(".dock .count").click());
   assert.equal((await dock(page)).panelOpen, true);
-  const rows = await page.evaluate(() => [...document.querySelector("pinpoint-root").shadowRoot.querySelectorAll(".panel .item")].map((li) => ({
+  const rows = await inShadow(page, () => [...__pinpointShadow.querySelectorAll(".panel .item")].map((li) => ({
     n: li.querySelector(".n").textContent, c: li.querySelector(".c").textContent, s: li.querySelector(".s").textContent,
   })));
   assert.equal(rows.length, 3);
@@ -1119,7 +1193,7 @@ test("the dock shows a live count and opens a list of this page's notes", async 
 
   // clicking a row brings you to that element
   await page.evaluate(() => window.scrollTo(0, 0));
-  await page.evaluate(() => document.querySelector("pinpoint-root").shadowRoot.querySelectorAll(".panel .item")[2].click());
+  await inShadow(page, () => __pinpointShadow.querySelectorAll(".panel .item")[2].click());
   await page.waitForTimeout(700);
   assert.match((await S(page)).hl, /block|none/);
 
@@ -1137,39 +1211,39 @@ test("the notes list stays reachable: after everything is finished, and while pi
   await clearAll();
   const page = await openPage("/");
   await annotate(page, page.locator("h1"), "make this bigger");
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelectorAll(".pin").length === 1, null, { timeout: 6000 });
+  await waitShadow(page, () => __pinpointShadow.querySelectorAll(".pin").length === 1, null, { timeout: 6000 });
 
   const [a] = await pending();
   await fetch(`${BASE}/annotations/${a.id}/resolve`, {
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ note: "Bumped to 40px in Hero.tsx:12" }),
   });
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelectorAll(".pin").length === 0, null, { timeout: 6000 });
+  await waitShadow(page, () => __pinpointShadow.querySelectorAll(".pin").length === 0, null, { timeout: 6000 });
 
   // nothing pending — the door must still be there
-  await page.waitForFunction(() => {
-    const c = document.querySelector("pinpoint-root").shadowRoot.querySelector(".dock .count");
+  await waitShadow(page, () => {
+    const c = __pinpointShadow.querySelector(".dock .count");
     return c && c.style.display !== "none";
   }, null, { timeout: 6000 });
-  const label = await page.evaluate(() => {
-    const r = document.querySelector("pinpoint-root").shadowRoot;
+  const label = await inShadow(page, () => {
+    const r = __pinpointShadow;
     return r.querySelector(".dock .count").textContent.replace(/\s+/g, " ").trim();
   });
   assert.match(label, /done/i, `with nothing pending it should offer what is done, got "${label}"`);
 
   // and it opens, showing the agent's reply
-  await page.evaluate(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".dock .count").click());
-  await page.waitForFunction(() => !!document.querySelector("pinpoint-root").shadowRoot.querySelector(".panel .item.done"), null, { timeout: 6000 });
+  await inShadow(page, () => __pinpointShadow.querySelector(".dock .count").click());
+  await waitShadow(page, () => !!__pinpointShadow.querySelector(".panel .item.done"), null, { timeout: 6000 });
   assert.match(
-    await page.evaluate(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".panel .item.done .what").textContent),
+    await inShadow(page, () => __pinpointShadow.querySelector(".panel .item.done .what").textContent),
     /Bumped it to 40px|Bumped to 40px/
   );
   await page.keyboard.press("Escape");
 
   // and it is clickable while picking, not just visible
   await arm(page);
-  const pe = await page.evaluate(() => {
-    const r = document.querySelector("pinpoint-root").shadowRoot;
+  const pe = await inShadow(page, () => {
+    const r = __pinpointShadow;
     return {
       bar: getComputedStyle(r.querySelector(".dock")).pointerEvents,
       count: getComputedStyle(r.querySelector(".dock .count")).pointerEvents,
@@ -1185,7 +1259,7 @@ test("a finished note stays in the panel, showing what the agent said", async ()
   await clearAll();
   const page = await openPage("/");
   await annotate(page, page.locator("h1"), "make this bigger");
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelectorAll(".pin").length === 1, null, { timeout: 6000 });
+  await waitShadow(page, () => __pinpointShadow.querySelectorAll(".pin").length === 1, null, { timeout: 6000 });
 
   const [a] = await pending();
   await fetch(`${BASE}/annotations/${a.id}/resolve`, {
@@ -1193,16 +1267,16 @@ test("a finished note stays in the panel, showing what the agent said", async ()
     body: JSON.stringify({ note: "Bumped it to 40px in Hero.tsx:12" }),
   });
   // the pin clears from the page, as before
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelectorAll(".pin").length === 0, null, { timeout: 6000 });
+  await waitShadow(page, () => __pinpointShadow.querySelectorAll(".pin").length === 0, null, { timeout: 6000 });
 
-  await page.evaluate(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".dock .count")?.click());
+  await inShadow(page, () => __pinpointShadow.querySelector(".dock .count")?.click());
   // The panel fetches the finished notes when it opens, so wait for that rather than racing it.
-  await page.waitForFunction(
-    () => !!document.querySelector("pinpoint-root").shadowRoot.querySelector(".panel .item.done"),
+  await waitShadow(page, 
+    () => !!__pinpointShadow.querySelector(".panel .item.done"),
     null, { timeout: 6000 }
   );
-  const panel = await page.evaluate(() => {
-    const r = document.querySelector("pinpoint-root").shadowRoot;
+  const panel = await inShadow(page, () => {
+    const r = __pinpointShadow;
     const done = r.querySelector(".panel .item.done");
     return {
       open: r.querySelector(".panel").style.display === "flex",
@@ -1220,9 +1294,9 @@ test("a finished note stays in the panel, showing what the agent said", async ()
 
 test("the dock can be hidden per site, and brought back from the popup", async () => {
   const page = await openPage("/");
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".dock").style.display === "flex", null, { timeout: 6000 });
-  await page.evaluate(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".dock .close").click());
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".dock").style.display === "none");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".dock").style.display === "flex", null, { timeout: 6000 });
+  await inShadow(page, () => __pinpointShadow.querySelector(".dock .close").click());
+  await waitShadow(page, () => __pinpointShadow.querySelector(".dock").style.display === "none");
   // the choice sticks across a reload for this origin
   await page.reload();
   await page.waitForFunction(() => !!document.querySelector("pinpoint-root"));
@@ -1239,7 +1313,7 @@ test("the dock can be hidden per site, and brought back from the popup", async (
     const [t] = await chrome.tabs.query({ active: true, currentWindow: true });
     await chrome.tabs.sendMessage(t.id, { type: "showDock" });
   });
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".dock").style.display === "flex", null, { timeout: 6000 });
+  await waitShadow(page, () => __pinpointShadow.querySelector(".dock").style.display === "flex", null, { timeout: 6000 });
   await page.close();
 });
 
@@ -1250,15 +1324,15 @@ test("the dock stays out of the way: hidden when the bridge is off, back when it
   assert.equal((await dock(page)).shown, false, "no floating widget on pages when you are not using it");
   await startDaemon();
   // no tab switch, no reload: the page notices on its own
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".dock").style.display === "flex", null, { timeout: 15000 });
+  await waitShadow(page, () => __pinpointShadow.querySelector(".dock").style.display === "flex", null, { timeout: 15000 });
   await page.close();
 });
 
 test("the bar stays on screen even when the page makes an ancestor the containing block", async () => {
   const page = await openPage("/");
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".dock").style.display === "flex", null, { timeout: 8000 });
-  const onScreen = async () => page.evaluate(() => {
-    const d = document.querySelector("pinpoint-root").shadowRoot.querySelector(".dock");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".dock").style.display === "flex", null, { timeout: 8000 });
+  const onScreen = async () => inShadow(page, () => {
+    const d = __pinpointShadow.querySelector(".dock");
     const r = d.getBoundingClientRect();
     return { top: Math.round(r.top), bottom: Math.round(r.bottom), left: Math.round(r.left), vh: innerHeight, vw: innerWidth, h: Math.round(r.height) };
   });
@@ -1280,9 +1354,9 @@ test("the bar stays on screen even when the page makes an ancestor the containin
 
 test("no browser focus ring leaks into the bar", async () => {
   const page = await openPage("/");
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".dock").style.display === "flex", null, { timeout: 8000 });
-  const outline = await page.evaluate(() => {
-    const b = document.querySelector("pinpoint-root").shadowRoot.querySelector(".dock .toggle");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".dock").style.display === "flex", null, { timeout: 8000 });
+  const outline = await inShadow(page, () => {
+    const b = __pinpointShadow.querySelector(".dock .toggle");
     b.focus();
     const cs = getComputedStyle(b);
     return { style: cs.outlineStyle, width: cs.outlineWidth };
@@ -1293,11 +1367,11 @@ test("no browser focus ring leaks into the bar", async () => {
 
 test("the overlay outranks a page's own fixed bars — nothing of ours gets painted over", async () => {
   const page = await openPage("/rerender.html");   // this page has its own fixed footer at z-index 10
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".dock").style.display === "flex", null, { timeout: 8000 });
-  const r = await page.evaluate(() => {
+  await waitShadow(page, () => __pinpointShadow.querySelector(".dock").style.display === "flex", null, { timeout: 8000 });
+  const r = await inShadow(page, () => {
     const host = document.querySelector("pinpoint-root");
     const hs = getComputedStyle(host);
-    const d = host.shadowRoot.querySelector(".dock");
+    const d = __pinpointShadow.querySelector(".dock");
     const box = d.getBoundingClientRect();
     const x = box.left + box.width / 2;
     const hit = (y) => { const el = document.elementFromPoint(x, y); return el ? el.tagName : null; };
@@ -1411,12 +1485,12 @@ test("opting in from the toolbar injects Pinpoint into that one tab", async () =
 test("the bar shows your agent working, and says what it is doing", async () => {
   await clearAll();
   const page = await openPage("/");
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".dock").style.display === "flex", null, { timeout: 8000 });
+  await waitShadow(page, () => __pinpointShadow.querySelector(".dock").style.display === "flex", null, { timeout: 8000 });
   await annotate(page, page.locator("#get-started"), "brand purple please");
   await disarm(page);
 
-  const live = () => page.evaluate(() => {
-    const r = document.querySelector("pinpoint-root").shadowRoot;
+  const live = () => inShadow(page, () => {
+    const r = __pinpointShadow;
     return { on: r.querySelector(".dock").classList.contains("agent-live"), say: r.querySelector(".agent-say").textContent };
   });
   assert.equal((await live()).on, false, "idle until the agent actually does something");
@@ -1425,18 +1499,18 @@ test("the bar shows your agent working, and says what it is doing", async () => 
   const c = new Client({ name: "t", version: "0" });
   await c.connect(new StreamableHTTPClientTransport(new URL(BASE + "/mcp")));
   await c.callTool({ name: "get_pending_annotations", arguments: {} });
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".dock").classList.contains("agent-live"), null, { timeout: 8000 });
+  await waitShadow(page, () => __pinpointShadow.querySelector(".dock").classList.contains("agent-live"), null, { timeout: 8000 });
   assert.match((await live()).say, /reading your notes/);
 
   // …then looks at one, which highlights the pin it is looking at
   const [a] = await pending();
   await c.callTool({ name: "get_annotation", arguments: { id: a.id } });
-  await page.waitForFunction(() => /looking at/.test(document.querySelector("pinpoint-root").shadowRoot.querySelector(".agent-say").textContent), null, { timeout: 8000 });
-  await page.waitForFunction(() => !!document.querySelector("pinpoint-root").shadowRoot.querySelector(".pin.watched"), null, { timeout: 4000 });
+  await waitShadow(page, () => /looking at/.test(__pinpointShadow.querySelector(".agent-say").textContent), null, { timeout: 8000 });
+  await waitShadow(page, () => !!__pinpointShadow.querySelector(".pin.watched"), null, { timeout: 4000 });
 
   // …and finishes it
   await c.callTool({ name: "resolve_annotation", arguments: { id: a.id, note: "made it purple" } });
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelectorAll(".pin").length === 0, null, { timeout: 8000 });
+  await waitShadow(page, () => __pinpointShadow.querySelectorAll(".pin").length === 0, null, { timeout: 8000 });
   await c.close();
   await page.close();
 });
@@ -1564,7 +1638,6 @@ test("B6: a page that changes under a pin tells the agent, and re-check shows wh
 });
 
 // ============ 0.6.0 batch 1: guards the deep review found missing ============
-const shadowEval = (page, fn, arg) => page.evaluate(fn, arg);
 
 test("R1: finishing a region drag over a link does not follow the link", async () => {
   await clearAll();
@@ -1591,7 +1664,7 @@ test("R2: Esc in the middle of a drag clears the marquee and opens nothing", asy
   await page.mouse.down();
   await page.mouse.move(b.x + 200, b.y + 150, { steps: 6 });
   await page.keyboard.press("Escape");
-  const marquee = await shadowEval(page, () => getComputedStyle(document.querySelector("pinpoint-root").shadowRoot.querySelector(".marquee")).display);
+  const marquee = await inShadow(page, () => getComputedStyle(__pinpointShadow.querySelector(".marquee")).display);
   assert.equal(marquee, "none", "no marquee left stuck on screen");
   await page.mouse.move(b.x + 260, b.y + 180, { steps: 3 });
   await page.mouse.up();
@@ -1621,8 +1694,8 @@ test("R4: pressing Cmd+Enter twice posts the note once", async () => {
   await arm(page);
   await page.locator("h1").hover();
   await page.locator("h1").click();
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".pop").style.display === "block");
-  await page.evaluate(() => { const t = document.querySelector("pinpoint-root").shadowRoot.querySelector("textarea"); t.value = "only once"; t.focus(); });
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pop").style.display === "block");
+  await inShadow(page, () => { const t = __pinpointShadow.querySelector("textarea"); t.value = "only once"; t.focus(); });
   await page.keyboard.down("Meta");
   await page.keyboard.press("Enter");
   await page.keyboard.press("Enter");
@@ -1644,12 +1717,12 @@ test("R5: a region pin keeps its place on the box after a reload", async () => {
   await page.mouse.move(f1.x + 60, f1.y + 30, { steps: 4 });
   await page.mouse.move(f2.x + f2.width / 2, f2.y + f2.height - 5, { steps: 6 });
   await page.mouse.up();
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".pop").style.display === "block");
-  await page.evaluate(() => { const t = document.querySelector("pinpoint-root").shadowRoot.querySelector("textarea"); t.value = "two-up"; document.querySelector("pinpoint-root").shadowRoot.querySelector(".send").click(); });
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelectorAll(".pin").length === 1, null, { timeout: 6000 });
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pop").style.display === "block");
+  await inShadow(page, () => { const t = __pinpointShadow.querySelector("textarea"); t.value = "two-up"; __pinpointShadow.querySelector(".send").click(); });
+  await waitShadow(page, () => __pinpointShadow.querySelectorAll(".pin").length === 1, null, { timeout: 6000 });
   await page.waitForFunction(() => document.querySelector("pinpoint-root").style.display !== "none", null, { timeout: 8000 });
   await disarm(page);
-  const where = () => page.evaluate(() => { const b = document.querySelector("pinpoint-root").shadowRoot.querySelector(".pin").getBoundingClientRect(); return { x: b.x, y: b.y }; });
+  const where = () => inShadow(page, () => { const b = __pinpointShadow.querySelector(".pin").getBoundingClientRect(); return { x: b.x, y: b.y }; });
   // The bridge pushes a reload moments after a send, and a real reload follows: through both, the
   // pin must stay on the box that was drawn, not jump to the corner of the element it anchors to.
   const [a] = await pending();
@@ -1659,7 +1732,7 @@ test("R5: a region pin keeps its place on the box after a reload", async () => {
   const before = await where();
   assert.ok(near(before, await want()), `after the live reload the pin ${JSON.stringify(before)} should sit on the box corner ${JSON.stringify(await want())}`);
   await page.reload();
-  await page.waitForFunction(() => document.querySelector("pinpoint-root")?.shadowRoot.querySelectorAll(".pin").length === 1);
+  await waitShadow(page, () => __pinpointShadow.querySelectorAll(".pin").length === 1);
   await page.waitForTimeout(300);
   const after = await where();
   assert.ok(near(after, await want()), `after a page reload the pin ${JSON.stringify(after)} should sit on the box corner ${JSON.stringify(await want())}`);
@@ -1677,8 +1750,8 @@ test("R6: an element scrolled half off the top is cropped to its visible part on
   await arm(page);
   await page.mouse.move(b.left + 450, b.bottom - 20);
   await page.mouse.click(b.left + 450, b.bottom - 20);
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".pop").style.display === "block");
-  await page.evaluate(() => { const r = document.querySelector("pinpoint-root").shadowRoot; r.querySelector("textarea").value = "crop me"; r.querySelector(".send").click(); });
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pop").style.display === "block");
+  await inShadow(page, () => { const r = __pinpointShadow; r.querySelector("textarea").value = "crop me"; r.querySelector(".send").click(); });
   const [a] = await pendingWithShots(1);
   assert.ok(a.screenshot, `a screenshot was taken: ${a.screenshotSkipped}`);
   const visible = b.bottom;
@@ -1691,7 +1764,7 @@ test("R7: Remove this note with the bridge down keeps the pin and says why", asy
   await clearAll();
   const page = await openPage("/");
   await annotate(page, page.locator("h1"), "keep me");
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelectorAll(".pin").length === 1);
+  await waitShadow(page, () => __pinpointShadow.querySelectorAll(".pin").length === 1);
   // let the send finish (screenshot taken, "still picking" toast shown) before the bridge goes away
   await pendingWithShots(1);
   await page.waitForFunction(() => document.querySelector("pinpoint-root").style.display !== "none", null, { timeout: 8000 });
@@ -1699,9 +1772,9 @@ test("R7: Remove this note with the bridge down keeps the pin and says why", asy
   await disarm(page);
   await stopDaemon();
   try {
-    await page.evaluate(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".pin").dispatchEvent(new MouseEvent("mouseenter")));
-    await page.evaluate(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".tip .del").click());
-    await page.waitForFunction(() => /not removed/i.test(document.querySelector("pinpoint-root").shadowRoot.querySelector(".toast").textContent), null, { timeout: 4000 });
+    await inShadow(page, () => __pinpointShadow.querySelector(".pin").dispatchEvent(new MouseEvent("mouseenter")));
+    await inShadow(page, () => __pinpointShadow.querySelector(".tip .del").click());
+    await waitShadow(page, () => /not removed/i.test(__pinpointShadow.querySelector(".toast").textContent), null, { timeout: 4000 });
     assert.equal((await S(page)).pins.length, 1, "a note the bridge did not delete stays on the page");
   } finally {
     await startDaemon();
@@ -1716,9 +1789,123 @@ test("R8: the popover stays inside a narrow viewport", async () => {
   await arm(page);
   await page.locator("h1").hover();
   await page.locator("h1").click();
-  await page.waitForFunction(() => document.querySelector("pinpoint-root").shadowRoot.querySelector(".pop").style.display === "block");
-  const r = await page.evaluate(() => { const b = document.querySelector("pinpoint-root").shadowRoot.querySelector(".pop").getBoundingClientRect(); return { left: b.left, right: b.right }; });
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pop").style.display === "block");
+  const r = await inShadow(page, () => { const b = __pinpointShadow.querySelector(".pop").getBoundingClientRect(); return { left: b.left, right: b.right }; });
   assert.ok(r.left >= 0 && r.right <= 320, `popover ${JSON.stringify(r)} must fit 320px`);
   await page.keyboard.press("Escape");
+  await page.close();
+});
+
+// ============ 0.6.0 batch 2: trust and robustness ============
+
+test("S1: a page script cannot see inside Pinpoint's UI", async () => {
+  const page = await openPage("/");
+  assert.equal(await page.evaluate(() => document.querySelector("pinpoint-root").shadowRoot), null, "closed shadow root");
+  await page.close();
+});
+
+test("S2: synthetic events from the page cannot arm the picker or pick an element", async () => {
+  await clearAll();
+  const page = await openPage("/");
+  await page.evaluate(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "A", code: "KeyA", altKey: true, shiftKey: true, bubbles: true })));
+  await page.waitForTimeout(200);
+  assert.equal((await S(page)).picking, false, "a forged shortcut does nothing");
+  await arm(page);
+  await page.evaluate(() => document.querySelector("h1").click());
+  await page.waitForTimeout(200);
+  assert.equal((await S(page)).popOpen, false, "a forged click picks nothing");
+  assert.equal((await S(page)).picking, true, "and does not stop picking either");
+  await page.locator("h1").hover();
+  await page.locator("h1").click();
+  assert.equal((await S(page)).popOpen, true, "a real click still picks");
+  await page.keyboard.press("Escape");
+  await page.close();
+});
+
+test("S3: a client-side route change takes the old route's pins away, and brings them back", async () => {
+  await clearAll();
+  const page = await openPage("/spa.html");
+  await annotate(page, page.locator("#route-a-card"), "route A note");
+  await waitShadow(page, () => __pinpointShadow.querySelectorAll(".pin").length === 1);
+  await disarm(page);
+  await page.locator("#to-b").click();
+  await waitShadow(page, () => __pinpointShadow.querySelectorAll(".pin").length === 0, null, { timeout: 3000 });
+  await page.goBack();
+  await waitShadow(page, () => __pinpointShadow.querySelectorAll(".pin").length === 1, null, { timeout: 3000 });
+  await page.close();
+});
+
+test("S4: an element inside a modal <dialog> can be picked, and the comment box is usable", async () => {
+  await clearAll();
+  const page = await openPage("/dialog.html");
+  await page.locator("#open").click();
+  await arm(page);
+  await page.locator("#in-dialog").hover();
+  await page.locator("#in-dialog").click();
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pop").style.display === "block", null, { timeout: 4000 });
+  // the overlay moved into the top layer with the dialog, so the popover is what is on top there
+  const onTop = await page.evaluate(() => {
+    const host = document.querySelector("pinpoint-root");
+    return { inDialog: host.parentElement?.id === "dlg" };
+  });
+  assert.equal(onTop.inDialog, true, "the overlay follows the dialog into the top layer");
+  await typeComment(page, "bigger heading");
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
+  const [a] = await pendingWithShots(1);
+  assert.equal(a.comment, "bigger heading", "real typing reached the textarea inside the dialog");
+  assert.equal(a.element.selector, "#in-dialog");
+  await disarm(page);
+  await page.close();
+});
+
+test("S5: the shortcut does not throw away a half-written note", async () => {
+  await clearAll();
+  const page = await openPage("/");
+  await arm(page);
+  await page.locator("h1").hover();
+  await page.locator("h1").click();
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pop").style.display === "block");
+  await typeComment(page, "a draft worth keeping");
+  await page.keyboard.press("Alt+Shift+A");
+  await page.waitForTimeout(200);
+  const st = await inShadow(page, () => ({ open: __pinpointShadow.querySelector(".pop").style.display === "block", text: __pinpointShadow.querySelector("textarea").value }));
+  assert.deepEqual(st, { open: true, text: "a draft worth keeping" });
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await page.close();
+});
+
+test("S6: picking in the top frame stops the iframe picking too", async () => {
+  await clearAll();
+  const page = await openPage("/plain.html");
+  await page.locator("#frame").evaluate((el) => el.scrollIntoView({ block: "center" }));
+  await page.keyboard.press("Alt+Shift+A");
+  await page.waitForFunction(() => document.querySelector("iframe").contentDocument.documentElement.classList.contains("pinpoint-picking"), null, { timeout: 5000 });
+  await page.locator("#search").click();
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pop").style.display === "block");
+  await page.waitForFunction(() => !document.querySelector("iframe").contentDocument.documentElement.classList.contains("pinpoint-picking"), null, { timeout: 3000 });
+  await page.keyboard.press("Escape");
+  await page.close();
+});
+
+test("S7: re-checking a note made inside an iframe looks in that iframe", async () => {
+  await clearAll();
+  const page = await openPage("/plain.html");
+  await page.locator("#frame").evaluate((el) => el.scrollIntoView({ block: "center" }));
+  await arm(page);
+  await page.frameLocator("#frame").locator("#in-frame").click();
+  const f = page.frame({ url: /frame\.html/ });
+  await waitShadow(f, () => __pinpointShadow.querySelector(".pop").style.display === "block");
+  await inShadow(f, () => { const r = __pinpointShadow; r.querySelector("textarea").value = "frame recheck"; r.querySelector(".send").click(); });
+  const [a] = await pendingWithShots(1);
+  assert.match(a.page.url, /frame\.html$/);
+  const c = new Client({ name: "t", version: "0" });
+  await c.connect(new StreamableHTTPClientTransport(new URL(BASE + "/mcp")));
+  const r = await c.callTool({ name: "recheck_annotation", arguments: { id: a.id, timeoutSeconds: 15 } });
+  const text = r.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
+  assert.match(text, /Verdict: (unchanged|moved|changed)/, text);
+  assert.doesNotMatch(text, /No tab is open|Could not re-check|Verdict: gone/, text);
+  await c.close();
+  await disarm(page);
   await page.close();
 });
