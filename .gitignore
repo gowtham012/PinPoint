@@ -14,3 +14,6 @@ safari-build/
 
 # plugin scratch state
 carry-forward/
+
+# store uploads (zip, screenshots)
+dist/

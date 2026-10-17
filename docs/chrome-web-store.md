@@ -15,10 +15,15 @@ stays the documented install.
 2. Zip the contents of `extension/` — reviewers expect `manifest.json` at the zip root. Nothing from
    `bridge/`, `node_modules/`, `.git/` or the test fixtures belongs in it.
    ```bash
-   cd extension && zip -r ../pinpoint-extension-cws.zip . -x '*.DS_Store'
+   S=$(mktemp -d) && cp -R extension/ "$S/" && rm -f "$S/.DS_Store"
+   node -e 'const f=process.argv[1],m=require(f);delete m.key;require("fs").writeFileSync(f,JSON.stringify(m,null,2)+"\n")' "$S/manifest.json"
+   (cd "$S" && zip -qr "$OLDPWD/dist/pinpoint-extension-cws.zip" .) && rm -rf "$S"
    ```
-3. **Keep the manifest `key`.** The extension id is derived from it, and native messaging whitelists
-   that exact id — strip it and every existing install's "Start bridge" button breaks.
+3. **Strip `key` from the zip only.** The Store rejects it ("key field is not allowed in manifest")
+   and assigns its own id. Keep it in `extension/manifest.json`: Load-unpacked installs and the
+   native host depend on that stable id. The Store id must also be in the native host's
+   `allowed_origins`, or "Start bridge" fails for Store installs.
+   The manifest `description` must be ≤132 characters.
 4. Smoke-test the zip itself: unpack it somewhere else, Load unpacked from there, green toolbar dot
    with the bridge running, then mark an element on `demo/index.html`.
 
