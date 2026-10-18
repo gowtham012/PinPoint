@@ -5,6 +5,8 @@
 .pinpoint/
 node_modules/
 package-lock.json
+# ...except the bridge's: a fresh clone (and Glama's build) runs `npm ci` there, which needs it.
+!bridge/package-lock.json
 test/*.png
 test/site/registration.html
 test/ux/
