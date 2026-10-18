@@ -16,7 +16,22 @@ const { toMarkdown } = await import("../bridge/store.js");
 
 test("query strings and fragments are dropped from URLs", () => {
   assert.equal(redact("GET http://localhost:3000/api/user?id=7&token=abc#x"), "GET http://localhost:3000/api/user");
-  assert.equal(redact("at https://cdn.example.com/app.js?v=3:10:5"), "at https://cdn.example.com/app.js");
+  // ...but not the line and column a stack frame puts after one (Vite serves every module with ?t=)
+  assert.equal(redact("at https://cdn.example.com/app.js?v=3:10:5"), "at https://cdn.example.com/app.js:10:5");
+  assert.equal(redact("at App (http://localhost:5173/src/App.tsx?t=1700000000000:12:5)"), "at App (http://localhost:5173/src/App.tsx:12:5)");
+  assert.equal(redact("http://localhost:5173/src/main.ts?t=17:3"), "http://localhost:5173/src/main.ts:3");
+});
+
+test("prefixed, quoted and URL-borne secrets are redacted too", () => {
+  assert.equal(redact("DB_PASSWORD=hunter2isgood"), "DB_PASSWORD=[redacted]");
+  assert.equal(redact("csrf_token=abc123xyz"), "csrf_token=[redacted]");
+  assert.equal(redact("github_token=ghp_abcdefghijklmnop1234"), "github_token=[redacted]");
+  assert.equal(redact("cookie connect.sid=s%3Aabc.def"), "cookie connect.sid=[redacted]");
+  assert.equal(redact(`Error: 401 {"token":"abc123secret","password":"hunter2"}`), `Error: 401 {"token":[redacted],"password":[redacted]}`);
+  assert.equal(redact("connect postgres://admin:s3cretpass@localhost:5432/app failed"), "connect postgres://[redacted]@localhost:5432/app failed");
+  assert.equal(redact("Authorization: Basic dXNlcjpwYXNzd29yZA=="), "Authorization: Basic [redacted]");
+  // words that merely contain a key name stay
+  assert.equal(redact("tokens: 3, author: me, signal: 5"), "tokens: 3, author: me, signal: 5");
 });
 
 test("bearer tokens, JWTs and key=value secrets are redacted", () => {
@@ -41,6 +56,12 @@ test("every string is capped at 300 characters, on one line", () => {
   assert.equal(redact("a\nb\r\nc"), "a b c");
   assert.equal(redact(null), "");
   assert.equal(redact(42), "42");
+});
+
+test("a huge string without spaces cannot hang the page", () => {
+  const t0 = Date.now();
+  for (const s of ["x://".repeat(50000), "a.".repeat(100000), "password=".repeat(30000)]) redact(s);
+  assert.ok(Date.now() - t0 < 500, String(Date.now() - t0));
 });
 
 test("page context reaches the agent labelled as page data, flattened, never as an instruction", () => {
