@@ -113,7 +113,8 @@ jobs:
           [ -n "$TOKEN" ] || { echo "::error::Google refused the refresh token — re-run tools/cws-auth.mjs (docs/releasing.md)"; exit 1; }
           echo "::add-mask::$TOKEN"
           ITEM="https://chromewebstore.googleapis.com/v2/publishers/$CWS_PUBLISHER_ID/items/$CWS_EXTENSION_ID"
-          UP=$(curl -sS --fail-with-body -X POST -H "Authorization: Bearer $TOKEN" -T dist/pinpoint-extension-cws.zip \
+          # No -f: on an error Google's JSON says why, and it must reach the log.
+          UP=$(curl -sS -X POST -H "Authorization: Bearer $TOKEN" -T dist/pinpoint-extension-cws.zip \
             "https://chromewebstore.googleapis.com/upload/v2/publishers/$CWS_PUBLISHER_ID/items/$CWS_EXTENSION_ID:upload")
           echo "$UP"
           STATE=$(echo "$UP" | jq -r .uploadState)
@@ -124,9 +125,10 @@ jobs:
             echo "upload: $STATE"
           done
           [ "$STATE" = "SUCCEEDED" ] || { echo "::error::upload ended as $STATE"; exit 1; }
-          PUB=$(curl -sS --fail-with-body -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+          PUB=$(curl -sS -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
             -d '{"publishType":"DEFAULT_PUBLISH"}' "$ITEM:publish")
-          echo "$PUB" | jq '{state, warningInfo}'
+          echo "$PUB"
+          echo "$PUB" | jq -e '.error | not' >/dev/null || { echo "::error::publish refused"; exit 1; }
       - name: Store secrets not set
         if: env.CWS_REFRESH_TOKEN == '' || env.CWS_PUBLISHER_ID == ''
         run: echo "::notice::Chrome Web Store secrets are not set — upload dist/pinpoint-extension-cws.zip from the release by hand (docs/releasing.md)."

@@ -1,0 +1,30 @@
+# Ask the Chrome Web Store what it thinks of the item, and print its answer. Run it from the Actions
+# tab when the release job's store step fails: the answer names the reason (wrong account, wrong
+# publisher id, a review in progress…). It reads only; it uploads and publishes nothing.
+name: cws-status
+
+on: workflow_dispatch
+
+permissions:
+  contents: read
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    env:
+      CWS_EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+      CWS_PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+      CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+      CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+      CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+    steps:
+      - run: |
+          R=$(curl -sS https://oauth2.googleapis.com/token \
+            -d client_id="$CWS_CLIENT_ID" -d client_secret="$CWS_CLIENT_SECRET" \
+            -d refresh_token="$CWS_REFRESH_TOKEN" -d grant_type=refresh_token)
+          TOKEN=$(echo "$R" | jq -r '.access_token // empty')
+          [ -n "$TOKEN" ] || { echo "token refused: $(echo "$R" | jq -c '{error, error_description}')"; exit 1; }
+          echo "::add-mask::$TOKEN"
+          echo "granted scopes: $(echo "$R" | jq -r .scope)"
+          curl -sS -w '\nHTTP %{http_code}\n' -H "Authorization: Bearer $TOKEN" \
+            "https://chromewebstore.googleapis.com/v2/publishers/$CWS_PUBLISHER_ID/items/$CWS_EXTENSION_ID:fetchStatus"
