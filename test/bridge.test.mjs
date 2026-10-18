@@ -54,6 +54,8 @@ const TOKEN = () => fs.readFileSync(path.join(HOME, "token"), "utf8").trim();
 // /annotations/wait claims a note, so it wants a header no web page can send.
 const W = { headers: { "x-pinpoint": "1" } };
 const getW = async (p) => (await fetch(BASE + p, W)).json();
+// The native host is a #!/bin/sh wrapper and its install is macOS/Linux only (it says so on win32).
+const POSIX_HOST = { skip: process.platform === "win32" && "native messaging host is macOS/Linux only" };
 
 before(() => startDaemon());
 after(async () => { await stopDaemon(); fs.rmSync(HOME, { recursive: true, force: true, maxRetries: 10 }); fs.rmSync(PROJECT, { recursive: true, force: true, maxRetries: 10 }); });
@@ -636,7 +638,7 @@ test("/health names the bridge's own launch command, so the extension can print 
   assert.ok(h.pid > 0);
 });
 
-test("install-native-host: writes one manifest per detected browser, unions, uninstalls", async () => {
+test("install-native-host: writes one manifest per detected browser, unions, uninstalls", POSIX_HOST, async () => {
   const { installNativeHost, extensionId, HOST_NAME } = await import("../bridge/native-host.js");
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pp-nmh-"));
   // Detection is "the browser's own directory exists" — Chrome and Brave here, Edge deliberately not.
@@ -708,7 +710,7 @@ async function askHost(payload, env = null) {
   return { code, reply: JSON.parse(buf.subarray(4, 4 + buf.readUInt32LE(0)).toString("utf8")) };
 }
 
-test("native host: answers ping, and finds node without a shell PATH", async () => {
+test("native host: answers ping, and finds node without a shell PATH", POSIX_HOST, async () => {
   const { installNativeHost } = await import("../bridge/native-host.js");
   fs.mkdirSync(path.join(NMH_ROOT, "Google/Chrome"), { recursive: true });
   WRAPPER = path.join(NMH_ROOT, "pinpoint-host.sh");
@@ -723,7 +725,7 @@ test("native host: answers ping, and finds node without a shell PATH", async () 
   assert.equal(bare.reply?.ok, true, "the wrapper must not depend on the user's PATH");
 });
 
-test("native host: one integer crosses the boundary, and nothing else", async () => {
+test("native host: one integer crosses the boundary, and nothing else", POSIX_HOST, async () => {
   for (const port of ["7331; ls", 80, 7331.5, null, 99999]) {
     const { reply } = await askHost({ cmd: "start", port });
     assert.equal(reply.ok, false, `port ${JSON.stringify(port)} must be refused`);
@@ -748,7 +750,7 @@ test("native host: one integer crosses the boundary, and nothing else", async ()
   assert.equal((await askHost(Buffer.concat([huge, Buffer.alloc(10)]))).reply?.code, "bad_request");
 });
 
-test("native host: start detaches a real bridge, is idempotent, and reports a busy port", async () => {
+test("native host: start detaches a real bridge, is idempotent, and reports a busy port", POSIX_HOST, async () => {
   const PORT2 = PORT - 4;
   const first = await askHost({ cmd: "start", port: PORT2 });
   assert.equal(first.reply.ok, true, JSON.stringify(first.reply));
@@ -938,10 +940,13 @@ test("setup wires a project up in one non-interactive run, twice over", async ()
   // the test from running `claude mcp add` against the real CLI.
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), "pp-setup-bin-"));
   fs.writeFileSync(path.join(bin, "claude"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  fs.writeFileSync(path.join(bin, "claude.cmd"), "@exit /b 0\r\n");
   // Maestro 2.9 prints its version and then never exits. setup's iOS check must not hang on it.
   fs.mkdirSync(path.join(home, ".maestro/bin"), { recursive: true });
   fs.writeFileSync(path.join(home, ".maestro/bin/maestro"), "#!/bin/sh\necho 2.9.0\nexec sleep 600\n", { mode: 0o755 });
-  const env = { ...process.env, HOME: home, USERPROFILE: home, PINPOINT_HOME: path.join(home, ".pinpoint"), PATH: bin + path.delimiter + process.env.PATH };
+  // Windows spells it Path; a second PATH key beside it would be one of two, picked arbitrarily.
+  const base = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^path$/i.test(k)));
+  const env = { ...base, HOME: home, USERPROFILE: home, PINPOINT_HOME: path.join(home, ".pinpoint"), PATH: bin + path.delimiter + process.env.PATH };
   const run = (args, cwd = undefined) => new Promise((res) => {
     const p = spawn("node", [CLI, "setup", "--yes", "--no-start", "--port", String(PORT + 2), ...args], { env, cwd, stdio: ["ignore", "pipe", "pipe"] });
     let out = "", err = "";
@@ -961,7 +966,7 @@ test("setup wires a project up in one non-interactive run, twice over", async ()
   // A native iOS app skips the browser entirely and is pointed at the Simulator picker instead.
   const ios = await run([proj, "--for", "mobile"]);
   assert.equal(ios.code, 0, ios.err);
-  assert.match(ios.err, /127\.0\.0\.1:7401\/ios/);
+  assert.match(ios.err, new RegExp(`127\\.0\\.0\\.1:${PORT + 2}/ios`));
   assert.doesNotMatch(ios.err, /Load unpacked/, "no extension to load for a native app");
   const { normTarget } = await import("../bridge/setup.js");
   assert.deepEqual(["", "web", "iOS", "native", "Both"].map(normTarget), ["web", "web", "ios", "ios", "both"]);
@@ -1252,7 +1257,7 @@ test("R-b8: page text cannot forge a **Change:** line in what the agent reads", 
   assert.match(md, /untrusted/i, "and the item itself says the scraped parts are data");
 });
 
-test("R-b9: the native host hands over the bridge token, and nothing else", async () => {
+test("R-b9: the native host hands over the bridge token, and nothing else", POSIX_HOST, async () => {
   const { installNativeHost } = await import("../bridge/native-host.js");
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pp-nh-token-"));
   fs.mkdirSync(path.join(root, "Google/Chrome"), { recursive: true });
