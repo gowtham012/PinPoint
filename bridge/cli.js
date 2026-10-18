@@ -303,6 +303,7 @@ async function resolveOne(id, note) {
   if (!a) return false;
   a.status = "resolved";
   a.resolvedAt = new Date().toISOString();
+  delete a.acceptedAt;
   if (note) a.resolution = note;
   save(db);
   return true;

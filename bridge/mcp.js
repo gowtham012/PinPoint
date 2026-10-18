@@ -11,6 +11,11 @@ import { pendingMarkdown, summaryLine, toMarkdown, findAnnotation, diffElement, 
 function imageBlock(a) {
   return a.screenshot?.base64 ? [{ type: "image", data: a.screenshot.base64, mimeType: "image/png" }] : [];
 }
+// A recorded flow's step crops: the first five, so one call stays a reasonable size.
+function stepImages(a) {
+  return (a.steps || []).map((st, i) => [i, st]).filter(([, st]) => st?.screenshot?.base64).slice(0, 5)
+    .flatMap(([i, st]) => [{ type: "text", text: `Step ${i + 1}:` }, { type: "image", data: st.screenshot.base64, mimeType: "image/png" }]);
+}
 
 export function createMcpServer(api) {
   const server = new McpServer(
@@ -94,7 +99,7 @@ export function createMcpServer(api) {
       const a = findAnnotation(db, id);
       api.touch?.("look", a?.id || null, a ? `looking at #${a.number}` : "looking", who());
       if (!a) return { content: [{ type: "text", text: `No annotation ${id}` }], isError: true };
-      return { content: [{ type: "text", text: toMarkdown(a) }, ...imageBlock(a)] };
+      return { content: [{ type: "text", text: toMarkdown(a) }, ...imageBlock(a), ...stepImages(a)] };
     }
   );
 

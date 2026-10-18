@@ -9,6 +9,9 @@
 // Chrome builds refuse it ("Identifier 'chrome' has already been declared"), which kills the worker.
 const api = globalThis.browser ?? globalThis.chrome;
 
+// pinpointRedact, for page context. A Firefox build lists redact.js in background.scripts instead.
+if (typeof importScripts === "function") { try { importScripts("redact.js"); } catch {} }
+
 const DEFAULT_PORT = 7331;
 const WATCH_ALARM = "pinpoint-watch";
 const NATIVE_HOST = "com.pinpoint.bridge";
@@ -215,8 +218,45 @@ api.runtime.onStartup.addListener(() => { refreshBadge(); watch(); });
 api.runtime.onInstalled.addListener(() => { refreshBadge(); watch(); });
 watch();
 
+// ---------- page context: failed requests ----------
+// Per tab, in memory only: method, URL without its query, and the status or network error. Never a
+// body or a header. Only requests a local dev page made, so ordinary browsing is never collected.
+// ponytail: lost when the worker is evicted; storage.session if notes ever miss requests because of it.
+const failedRequests = new Map();
+function noteRequest(d, outcome) {
+  if (d.tabId < 0 || !isLocalDev(d.initiator || d.documentUrl || d.originUrl || d.url)) return;
+  const list = failedRequests.get(d.tabId) || [];
+  list.push({ at: Date.now(), method: d.method, url: String(d.url).split(/[?#]/)[0].slice(0, 400), ...outcome });
+  if (list.length > 30) list.shift();
+  failedRequests.set(d.tabId, list);
+}
+if (api.webRequest?.onCompleted) {
+  api.webRequest.onCompleted.addListener((d) => {
+    if (d.type === "main_frame") failedRequests.delete(d.tabId); // a new page starts with a clean slate
+    if (d.statusCode >= 400) noteRequest(d, { status: d.statusCode });
+  }, { urls: ["<all_urls>"] });
+  api.webRequest.onErrorOccurred.addListener((d) => {
+    if (d.error !== "net::ERR_ABORTED") noteRequest(d, { error: d.error }); // aborted = navigated away, not a bug
+  }, { urls: ["<all_urls>"] });
+  api.tabs.onRemoved.addListener((id) => failedRequests.delete(id));
+}
+
+// The last minute of errors (from the page, via the content script — untrusted) and failed requests
+// (ours), checked and redacted. Without the redactor nothing goes: fail closed.
+function pageContext(tabId, fromPage) {
+  const R = globalThis.pinpointRedact;
+  if (!R) return undefined;
+  const now = Date.now(), since = now - 60000;
+  const fresh = (t) => typeof t === "number" && t >= since && t <= now + 1000;
+  const errors = (Array.isArray(fromPage?.errors) ? fromPage.errors : []).filter((e) => e && fresh(e.at)).slice(-20)
+    .map((e) => ({ message: R(e.message), stack: (Array.isArray(e.stack) ? e.stack : []).slice(0, 3).map(R), at: new Date(e.at).toISOString() }));
+  const requests = (failedRequests.get(tabId) || []).filter((r) => fresh(r.at)).slice(-20)
+    .map((r) => ({ method: r.method, url: R(r.url), ...(r.status ? { status: r.status } : { error: R(r.error) }), at: new Date(r.at).toISOString() }));
+  return errors.length || requests.length ? { errors, requests } : undefined;
+}
+
 // Crop the visible tab to `rect` (CSS px, top-document viewport coordinates) at ratio `dpr`.
-async function captureElement(windowId, rect, dpr, pad = 8) {
+async function captureElement(windowId, rect, dpr, pad = 8, max = 1200) {
   const dataUrl = await api.tabs.captureVisibleTab(windowId, { format: "png" });
   const blob = await (await fetch(dataUrl)).blob();
   const bitmap = await createImageBitmap(blob);
@@ -227,7 +267,7 @@ async function captureElement(windowId, rect, dpr, pad = 8) {
   const sh = Math.min(bitmap.height - sy, Math.ceil((rect.height + pad * 2) * dpr));
   if (sw <= 0 || sh <= 0) { bitmap.close(); return null; }
 
-  const scale = Math.min(1, 1200 / Math.max(sw, sh));
+  const scale = Math.min(1, max / Math.max(sw, sh));
   const canvas = new OffscreenCanvas(Math.round(sw * scale), Math.round(sh * scale));
   const ctx = canvas.getContext("2d");
   ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
@@ -243,14 +283,17 @@ async function captureElement(windowId, rect, dpr, pad = 8) {
 // so captures are serialised with a small gap and retried once. Annotating three things quickly
 // must not cost you three screenshots.
 let captureChain = Promise.resolve();
-let lastCaptureAt = 0;
+let lastCaptureAt = 0, capturesQueued = 0;
 const MIN_GAP_MS = 650;
+// Queued, running, or so recent that the next one would have to wait.
+const captureBusy = () => capturesQueued > 0 || Date.now() - lastCaptureAt < MIN_GAP_MS;
 
 function queueCapture(fn) {
+  capturesQueued++;
   const run = captureChain.then(async () => {
     const wait = Math.max(0, MIN_GAP_MS - (Date.now() - lastCaptureAt));
     if (wait) await new Promise((r) => setTimeout(r, wait));
-    try { return await fn(); } finally { lastCaptureAt = Date.now(); }
+    try { return await fn(); } finally { lastCaptureAt = Date.now(); capturesQueued--; }
   });
   captureChain = run.catch(() => {});
   return run;
@@ -340,6 +383,52 @@ async function finishCapture(tab, capture, id, expectedUrl) {
   }
 }
 
+// ---------- recording a flow ----------
+// Per tab in storage.session: it outlives the worker being suspended and the page navigating, and
+// goes with the browser session. Every step is redacted here, like page context; without the
+// redactor its text and URL are dropped (fail closed).
+const REC = (tabId) => "rec:" + tabId;
+const MAX_STEPS = 10;
+let recChain = Promise.resolve();
+const withRec = (fn) => { const run = recChain.then(fn); recChain = run.catch(() => {}); return run; };
+const getRec = async (tabId) => (await api.storage.session.get({ [REC(tabId)]: null }))[REC(tabId)];
+api.tabs.onRemoved.addListener((id) => api.storage.session.remove(REC(id)).catch(() => {}));
+
+function cleanStep(s) {
+  const R = globalThis.pinpointRedact || (() => "");
+  const at = Date.parse(s?.at);
+  return {
+    selector: String(s?.selector ?? "").slice(0, 300),
+    describe: R(s?.describe).slice(0, 120),
+    text: R(s?.text).slice(0, 120),
+    url: R(s?.url),
+    at: new Date(Number.isFinite(at) ? at : Date.now()).toISOString(),
+  };
+}
+
+// The crop of a step is a convenience. When another picture is queued or running, the step is kept
+// without one rather than queued: captureVisibleTab allows about two a second, and a queued crop
+// taken after a click has navigated would show the wrong page anyway.
+async function recordStep(tab, msg) {
+  const shoot = !!msg.capture?.rect && !captureBusy();
+  // Claimed now, before the storage round trip, so a second click a moment later sees it.
+  const shot = shoot ? queueCapture(async () => {
+    if ((await tabState(tab, msg.step?.url)) !== "ready") return null;
+    return captureElement(tab.windowId, msg.capture.rect, msg.capture.dpr, 8, 600);
+  }).catch(() => null) : Promise.resolve(null);
+  return withRec(async () => {
+    const rec = await getRec(tab.id);
+    if (!rec) return { ok: false };
+    if (rec.steps.length >= MAX_STEPS) return { ok: false, full: true, n: rec.steps.length };
+    const step = cleanStep(msg.step);
+    step.screenshot = await shot;
+    if (!step.screenshot) step.screenshotSkipped = shoot ? "the picture could not be taken" : "no crop — another picture was being taken";
+    rec.steps.push(step);
+    await api.storage.session.set({ [REC(tab.id)]: rec });
+    return { ok: true, n: rec.steps.length, full: rec.steps.length >= MAX_STEPS };
+  });
+}
+
 // ---------- re-checking a pin against the live page ----------
 // An agent asked whether an element is still what the developer marked. Only the page can answer,
 // so this finds a tab showing it, has the content script re-identify the element, and crops it
@@ -371,8 +460,10 @@ async function answerRecheck({ reqId, id, url }) {
     if (!found.found) return void (await send({ status: "ok", element: null, url: found.url }));
 
     let screenshot = null, screenshotSkipped = null;
+    // An older content script sends no `hide`: hide, as before.
+    const hide = found.hide !== false;
     if (found.capture) {
-      await api.tabs.sendMessage(tab.id, { type: "hideForCapture" }).catch(() => {});
+      if (hide) await api.tabs.sendMessage(tab.id, { type: "hideForCapture" }).catch(() => {});
       try {
         const shot = await queueCapture(async () => {
           const state = await waitUntilCapturable(tab, tab.url, 2000);
@@ -388,9 +479,9 @@ async function answerRecheck({ reqId, id, url }) {
       } catch (e) {
         screenshotSkipped = "the picture could not be taken";
       }
-      api.tabs.sendMessage(tab.id, { type: "captureDone" }).catch(() => {});
+      if (hide) api.tabs.sendMessage(tab.id, { type: "captureDone" }).catch(() => {});
     } else {
-      screenshotSkipped = "the element is not visible on screen";
+      screenshotSkipped = found.busy ? "Pinpoint's own panel was in front of it" : "the element is not visible on screen";
     }
     await send({ status: "ok", element: found.element, selectorStillMatches: found.selectorStillMatches, url: found.url, screenshot, screenshotSkipped });
   } catch (e) {
@@ -474,6 +565,7 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       // while the screenshot is being taken.
       case "submit": {
         if (sender.tab) msg.annotation.page = { ...msg.annotation.page, topUrl: sender.tab.url || null, frameId: sender.frameId || 0 };
+        msg.annotation.context = pageContext(sender.tab?.id, msg.annotation.context);
         const result = await bridgeFetch("/annotations", {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -492,6 +584,30 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       // A pin telling us the page has moved underneath it. Fire and forget: the bridge stores it
       // without bumping its version, so this can never turn into a reload loop.
+      // Only the top frame of a tab records; the steps are the worker's, not the page's.
+      case "recordStart": {
+        if (!sender.tab?.id || sender.frameId) return { ok: false };
+        await withRec(() => api.storage.session.set({ [REC(sender.tab.id)]: { steps: [], startedAt: Date.now() } }));
+        return { ok: true };
+      }
+      case "recordState": {
+        if (!sender.tab?.id) return { recording: false };
+        const rec = await withRec(() => getRec(sender.tab.id));
+        return { recording: !!rec, n: rec?.steps.length || 0 };
+      }
+      case "recordStep": {
+        if (!sender.tab?.id || sender.frameId) return { ok: false };
+        return recordStep(sender.tab, msg);
+      }
+      // Done hands the steps back for the note; Esc just throws them away.
+      case "recordStop": {
+        if (!sender.tab?.id) return { ok: false };
+        return withRec(async () => {
+          const rec = await getRec(sender.tab.id);
+          await api.storage.session.remove(REC(sender.tab.id));
+          return { ok: true, steps: msg.keep ? rec?.steps || [] : [] };
+        });
+      }
       case "elementState": {
         try {
           await bridgeFetch(`/annotations/${encodeURIComponent(msg.id)}/element-state`, {
@@ -523,6 +639,16 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return bridgeFetch(`/annotations/${encodeURIComponent(msg.id)}/answer`, {
           method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: String(msg.text || "") }),
         });
+      }
+      // The panel: a done note's before/after pictures, and a request for an after it has not got.
+      case "get": {
+        return bridgeFetch(`/annotations/${encodeURIComponent(String(msg.id))}`);
+      }
+      case "after": {
+        return bridgeFetch(`/annotations/${encodeURIComponent(String(msg.id))}/after`, { method: "POST" });
+      }
+      case "accept": {
+        return bridgeFetch(`/annotations/${encodeURIComponent(msg.id)}/accept`, { method: "POST" });
       }
       case "sendDrafts": {
         const r = await bridgeFetch("/annotations/send-drafts", {

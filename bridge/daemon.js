@@ -14,6 +14,8 @@ import * as android from "./android.js";
 import { DEFAULT_PORT, DATA_FILE, load, save, pending, pendingMarkdown, summaryLine, findAnnotation, pageKeyOf, bridgeToken } from "./store.js";
 
 const MAX_RESOLVED = Number(process.env.PINPOINT_MAX_RESOLVED) || 200;
+// After crops are the heavy part of a done note; only the newest ones keep their pixels.
+const AFTER_KEEP = 20;
 // Our own launch command, so the extension can tell you how to start us and the native host can
 // find us. process.argv[1] is wrong under the `bin` shim; this is the file that is actually here.
 const CLI_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "cli.js");
@@ -31,7 +33,20 @@ export function restartArgs({ port, project = null, quiet = false, print = false
 
 // `restartable` is off by default on purpose: POST /restart re-execs the process and exits it, and
 // a daemon embedded in someone else's process (the test suite) must never do that to its host.
-export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOINT_PROJECT || null, print = false, quiet = false, restartable = false } = {}) {
+// Every image an annotation carries, as its size only.
+const size = (x) => (x ? { width: x.width, height: x.height } : null);
+function withoutPixels(a) {
+  const out = { ...a, screenshot: size(a.screenshot) };
+  if (Array.isArray(a.steps)) out.steps = a.steps.map((st) => ({ ...st, screenshot: size(st.screenshot) }));
+  if (a.after) out.after = { ...a.after, screenshot: size(a.after.screenshot) };
+  return out;
+}
+
+// `afterDelay`: how long after a resolve to look at the element again (the dev server needs a moment
+// to rebuild). 0 turns it off. `afterWindow`: how long after a resolve the panel may still ask for
+// one; later, the page shows whatever happened since, not the agent's change.
+export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOINT_PROJECT || null, print = false, quiet = false, restartable = false,
+                              afterDelay = Number(process.env.PINPOINT_AFTER_DELAY ?? 3000), afterWindow = 10 * 60000 } = {}) {
   let db = load();
   const token = bridgeToken();
   const events = new EventEmitter();
@@ -66,7 +81,7 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
       if (!fs.existsSync(ignore)) fs.writeFileSync(ignore, "*\n");
       fs.writeFileSync(path.join(dir, "pending.md"), pendingMarkdown(db, { channel: "file", cliPath: CLI_PATH, port }));
       const stripped = pending(db).map((a) => ({
-        ...a,
+        ...withoutPixels(a),
         screenshot: a.screenshot ? { width: a.screenshot.width, height: a.screenshot.height, note: "not included in this file; read it over MCP (get_annotation) or from the bridge" } : null,
       }));
       fs.writeFileSync(path.join(dir, "pending.json"), JSON.stringify(stripped, null, 2));
@@ -84,6 +99,9 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
   // Outstanding "is this element still there?" questions, keyed by request id. Bounded by their
   // own deadlines: a question nobody answers expires rather than accumulating.
   const rechecks = new Map();
+  const afterBusy = new Set();
+  // Only a page the browser can show, and only while the extension is around to look at it.
+  const canLook = (a) => /^(https?|file):/i.test(pageKeyOf(a)) && !!extensionSeenAt && Date.now() - Date.parse(extensionSeenAt) < 120000;
 
   const api = {
     async db() { return db; },
@@ -96,6 +114,9 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
       // A draft is marked but not handed over: no agent sees it until the developer sends it.
       a.status = a.status === "draft" ? "draft" : "pending";
       a.receivedAt = new Date().toISOString();
+      // A recorded flow: the extension caps it at ten, and so does the store.
+      if (Array.isArray(a.steps)) a.steps = a.steps.slice(0, 10).filter((x) => x && typeof x === "object");
+      else delete a.steps;
       db.annotations.push(a);
       // Keep the store bounded: only the most recent resolved annotations are kept.
       const resolved = db.annotations.filter((x) => x.status === "resolved");
@@ -128,10 +149,14 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
       const first = a.status === "resolved" ? a.resolvedBy || "another agent" : null;
       a.status = "resolved";
       a.resolvedAt = new Date().toISOString();
+      delete a.acceptedAt; // a new answer has not been accepted yet
       if (note) a.resolution = note;
       if (by) a.resolvedBy = by;
+      delete a.after; // a new answer gets its own after
       persist();
       log(`resolved: #${a.number} ${a.comment}${note ? "  — " + note : ""}`);
+      // unref: a pending look must never keep a process (the CLI, a test) alive.
+      if (afterDelay > 0 && canLook(a)) setTimeout(() => api.captureAfter(a.id).catch(() => {}), afterDelay).unref?.();
       return first ? "already" : true;
     },
     // The agent asks instead of resolving — the request is ambiguous, or it needs a decision. The
@@ -156,6 +181,7 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
         a.thread.push({ by: "agent", name: a.resolvedBy || null, text: a.resolution || "marked it done", at: a.resolvedAt || null, kind: "resolution" });
         delete a.resolution; delete a.resolvedAt; delete a.resolvedBy;
       }
+      delete a.acceptedAt;
       a.thread.push({ by: "you", text: String(text), at: new Date().toISOString() });
       a.status = "pending";
       delete a.notifiedAt;
@@ -163,6 +189,16 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
       persist();
       events.emit("added", a);
       log(`answered: #${a.number} ${text}`);
+      return true;
+    },
+    // The developer looked at the finished change and is happy with it. Only a resolved note can be
+    // accepted; reopening it or resolving it again clears the mark.
+    async accept(id) {
+      const a = find(id);
+      if (!a || a.status !== "resolved") return false;
+      a.acceptedAt = new Date().toISOString();
+      persist();
+      log(`accepted: #${a.number} ${a.comment}`);
       return true;
     },
     // Drafts go out together, when the developer says so — for one page, or everywhere.
@@ -279,7 +315,34 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
     async recheck(id, timeoutMs = 10000) {
       const req = api.requestRecheck(id, timeoutMs);
       if (!req) return { status: "not_found" };
-      return api.waitForRecheck(req, timeoutMs);
+      const r = await api.waitForRecheck(req, timeoutMs);
+      // Someone looked: resolve_annotation stops warning that the element was never re-checked.
+      const a = find(req.id);
+      if (a && r?.status === "ok") { a.element.recheckedAt = new Date().toISOString(); save(db); }
+      return r;
+    },
+    // What the element looks like now that the note is done, next to the crop from when it was
+    // marked. Kept only if the note is still the same resolved answer when the picture comes back.
+    async captureAfter(id) {
+      const a = find(id);
+      if (!a || a.status !== "resolved" || a.after || !canLook(a) || afterBusy.has(a.id)) return false;
+      afterBusy.add(a.id);
+      try {
+        const at = a.resolvedAt;
+        const r = await api.recheck(a.id, 10000);
+        const now = find(a.id);
+        if (!now || now.status !== "resolved" || now.resolvedAt !== at) return false;
+        // Gone: say so, and the panel stops asking. Busy or off screen: a later look may still get it.
+        if (r?.status === "ok" && !r.element) { now.after = { at: new Date().toISOString(), resolvedAt: at, missing: true }; persist(); return false; }
+        if (!r?.screenshot?.base64) return false;
+        now.after = { at: new Date().toISOString(), resolvedAt: at, screenshot: r.screenshot };
+        const kept = db.annotations.filter((x) => x.status === "resolved" && x.after?.screenshot)
+          .sort((x, y) => String(y.after.at).localeCompare(String(x.after.at)));
+        // The record stays without its pixels, so the panel does not keep asking for it.
+        for (const x of kept.slice(AFTER_KEEP)) delete x.after.screenshot;
+        persist();
+        return true;
+      } finally { afterBusy.delete(a.id); }
     },
     waitForRecheck(req, timeoutMs) {
       if (req.result) return Promise.resolve(req.result);
@@ -458,11 +521,9 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
         const match = status === "all" ? () => true : status === "open" ? (a) => a.status !== "resolved" : (a) => a.status === status;
         const items = db.annotations.filter((a) => match(a) && (!u || a.page.url.split("#")[0] === u));
         const withImages = url.searchParams.get("images") === "1";
-        return json(res, 200, { version, agent: api.agent(), annotations: withImages ? items : items.map(({ screenshot, ...a }) => ({
-          // Keep the size, drop the pixels: text consumers (the hook, the popup) still say "a 340×120
-          // screenshot is stored" without pulling megabytes of base64 on every prompt.
-          ...a, hasScreenshot: !!screenshot, screenshot: screenshot ? { width: screenshot.width, height: screenshot.height } : null,
-        })) });
+        // Keep the size, drop the pixels: text consumers (the hook, the popup) still say "a 340×120
+        // screenshot is stored" without pulling megabytes of base64 on every prompt.
+        return json(res, 200, { version, agent: api.agent(), annotations: withImages ? items : items.map((a) => ({ ...withoutPixels(a), hasScreenshot: !!a.screenshot })) });
       }
 
       if (p === "/annotations" && req.method === "POST") {
@@ -495,7 +556,7 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
         return json(res, 200, { annotation: full });
       }
 
-      const m = p.match(/^\/annotations\/([^/]+)(\/resolve|\/reply|\/answer|\/screenshot|\/notified|\/element-state|\/recheck)?$/);
+      const m = p.match(/^\/annotations\/([^/]+)(\/resolve|\/after|\/accept|\/reply|\/answer|\/screenshot|\/notified|\/element-state|\/recheck)?$/);
       if (m) {
         const id = decodeURIComponent(m[1]);
         if (req.method === "DELETE") return json(res, 200, { ok: await api.remove(id) });
@@ -503,6 +564,18 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
           let body = {};
           try { body = (await readBody(req)) || {}; } catch {}
           return json(res, 200, { ok: await api.resolve(id, body.note, body.by) });
+        }
+        if (req.method === "POST" && m[2] === "/accept") return json(res, 200, { ok: await api.accept(id) });
+        // The panel showing a done note that has no after yet (its tab was not in front at resolve
+        // time). Answers at once; the crop lands with the next version bump. Only within afterWindow
+        // (older notes, and those done before after crops existed, are left alone), and never before
+        // afterDelay is up: the done card asks the moment the resolve arrives, mid-rebuild.
+        if (req.method === "POST" && m[2] === "/after") {
+          const a = find(id);
+          const since = a ? Date.now() - Date.parse(a.resolvedAt) : NaN;
+          const ok = !!a && a.status === "resolved" && !a.after && canLook(a) && since < afterWindow;
+          if (ok) setTimeout(() => api.captureAfter(a.id).catch(() => {}), Math.max(0, afterDelay - since)).unref?.();
+          return json(res, 200, { ok });
         }
         if (req.method === "POST" && (m[2] === "/reply" || m[2] === "/answer")) {
           let body = {};

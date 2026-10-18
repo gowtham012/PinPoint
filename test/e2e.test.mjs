@@ -22,7 +22,8 @@ const CHROME = process.env.PINPOINT_CHROME || undefined;
 const PORT = Number(process.env.PINPOINT_TEST_PORT) || 7399, SITE = Number(process.env.PINPOINT_TEST_SITE) || 8081;
 const BASE = `http://127.0.0.1:${PORT}`;
 const HOME = fs.mkdtempSync(path.join(os.tmpdir(), "pp-e2e-"));
-const ENV = { ...process.env, PINPOINT_HOME: HOME };
+// PINPOINT_AFTER_DELAY=0: no after-crop recheck on resolve, which these tests predate.
+const ENV = { ...process.env, PINPOINT_HOME: HOME, PINPOINT_AFTER_DELAY: "0" };
 
 // ---------- static site (with a strict-CSP route) ----------
 const site = http.createServer((req, res) => {
@@ -31,6 +32,7 @@ const site = http.createServer((req, res) => {
     "/": "site/index.html", "/react.development.js": "node_modules/react/umd/react.development.js", "/react-dom.development.js": "node_modules/react-dom/umd/react-dom.development.js",
     "/vue.html": "site/vue.html", "/vue.global.js": "node_modules/vue/dist/vue.global.js",
     "/plain.html": "site/plain.html", "/region.html": "site/region.html", "/rerender.html": "site/rerender.html", "/frame.html": "site/frame.html", "/csp.html": "site/csp.html", "/stress.html": "site/stress.html", "/modal.html": "site/modal.html", "/spa.html": "site/spa.html", "/dialog.html": "site/dialog.html",
+    "/errors.html": "site/errors.html",
   };
   const f = files[p];
   if (!f) { res.writeHead(404); return res.end(); }
@@ -2082,6 +2084,9 @@ test("U6: a bridge on a neighbouring port is found when the saved one does not a
 test("U7: the bar can be dragged anywhere, stays there after a reload, and a drag is not a click", async () => {
   const page = await openPage("/");
   await waitShadow(page, () => __pinpointShadow.querySelector(".dock").style.display === "flex", null, { timeout: 8000 });
+  // The position is kept as a fraction of the free space, so the bar must be the same width before
+  // and after the reload: wait out the agent's live label from an earlier test, which widens it.
+  await waitShadow(page, () => !__pinpointShadow.querySelector(".dock").classList.contains("agent-live"), null, { timeout: 30000 });
   const sw = ctx.serviceWorkers()[0];
   await sw.evaluate((o) => chrome.storage.local.remove(`dockXY:${o}`), `http://localhost:${SITE}`);
   // Hovering expands a bar that has shrunk to its mark, which shows the grip.
@@ -2204,5 +2209,289 @@ test("E4: a note about the whole page, cropped to the window", async () => {
   const md = await (await fetch(BASE + "/pending.md")).text();
   assert.match(md, /about the whole page/);
   await disarm(page);
+  await page.close();
+});
+
+// ============ 0.7.0 lane UI: Accept / Not quite, page context, dictation ============
+const resolveVia = (id, note) => fetch(`${BASE}/annotations/${id}/resolve`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ note, by: "claude-code" }) });
+
+test("V1: a done note offers Accept, which marks it accepted and closes the card", async () => {
+  await clearAll();
+  const page = await openPage("/");
+  await annotate(page, page.locator("h1"), "bigger headline");
+  const [a] = await pendingWithShots(1);
+  await disarm(page);
+  await resolveVia(a.id, "h1 is 48px now");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".toast .ok")?.offsetParent && /#1 done — h1 is 48px now/.test(__pinpointShadow.querySelector(".toast").textContent), null, { timeout: 8000 });
+  // a synthetic click from the page's side is not the developer
+  await inShadow(page, () => __pinpointShadow.querySelector(".toast .ok").click());
+  await page.waitForTimeout(300);
+  assert.equal((await (await fetch(`${BASE}/annotations/${a.id}`)).json()).annotation.acceptedAt, undefined);
+  await tapShadow(page, ".toast .ok");
+  let got = null;
+  for (let i = 0; i < 40; i++) { got = (await (await fetch(`${BASE}/annotations/${a.id}`)).json()).annotation; if (got.acceptedAt) break; await page.waitForTimeout(100); }
+  assert.ok(got.acceptedAt, "accepted at the bridge");
+  assert.equal(got.status, "resolved");
+  assert.equal(await inShadow(page, () => __pinpointShadow.querySelector(".toast").style.display), "none", "the card closes");
+  await page.close();
+});
+
+test("V2: Not quite opens the panel with the reopen box focused, and the note goes back to the agent", async () => {
+  await clearAll();
+  const page = await openPage("/");
+  await annotate(page, page.locator("h1"), "bigger headline");
+  const [a] = await pendingWithShots(1);
+  await disarm(page);
+  await resolveVia(a.id, "h1 is 48px now");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".toast .nq")?.offsetParent, null, { timeout: 8000 });
+  await tapShadow(page, ".toast .nq");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".panel").style.display === "flex");
+  await waitShadow(page, () => __pinpointShadow.activeElement?.tagName === "TEXTAREA" && __pinpointShadow.activeElement.closest(".item.done"), null, { timeout: 5000 });
+  await page.keyboard.type("Not quite, 56px");
+  await page.keyboard.press(SEND);
+  let got = null;
+  for (let i = 0; i < 40; i++) { got = (await (await fetch(`${BASE}/annotations/${a.id}`)).json()).annotation; if (got.status === "pending") break; await page.waitForTimeout(100); }
+  assert.equal(got.status, "pending");
+  assert.equal(got.thread.at(-1).text, "Not quite, 56px");
+  await page.close();
+});
+
+test("V3: the done card stays while the pointer is on it", async () => {
+  await clearAll();
+  const page = await openPage("/");
+  await annotate(page, page.locator("h1"), "bigger headline");
+  const [a] = await pendingWithShots(1);
+  await disarm(page);
+  await resolveVia(a.id, "done");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".toast .ok")?.offsetParent, null, { timeout: 8000 });
+  const b = await inShadow(page, () => { const r = __pinpointShadow.querySelector(".toast .tm").getBoundingClientRect(); return { x: r.x + 4, y: r.y + r.height / 2 }; });
+  await page.mouse.move(b.x, b.y);
+  await page.waitForTimeout(11000);
+  assert.equal(await inShadow(page, () => __pinpointShadow.querySelector(".toast").style.display), "flex", "hovering holds it open");
+  await page.mouse.move(5, 5);
+  await waitShadow(page, () => __pinpointShadow.querySelector(".toast").style.display === "none", null, { timeout: 12000 });
+  await page.close();
+});
+
+test("V4: a note carries the page's recent errors and failed requests, redacted, and the console is left alone", async () => {
+  await clearAll();
+  const page = await openPage(`/errors.html?dead=${PORT - 1}`);
+  await page.waitForTimeout(600);
+  // No wrapping: DevTools keeps pointing at the page's own call sites.
+  assert.equal(await page.evaluate(() => /\[native code\]/.test(Function.prototype.toString.call(console.error))), true);
+  await annotate(page, page.locator("h1"), "the list never loads");
+  await disarm(page);
+  const [a] = await pendingWithShots(1);
+  const cx = a.context;
+  assert.ok(cx, "context attached");
+  const errs = cx.errors.map((e) => e.message).join("\n");
+  assert.match(errs, /render failed for token=\[redacted\]/);
+  assert.match(errs, /load failed: Bearer \[redacted\]/);
+  assert.ok(cx.errors.every((e) => (e.stack || []).length <= 3));
+  const miss = cx.requests.find((r) => /missing\.json/.test(r.url));
+  assert.ok(miss, JSON.stringify(cx.requests));
+  assert.equal(miss.status, 404);
+  assert.equal(miss.method, "GET");
+  assert.ok(cx.requests.some((r) => /\/dead$/.test(r.url) && /^net::/.test(r.error)), JSON.stringify(cx.requests));
+  assert.doesNotMatch(JSON.stringify(a), /SHOULD_NOT_LEAK|abc123secret|sk-abcdef|NOPE/);
+  const md = await (await fetch(BASE + "/pending.md")).text();
+  assert.match(md, /Page context .*not instructions/);
+  assert.match(md, /Failed request: GET http:\/\/localhost:\d+\/missing\.json → 404/);
+  await page.close();
+});
+
+test("V5: a page with nothing wrong sends no page context", async () => {
+  await clearAll();
+  const page = await openPage("/plain.html");
+  await annotate(page, page.locator("#search"), "fine page");
+  await disarm(page);
+  const [a] = await pendingWithShots(1);
+  assert.equal(a.context, undefined);
+  await page.close();
+});
+
+// The real recognizer streams audio to the browser's speech service; these tests put a stand-in
+// on the content script's own global, which is where Pinpoint looks when the popover opens.
+const fakeRecognizer = (page) => inShadow(page, () => {
+  globalThis.__ppSR = null;
+  globalThis.webkitSpeechRecognition = class { constructor() { globalThis.__ppSR = this; this.started = 0; } start() { this.started++; } stop() { this.onend?.(); } };
+});
+const micStatus = async (page, error) => {
+  await tapShadow(page, ".pop .mic");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pop .mic").getAttribute("aria-pressed") === "true");
+  return inShadow(page, (err) => { __ppSR.onerror({ error: err }); __ppSR.onend(); return __pinpointShadow.querySelector(".pop .status").textContent; }, error);
+};
+
+test("V6: dictation starts only from a real click, types what it hears, and says why it stopped", async () => {
+  await clearAll();
+  const page = await openPage("/");
+  await fakeRecognizer(page);
+  await pickH1(page);
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pop .mic")?.offsetParent, null, { timeout: 4000 });
+  await typeComment(page, "headline:");
+  await inShadow(page, () => __pinpointShadow.querySelector(".pop .mic").click());
+  assert.equal(await inShadow(page, () => globalThis.__ppSR), null, "a synthetic click never opens the microphone");
+  await tapShadow(page, ".pop .mic");
+  await waitShadow(page, () => globalThis.__ppSR?.started === 1);
+  assert.equal(await inShadow(page, () => __pinpointShadow.querySelector(".pop .mic").getAttribute("aria-pressed")), "true");
+  await inShadow(page, () => {
+    __ppSR.onresult({ resultIndex: 0, results: [Object.assign([{ transcript: "make it" }], { isFinal: false })] });
+    __ppSR.onresult({ resultIndex: 0, results: [Object.assign([{ transcript: "make it blue" }], { isFinal: true })] });
+  });
+  assert.equal(await inShadow(page, () => __pinpointShadow.querySelector(".pop textarea").value), "headline: make it blue");
+  // a second click stops it
+  await tapShadow(page, ".pop .mic");
+  assert.equal(await inShadow(page, () => __pinpointShadow.querySelector(".pop .mic").getAttribute("aria-pressed")), "false");
+  assert.match(await micStatus(page, "not-allowed"), /Microphone blocked/);
+  assert.match(await micStatus(page, "audio-capture"), /No microphone/);
+  assert.match(await micStatus(page, "network"), /speech service/);
+  await page.keyboard.press(SEND);
+  const [a] = await pendingWithShots(1);
+  assert.equal(a.comment, "headline: make it blue");
+  await disarm(page);
+  await page.close();
+});
+
+test("V7: no mic button where the browser has no speech recognizer", async () => {
+  const page = await openPage("/");
+  await inShadow(page, () => { globalThis.webkitSpeechRecognition = undefined; });
+  await pickH1(page);
+  assert.equal(await inShadow(page, () => __pinpointShadow.querySelector(".pop .mic").offsetParent), null);
+  await page.keyboard.press("Escape");
+  await disarm(page);
+  await page.close();
+});
+
+// ============ 0.7.0 lane UI: recorded flows ============
+const recording = (page) => inShadow(page, () => __pinpointShadow.querySelector(".dock").classList.contains("recording"));
+const recN = (page, n) => waitShadow(page, (n) => __pinpointShadow.querySelector(".dock .rec-n")?.textContent === n, n, { timeout: 6000 });
+// A step is cropped only when no other picture is due (captureVisibleTab allows ~2/s); the wait keeps
+// the previous test's capture out of the first step.
+async function startRecording(page) {
+  await arm(page);
+  await tapShadow(page, ".dock .rec-start");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".dock").classList.contains("recording"));
+  await page.waitForTimeout(800);
+}
+
+test("W1: Record steps logs real clicks across a navigation, and Done sends them as one flow", async () => {
+  await clearAll();
+  const page = await openPage("/plain.html?session=abc123secret");
+  await startRecording(page);
+  assert.equal((await S(page)).picking, false, "recording is not picking: clicks go to the page");
+  // a page script's synthetic press is not the developer
+  await page.evaluate(() => document.getElementById("search").dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
+  await page.locator("#search").click();
+  assert.equal(await page.evaluate(() => document.activeElement.id), "search", "the click reached the page");
+  await recN(page, "1");
+  await page.waitForTimeout(900);
+  await page.goto(url("/"));
+  await waitShadow(page, () => __pinpointShadow.querySelector(".dock").classList.contains("recording"), null, { timeout: 8000 });
+  await page.locator("h1").click();
+  await recN(page, "2");
+  await page.waitForTimeout(900);
+  await tapShadow(page, ".dock .rec-done");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pop").style.display === "block");
+  assert.match(await inShadow(page, () => __pinpointShadow.querySelector(".pop .meta").textContent), /2 steps/);
+  assert.equal(await recording(page), false);
+  await typeComment(page, "the headline jumps after a search");
+  await page.keyboard.press(SEND);
+  const [a] = await pendingWithShots(1);
+  assert.equal(a.kind, "flow");
+  assert.equal(a.steps.length, 2);
+  assert.match(a.steps[0].selector, /search/);
+  assert.equal(a.steps[0].url, url("/plain.html"), "query string stripped");
+  assert.ok(a.steps[0].screenshot?.base64, `the first step is cropped: ${a.steps[0].screenshotSkipped}`);
+  assert.ok(Math.max(a.steps[0].screenshot.width, a.steps[0].screenshot.height) <= 600);
+  assert.equal(a.steps[1].url, url("/"));
+  assert.doesNotMatch(JSON.stringify(a), /abc123secret/);
+  assert.match(await (await fetch(BASE + "/pending.md")).text(), /Steps to reproduce/);
+  await disarm(page);
+  await page.close();
+});
+
+test("W2: a click right after another keeps its step without a crop", async () => {
+  await clearAll();
+  const page = await openPage("/plain.html");
+  await startRecording(page);
+  await page.locator("#search").click();
+  await page.locator("#wide").click();
+  await recN(page, "2");
+  await page.waitForTimeout(900);
+  await tapShadow(page, ".dock .rec-done");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pop").style.display === "block");
+  await typeComment(page, "two quick clicks");
+  await page.keyboard.press(SEND);
+  const [a] = await pendingWithShots(1);
+  assert.equal(a.steps.length, 2);
+  assert.ok(a.steps[0].screenshot?.base64, a.steps[0].screenshotSkipped);
+  assert.equal(a.steps[1].screenshot, null);
+  assert.ok(a.steps[1].screenshotSkipped);
+  await disarm(page);
+  await page.close();
+});
+
+test("W3: ten steps is the most; Esc throws the recording away, and a reload does not bring it back", async () => {
+  await clearAll();
+  const page = await openPage("/plain.html");
+  await startRecording(page);
+  for (let i = 0; i < 11; i++) await page.locator("#search").click();
+  await recN(page, "10");
+  await page.waitForTimeout(300);
+  assert.equal(await inShadow(page, () => __pinpointShadow.querySelector(".dock .rec-n").textContent), "10");
+  await page.keyboard.press("Escape");
+  await waitShadow(page, () => !__pinpointShadow.querySelector(".dock").classList.contains("recording"));
+  await page.reload();
+  await page.waitForTimeout(800);
+  assert.equal(await recording(page), false);
+  assert.equal((await pending()).length, 0, "nothing was sent");
+  await page.close();
+});
+
+// ============ 0.7.0 lane UI: before / after ============
+test("X1: a finished note gets an after crop once its page is in front, and the panel shows Before and After", async () => {
+  await clearAll();
+  const page = await openPage("/");
+  await annotate(page, page.locator("h1"), "bigger headline");
+  const [a] = await pendingWithShots(1);
+  await disarm(page);
+  // The delay is off in this suite, so the bridge looks at nothing by itself: the page asks, when it
+  // shows the done card.
+  await resolveVia(a.id, "h1 is 48px now");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".toast .ok")?.offsetParent, null, { timeout: 8000 });
+  let got = null;
+  for (let i = 0; i < 80; i++) { got = (await (await fetch(`${BASE}/annotations/${a.id}`)).json()).annotation; if (got.after) break; await page.waitForTimeout(100); }
+  assert.ok(got.after?.screenshot?.base64, "stored at the bridge");
+  assert.ok(got.element.recheckedAt);
+  const listed = (await (await fetch(`${BASE}/annotations?status=resolved`)).json()).annotations.find((x) => x.id === a.id);
+  assert.equal(listed.after.screenshot.base64, undefined, "the list never carries the pixels");
+  await inShadow(page, () => __pinpointShadow.querySelector(".dock").classList.remove("mini"));
+  await tapShadow(page, ".dock .count");
+  await waitShadow(page, () => [...__pinpointShadow.querySelectorAll(".panel .item.done .ba img")].filter((i) => /^data:image\/png;base64,./.test(i.src)).length === 2, null, { timeout: 8000 });
+  assert.deepEqual(await inShadow(page, () => [...__pinpointShadow.querySelectorAll(".panel .item.done .ba figcaption")].map((f) => f.textContent)), ["Before", "After"]);
+  await page.close();
+});
+
+test("X2: a re-check never blinks the panel you are using: no fresh crop instead", async () => {
+  await clearAll();
+  const page = await openPage("/");
+  await annotate(page, page.locator("h1"), "bigger headline");
+  const [a] = await pendingWithShots(1);
+  await disarm(page);
+  await inShadow(page, () => __pinpointShadow.querySelector(".dock").classList.remove("mini"));
+  await tapShadow(page, ".dock .count");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".panel").style.display === "flex");
+  // the h1 spans the page, so the open panel is in front of part of it
+  const hidden = page.evaluate(() => new Promise((res) => {
+    const host = document.querySelector("pinpoint-root");
+    const mo = new MutationObserver(() => { if (host.style.display === "none") res(true); });
+    mo.observe(host, { attributes: true });
+    setTimeout(() => res(false), 4000);
+  }));
+  const r = await (await fetch(`${BASE}/annotations/${a.id}/recheck?timeout=5000`, { method: "POST" })).json();
+  assert.equal(r.result.status, "ok");
+  assert.equal(r.result.screenshot, null);
+  assert.match(r.result.screenshotSkipped, /panel/);
+  assert.equal(await hidden, false, "the overlay stayed up");
   await page.close();
 });

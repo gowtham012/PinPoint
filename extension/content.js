@@ -15,6 +15,7 @@
   let pins = []; // { id, number, selector, comment, el }
   let replies = []; // resolved annotations for this page, with what the agent said back
   let pickChain = [], pickIndex = 0; // the element stack under the last click, and where we sit in it
+  let recording = false, recN = 0, flowSteps = null; // a flow being recorded; its steps once Done
 
   const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
   const K_SEND = MAC ? "\u2318\u21a9" : "Ctrl+Enter";
@@ -166,6 +167,15 @@
       .dock .page-note { display: none; }
       .dock.armed .page-note { display: inline-flex; pointer-events: auto; color: var(--accent-ink); font-weight: 600; }
       .dock.armed .page-note:hover { background: rgba(0,0,0,.1); }
+      /* Recording a flow: a red light and a running count of steps; Done is the way out. */
+      .dock .rec-start, .dock .rec-done { display: none; }
+      .dock.armed .rec-start { display: inline-flex; pointer-events: auto; color: var(--accent-ink); font-weight: 600; }
+      .dock.armed .rec-start:hover { background: rgba(0,0,0,.1); }
+      .dock.recording .rec-done { display: inline-flex; font-weight: 600; }
+      .dock .rec-done .led { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); flex: none; animation: pulse 1.6s ease-in-out infinite; }
+      .dock.recording .toggle, .dock.recording .drafts, .dock.recording.armed .rec-start { display: none; }
+      .pop .steps { margin: 4px 0 0; padding-left: 18px; color: var(--paper-dim); font: 11px/1.5 var(--mono); max-height: 120px; overflow: auto; }
+      .pop .steps li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
       /* ---------- region marquee ---------- */
       .marquee { position: fixed; display: none; pointer-events: none; z-index: 3;
@@ -206,6 +216,10 @@
       .pop .status.ok { color: var(--ok); }
       .pop .ghost { color: var(--paper-dim); font: 500 12px var(--sans); border-radius: 8px; padding: 7px 10px; }
       .pop .ghost:hover { background: var(--graphite-2); color: var(--paper); }
+      /* Dictation: only where the browser has a recognizer. Red while it listens. */
+      .pop .mic { display: none; align-items: center; padding: 6px 8px; }
+      .pop .mic.avail { display: inline-flex; }
+      .pop .mic[aria-pressed="true"] { color: var(--danger); background: var(--graphite-2); }
       .pop .send { background: var(--accent); color: var(--accent-ink); display: inline-flex; gap: 8px; align-items: center;
                    border-radius: 8px; padding: 7px 8px 7px 13px; font: 600 12.5px var(--sans); }
       .pop .send:hover { background: color-mix(in srgb, var(--accent) 88%, #fff); }
@@ -292,6 +306,11 @@
       .panel form button { font: 600 11.5px var(--sans); border-radius: 7px; padding: 6px 11px; }
       .panel form .go { background: var(--accent); color: var(--accent-ink); }
       .panel form .no { color: var(--paper-faint); }
+      /* Before and after: the crop from when it was marked, and one from once the agent was done. */
+      .panel .ba { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; }
+      .panel .ba figure { margin: 0; min-width: 0; }
+      .panel .ba img { display: block; width: 100%; max-height: 90px; object-fit: contain; background: var(--graphite-2); border-radius: 6px; }
+      .panel .ba figcaption { font: 600 10.5px/1 var(--sans); color: var(--paper-faint); margin-top: 4px; }
       .panel .follow { margin-top: 6px; font: 500 11.5px var(--sans); color: var(--paper-faint); padding: 3px 0; }
       .panel .follow:hover { color: var(--accent); }
       .panel .group .send-all { margin-left: auto; font: 700 11.5px var(--sans); color: var(--accent-ink); background: var(--accent); padding: 4px 9px; border-radius: 7px; }
@@ -307,6 +326,14 @@
       .toast.action { pointer-events: auto; cursor: pointer; }
       .toast.action::before { background: var(--agent); }
       .toast.action::after { content: " ›"; color: var(--paper-faint); }
+      /* A finished note: the agent's reply, and whether it is what you meant. */
+      .toast.card { pointer-events: auto; align-items: center; gap: 10px; border-radius: 14px; padding: 7px 7px 7px 14px; }
+      .toast.card::before { background: var(--agent); margin-right: 0; flex: none; }
+      .toast.card .tm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+      .toast.card button { flex: none; font: 600 11.5px var(--sans); border-radius: 8px; padding: 6px 10px; }
+      .toast.card .ok { background: var(--accent); color: var(--accent-ink); }
+      .toast.card .nq { color: var(--paper-dim); }
+      .toast.card .nq:hover { color: var(--paper); background: var(--graphite-2); }
 
       @media (prefers-reduced-motion: reduce) {
         *, *::before, *::after { animation: none !important; transition-duration: 1ms !important; }
@@ -320,6 +347,8 @@
       <span class="grip" title="Drag to move the bar anywhere" aria-hidden="true"></span>
       <button class="toggle" aria-label="Pinpoint: pick an element" aria-pressed="false"><span class="mark" aria-hidden="true"></span><span class="label">Pinpoint</span><span class="hint"></span></button>
       <button class="page-note" title="A note about the whole page, not one element">Whole page</button>
+      <button class="rec-start" title="Click through what goes wrong; each click becomes a step">Record steps</button>
+      <button class="rec-done" title="Stop recording and write the note (Esc throws it away)"><span class="led" aria-hidden="true"></span>Recording · <span class="rec-n">0</span>&nbsp;· Done</button>
       <button class="stop" title="Stop picking">Stop&nbsp;<kbd>Esc</kbd></button>
       <button class="start" title="Start the Pinpoint bridge"><span class="led" aria-hidden="true"></span><span class="st">Bridge off · Start</span></button>
       <span class="sep"></span>
@@ -345,6 +374,7 @@
       <textarea rows="2" aria-label="What should change"></textarea>
       <div class="row2">
         <span class="status" role="status"></span>
+        <button class="ghost mic" aria-pressed="false" aria-label="Dictate" title="Dictate — your browser sends the audio to its speech service"><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1a7 7 0 0 0 6-6.9h-2Z"/></svg></button>
         <button class="ghost copy" title="Copy as a prompt, for any chat">Copy</button>
         <button class="ghost cancel" title="Close this and pick another element">Re-pick</button>
         <button class="ghost draft" title="Keep it on the page without sending it yet (Shift+Cmd/Ctrl+Enter)">Draft</button>
@@ -370,6 +400,9 @@
     dockToggle: shadow.querySelector(".dock .toggle"),
     dockStop: shadow.querySelector(".dock .stop"),
     dockPage: shadow.querySelector(".dock .page-note"),
+    recStart: shadow.querySelector(".dock .rec-start"),
+    recDone: shadow.querySelector(".dock .rec-done"),
+    recN: shadow.querySelector(".dock .rec-n"),
     dockDrafts: shadow.querySelector(".dock .drafts"),
     dockDraftsN: shadow.querySelector(".dock .drafts .dn"),
     draft: shadow.querySelector(".pop .draft"),
@@ -391,6 +424,7 @@
     send: shadow.querySelector(".pop .send"),
     sendKbd: shadow.querySelector(".pop .send kbd"),
     copy: shadow.querySelector(".pop .copy"),
+    mic: shadow.querySelector(".pop .mic"),
     cancel: shadow.querySelector(".pop .cancel"),
     status: shadow.querySelector(".pop .status"),
     who: shadow.querySelector(".who"),
@@ -635,6 +669,17 @@
     return { framework: null, components: [], file: null, line: null, column: null, attributes: {} };
   }
 
+  // The page's recent uncaught errors, from inspector.js in the MAIN world. Raw and untrusted: the
+  // worker validates and redacts them before they reach the bridge.
+  function pageErrors() {
+    let raw = null;
+    const on = (e) => { raw = e.detail; };
+    document.addEventListener("pinpoint:context-result", on, { once: true });
+    document.dispatchEvent(new CustomEvent("pinpoint:context"));
+    document.removeEventListener("pinpoint:context-result", on);
+    try { const v = JSON.parse(raw); return Array.isArray(v) ? v.slice(-20) : []; } catch { return []; }
+  }
+
   // A small identity card for the element, so a pin can tell whether the node its selector now
   // matches is really the thing the developer clicked. On pages that rebuild themselves with
   // innerHTML, a positional selector can otherwise silently point at a different element.
@@ -817,14 +862,16 @@
   function expandDock(ms = 4000) {
     ui.dock.classList.remove("mini");
     clearTimeout(miniTimer);
-    if (!picking) miniTimer = setTimeout(() => ui.dock.classList.add("mini"), ms);
+    if (!picking && !recording) miniTimer = setTimeout(() => ui.dock.classList.add("mini"), ms);
   }
 
   function paintDock() {
     if (!isTop) return;
     ui.dock.classList.toggle("armed", picking);
     ui.dockToggle.setAttribute("aria-pressed", String(picking));
-    if (picking) { clearTimeout(miniTimer); ui.dock.classList.remove("mini"); }
+    ui.dock.classList.toggle("recording", recording);
+    ui.recN.textContent = String(recN);
+    if (picking || recording) { clearTimeout(miniTimer); ui.dock.classList.remove("mini"); }
     else if (!ui.dock.classList.contains("mini")) expandDock();
     // While armed the Stop button carries the Esc affordance, so the hint just names the action.
     ui.dockHint.innerHTML = picking ? `Click any element` : `<kbd>${MAC ? "\u2325\u21e7A" : "Alt+Shift+A"}</kbd>`;
@@ -883,6 +930,8 @@
   ui.dockCount.addEventListener("click", (e) => { e.stopPropagation(); togglePanel(); });
   ui.dockDrafts.addEventListener("click", (e) => { e.stopPropagation(); sendDrafts(); });
   ui.dockPage.addEventListener("click", (e) => { e.stopPropagation(); e.preventDefault(); notePage(); });
+  ui.recStart.addEventListener("click", (e) => { e.stopPropagation(); e.preventDefault(); if (e.isTrusted) startRecording(); });
+  ui.recDone.addEventListener("click", (e) => { e.stopPropagation(); e.preventDefault(); if (e.isTrusted) finishRecording(); });
   async function sendDrafts() {
     const r = await chrome.runtime.sendMessage({ type: "sendDrafts", url: location.href.split("#")[0] }).catch(() => null);
     if (!r || r.error) return toast("Not sent — the bridge isn't answering");
@@ -926,31 +975,68 @@
     toast("Hidden on this site — the toolbar icon still works");
   });
 
-  let toastTimer = 0;
+  let toastTimer = 0, toastMs = 0;
+  const armToast = () => { clearTimeout(toastTimer); toastTimer = setTimeout(hideToast, toastMs); };
+  function hideToast() { clearTimeout(toastTimer); ui.toast.style.display = "none"; }
   function toast(msg, ms = 2200, onClick = null) {
+    ui.toast.className = "toast";
     ui.toast.textContent = msg;
     ui.toast.style.display = "block";
     ui.toast.classList.toggle("action", !!onClick);
-    ui.toast.onclick = onClick ? () => { ui.toast.style.display = "none"; onClick(); } : null;
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => (ui.toast.style.display = "none"), ms);
+    ui.toast.onclick = onClick ? () => { hideToast(); onClick(); } : null;
+    toastMs = ms;
+    armToast();
+  }
+  // Something you might be reading or reaching for does not vanish under the pointer.
+  ui.toast.addEventListener("mouseenter", () => clearTimeout(toastTimer));
+  ui.toast.addEventListener("mouseleave", () => { if (ui.toast.style.display !== "none") armToast(); });
+
+  // "#3 done": the agent's reply, and the two things you might say to it. Accept closes the loop;
+  // Not quite opens the reopen box on that note. Clicking the text opens the panel, as before.
+  function doneCard(a, more) {
+    toast("", 10000, () => togglePanel(true));
+    ui.toast.classList.replace("action", "card");
+    ui.toast.innerHTML = `<span class="tm"></span><button class="ok">Accept</button><button class="nq">Not quite</button>`;
+    ui.toast.querySelector(".tm").textContent = `#${a.number} done — ${clip(a.resolution || "marked done", 90)}${more}`;
+    ui.toast.querySelector(".ok").addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!e.isTrusted) return;
+      hideToast();
+      const r = await chrome.runtime.sendMessage({ type: "accept", id: a.id }).catch(() => null);
+      if (!r || r.error || r.ok === false) toast("Not accepted — the bridge isn't answering");
+    });
+    ui.toast.querySelector(".nq").addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (!e.isTrusted) return;
+      hideToast();
+      reopen(a.id);
+    });
+    ui.toast.style.display = "flex";
+  }
+  async function reopen(id) {
+    await togglePanel(true);
+    [...ui.panelList.querySelectorAll(".item.done")].find((li) => li.dataset.id === id)?.querySelector(".follow")?.click();
   }
 
   // ---------- notes panel ----------
   function togglePanel(force) {
     const open = force !== undefined ? force : ui.panel.style.display !== "flex";
     ui.panel.style.display = open ? "flex" : "none";
-    if (!open) return;
+    if (!open) { askedAfter.clear(); replies.forEach(requestAfter); return; }
     unread = false;
     paintDock();
-    renderPanel();
+    renderPanel(true);
     // Opening the panel is a request for the current state: an agent may have finished something
     // since the page loaded, and its reply is the whole point of looking.
-    loadReplies().then(() => { paintDock(); if (ui.panel.style.display === "flex") renderPanel(); });
+    return loadReplies().then(() => { paintDock(); if (ui.panel.style.display === "flex") renderPanel(); });
   }
   ui.panelClose.addEventListener("click", () => togglePanel(false));
 
-  function renderPanel() {
+  // Something changing at the bridge (an agent at work, an after crop landing) re-renders the panel;
+  // that must never throw away an answer you are in the middle of writing. `force`: you asked for it.
+  const panelTyping = () => [...ui.panelList.querySelectorAll("form textarea")].some((t) => t.value.trim() || t === shadow.activeElement);
+  function renderPanel(force = false) {
+    if (!force && panelTyping()) return;
     ui.panelList.innerHTML = "";
     if (!pins.length && !replies.length) {
       ui.panelList.innerHTML = `<li class="empty">Nothing marked on this page yet. Turn on Pinpoint and click anything you want changed.</li>`;
@@ -983,6 +1069,7 @@
       li.querySelector(".n").textContent = p.number;
       li.querySelector(".c").textContent = p.comment;
       li.querySelector(".s").innerHTML = p.kind === "page" ? "the whole page"
+        : p.kind === "flow" ? `a recorded flow · ${Number(p.steps) || 0} steps`
         : p.node.dataset.orphan === "1" ? `<span class="warn">not on this view</span>`
         : escapeHtml(p.selector);
       appendThread(li.querySelector(".body"), p.thread);
@@ -1007,13 +1094,14 @@
       if (results.some((r) => !r || r.error)) toast("Some notes were not removed — the bridge isn't answering");
       await loadReplies();
       paintDock();
-      renderPanel();
+      renderPanel(true);
     });
     ui.panelList.appendChild(head);
 
     for (const a of replies) {
       const li = document.createElement("li");
       li.className = "item done";
+      li.dataset.id = a.id;
       li.innerHTML = `<span class="n"></span><div class="body"><div class="c"></div><div class="reply"><span class="who"></span><span class="what"></span></div></div><button class="x">&times;</button>`;
       const x = li.querySelector(".x");
       x.setAttribute("aria-label", `Remove done note ${a.number}`);
@@ -1023,17 +1111,19 @@
         if (!r || r.error) return toast("Not removed — the bridge isn't answering");
         await loadReplies();
         paintDock();
-        renderPanel();
+        renderPanel(true);
       });
       li.querySelector(".n").textContent = a.number;
       li.querySelector(".c").textContent = a.comment;
-      li.querySelector(".who").textContent = a.resolvedBy || "agent";
+      li.querySelector(".who").textContent = (a.resolvedBy || "agent") + (a.acceptedAt ? " · accepted" : "");
       const what = li.querySelector(".what");
       if (a.resolution) what.textContent = a.resolution;
       else {
         what.textContent = "marked done without a note";
         li.querySelector(".reply").classList.add("none");
       }
+      if (a.after?.screenshot) li.querySelector(".body").appendChild(beforeAfter(a));
+      else requestAfter(a);
       // Not what you meant? Say so here: the note reopens with this conversation attached.
       const follow = document.createElement("button");
       follow.className = "follow";
@@ -1046,6 +1136,36 @@
       li.querySelector(".body").appendChild(follow);
       ui.panelList.appendChild(li);
     }
+  }
+
+  // The list carries no pixels; the pictures come per note, once, and are kept for this page.
+  // ponytail: a page whose CSP forbids data: images shows empty frames here.
+  const askedAfter = new Set(), shots = new Map();
+  // Its tab was most likely not in front when the agent finished; it is now. Asked when the done
+  // card shows, when the panel shows the note, and once more when the panel closes — the panel
+  // itself may have been in front of the element (then the page answers "busy" and nothing blinks).
+  function requestAfter(a) {
+    if (a.after || askedAfter.has(a.id)) return;
+    askedAfter.add(a.id);
+    chrome.runtime.sendMessage({ type: "after", id: a.id }).catch(() => {});
+  }
+  const png = (x) => (typeof x?.base64 === "string" && /^[A-Za-z0-9+/=]+$/.test(x.base64) ? "data:image/png;base64," + x.base64 : null);
+  function beforeAfter(a) {
+    const box = document.createElement("div");
+    box.className = "ba";
+    box.innerHTML = `<figure><img alt="Before"><figcaption>Before</figcaption></figure><figure><img alt="After"><figcaption>After</figcaption></figure>`;
+    const [bi, ai] = box.querySelectorAll("img");
+    const key = a.id + ":" + a.after.at;
+    const paint = (s) => { if (s.before) bi.src = s.before; else bi.parentNode.remove(); ai.src = s.after; };
+    if (shots.has(key)) paint(shots.get(key));
+    else chrome.runtime.sendMessage({ type: "get", id: a.id }).then((r) => {
+      const after = png(r?.annotation?.after?.screenshot);
+      if (!after) return;
+      const s = { before: png(r.annotation.screenshot), after };
+      shots.set(key, s);
+      paint(s);
+    }).catch(() => {});
+    return box;
   }
 
   // The conversation on a note, oldest first: what the agent asked or said, and what you answered.
@@ -1082,13 +1202,13 @@
       if (!r || r.error || r.ok === false) return toast("Not sent — the bridge isn't answering");
       toast("Sent to your agent");
       await loadPins();
-      renderPanel();
+      renderPanel(true);
     });
     return f;
   }
 
   function revealPin(p) {
-    if (p.kind === "page") return;
+    if (p.kind === "page" || p.kind === "flow") return;
     const el = p.el && p.el.isConnected ? p.el : findElement(p.selector, p.fp);
     if (!el) return toast("That element isn't on the page right now");
     // The CSS media query cannot reach this one — jumping to a note must respect the setting too.
@@ -1352,6 +1472,7 @@
       }
     }
     if (e.key === "Escape") {
+      if (recording && !picking && ui.pop.style.display !== "block") { took(); return stopRecording(); }
       if (tipPinned && !picking && ui.pop.style.display !== "block") { took(); return hideTip(); }
       if (ui.panel.style.display === "flex" && !picking && ui.pop.style.display !== "block") { took(); return togglePanel(false); }
       if (picking) { took(); return stopPicking(); }
@@ -1385,6 +1506,54 @@
     openPopover(document.body);
   }
 
+  // ---------- recording a flow ----------
+  // "It breaks after I do this, then this": you click through the page as usual and each click is a
+  // step. The worker keeps the steps per tab (storage.session), so a click that navigates keeps the
+  // recording going on the next page. Clicks are never stopped — the page has to do what it does.
+  // ponytail: top frame only; a click inside an iframe is not a step.
+  async function startRecording() {
+    stopPicking();
+    const r = await chrome.runtime.sendMessage({ type: "recordStart" }).catch(() => null);
+    if (!r?.ok) return toast("Can't record here — the extension isn't answering");
+    recording = true; recN = 0;
+    paintDock();
+    toast("Recording — click through it, then Done. Esc throws it away", 3000);
+  }
+  function stopRecording() {
+    recording = false;
+    paintDock();
+    chrome.runtime.sendMessage({ type: "recordStop" }).catch(() => {});
+  }
+  async function finishRecording() {
+    recording = false;
+    paintDock();
+    const r = await chrome.runtime.sendMessage({ type: "recordStop", keep: true }).catch(() => null);
+    const steps = Array.isArray(r?.steps) ? r.steps : [];
+    if (!steps.length) return toast("No steps yet — click through the page, then Done");
+    selected = document.body;
+    selectedPage = true;
+    flowSteps = steps;
+    pickChain = [document.body]; pickIndex = 0;
+    openPopover(document.body);
+  }
+  document.addEventListener("pointerdown", async (e) => {
+    if (!recording || picking || !isTop || !e.isTrusted || e.button !== 0) return;
+    const el = targetFromEvent(e);
+    if (!el) return;   // our own bar, or the bare page
+    // What you would say out loud: the thing, its label. Never an input's value — that is what you typed.
+    const step = { selector: uniqueSelector(el), describe: describe(el), url: location.href, at: new Date().toISOString(),
+                   text: clip(el.innerText || el.getAttribute("aria-label") || el.getAttribute("placeholder") || "", 80) };
+    const capture = await captureRect(el);
+    const r = await chrome.runtime.sendMessage({ type: "recordStep", step, capture }).catch(() => null);
+    if (!recording) return;
+    if (r?.n) { recN = r.n; paintDock(); }
+    if (r?.full) toast("Ten steps is the most one note takes — press Done", 3000);
+  }, true);
+  // A navigation reloads this script; the recording is still the worker's.
+  if (isTop) chrome.runtime.sendMessage({ type: "recordState" }).then((r) => {
+    if (r?.recording) { recording = true; recN = r.n || 0; paintDock(); }
+  }).catch(() => {});
+
   let returnFocus = null;
   function openPopover(el, region = null) {
     const prev = document.activeElement;
@@ -1396,6 +1565,7 @@
     paintMeta(el, region);
     ui.text.value = "";
     ui.text.style.height = "";
+    micAvailable();
     delete ui.pop.dataset.saved;
     ui.status.textContent = "";
     ui.status.className = "status";
@@ -1429,6 +1599,13 @@
     const hint = sourceHint(el);
     const comp = hint.components[0] ? `<b>&lt;${hint.components[0]}&gt;</b> ` : "";
     const file = hint.file ? ` · ${hint.file}${hint.line ? ":" + hint.line : ""}` : "";
+    if (flowSteps) {
+      ui.meta.innerHTML = `<div class="row"><b>Recorded flow</b>${flowSteps.length} step${flowSteps.length === 1 ? "" : "s"}</div><ol class="steps"></ol>`;
+      const ol = ui.meta.querySelector(".steps");
+      for (const st of flowSteps) { const li = document.createElement("li"); li.textContent = st.describe + (st.text ? ` “${st.text}”` : ""); ol.appendChild(li); }
+      ui.scope.style.display = "none";
+      return;
+    }
     if (selectedPage) {
       ui.meta.innerHTML = `<div class="row"><b>This page</b>${escapeHtml(clip(document.title || location.pathname, 60))}</div>` +
         `<div class="picked">A note about the whole page — the screenshot is what is on screen now</div>`;
@@ -1467,7 +1644,9 @@
   }
 
   function hidePopover() {
+    stopDictation(true);
     selectedPage = false;
+    flowSteps = null;
     const hadFocus = !!shadow.activeElement && ui.pop.contains(shadow.activeElement);
     if (hadFocus && returnFocus?.isConnected) { try { returnFocus.focus({ preventScroll: true }); } catch {} }
     returnFocus = null;
@@ -1517,6 +1696,65 @@
     setStatus(...(await copyText(formatPrompt(a)) ? ["Copied prompt", "ok"] : ["This page does not allow copying", "err"]));
   });
 
+  // ---------- dictation ----------
+  // Looked up each time the popover opens, not at load. Chrome and Safari send the audio to their
+  // own speech service (PRIVACY.md says so); Firefox's recognizer is not one we offer. Only a real
+  // click starts it, so nothing scripted can open the microphone.
+  let SR = null, rec = null;
+  function micAvailable() {
+    SR = !/Firefox\//.test(navigator.userAgent) && window.isSecureContext && typeof globalThis.webkitSpeechRecognition === "function"
+      ? globalThis.webkitSpeechRecognition : null;
+    ui.mic.classList.toggle("avail", !!SR);
+  }
+  // `now`: the popover is going away, so late results must not land in the next one.
+  function stopDictation(now = false) {
+    const r = rec;
+    if (!r) return;
+    if (now) { rec = null; ui.mic.setAttribute("aria-pressed", "false"); }
+    try { r.stop(); } catch {}
+  }
+  const MIC_ERRORS = {
+    "not-allowed": "Microphone blocked — allow it for this site from the address bar",
+    "service-not-allowed": "Microphone blocked — allow it for this site from the address bar",
+    "audio-capture": "No microphone found",
+    "network": "Dictation needs the browser's speech service, which can't be reached",
+    "no-speech": "Didn't hear anything",
+  };
+  ui.mic.addEventListener("click", (e) => {
+    if (!e.isTrusted) return;
+    if (rec) return stopDictation();
+    if (!SR) return;
+    const r = new SR();
+    r.continuous = true;
+    r.interimResults = true;
+    r.lang = navigator.language || "en-US";
+    const base = ui.text.value.replace(/\s+$/, "");
+    let finals = "";
+    r.onresult = (ev) => {
+      if (rec !== r) return;
+      let interim = "";
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        const t = ev.results[i][0]?.transcript || "";
+        if (ev.results[i].isFinal) finals += t; else interim += t;
+      }
+      ui.text.value = (base ? base + " " : "") + (finals + interim).trim();
+      delete ui.pop.dataset.saved;
+      fitText();
+    };
+    r.onerror = (ev) => { if (ev.error !== "aborted") setStatus(MIC_ERRORS[ev.error] || `Dictation stopped (${ev.error})`, "err"); };
+    r.onend = () => {
+      if (rec !== r) return;
+      rec = null;
+      ui.mic.setAttribute("aria-pressed", "false");
+      if (ui.status.textContent === "Listening…") setStatus("");
+    };
+    rec = r;
+    ui.mic.setAttribute("aria-pressed", "true");
+    try { r.start(); setStatus("Listening…"); }
+    catch { rec = null; ui.mic.setAttribute("aria-pressed", "false"); setStatus("Dictation could not start", "err"); }
+    ui.text.focus();
+  });
+
   function resumePicking() {
     if (!pendingResume) return;
     pendingResume = false;
@@ -1554,6 +1792,21 @@
       ? { x: r.left + window.scrollX + off.x, y: r.top + window.scrollY + off.y, width: r.width, height: r.height }
       : null;
     return { rect, dpr: window.devicePixelRatio || 1, doc };
+  }
+
+  // Which of our own things would be in a crop of `rect` (top-viewport px): "busy" for the panel or
+  // the comment box, "passive" for the rest (pins, the bar, a toast), null for nothing. A frame
+  // cannot see the top frame's overlay, so it always says "passive" and the worker hides everything.
+  function uiInWay(rect) {
+    if (!isTop) return "passive";
+    let way = null;
+    for (const n of shadow.querySelectorAll(".pin, .dock, .panel, .pop, .toast, .tip, .hl, .marquee")) {
+      const r = n.getBoundingClientRect();
+      if (!r.width || !r.height || r.right < rect.x || r.left > rect.x + rect.width || r.bottom < rect.y || r.top > rect.y + rect.height) continue;
+      if (n === ui.panel || n === ui.pop) return "busy";
+      way = "passive";
+    }
+    return way;
   }
 
   // Our own overlay must not appear in the crop.
@@ -1596,6 +1849,8 @@
     // A region annotation is an element annotation on its anchor, plus the box. Everything
     // downstream — selector, fingerprint, pin re-finding, styles — keeps working unchanged.
     if (opts.region) a.region = opts.region;
+    const errors = pageErrors();
+    if (errors.length) a.context = { errors };
     return a;
   }
 
@@ -1630,15 +1885,17 @@
       return;
     }
     const el = selected;
+    stopDictation(true);
     sending = true;
     setStatus("Sending…");
     ui.send.disabled = true;
     try {
       const region = selectedRegion;
-      const page = selectedPage;
+      const page = selectedPage, steps = flowSteps;
       const a = await buildAnnotation(el, comment, region ? { region } : {});
       if (draft) a.status = "draft";
       if (page) a.kind = "page";
+      if (steps) { a.kind = "flow"; a.steps = steps; }
       // A page note is cropped to the window: the whole visible page, not the <body> box.
       const capture = await captureRect(el, page ? { x: window.scrollX, y: window.scrollY, width: window.innerWidth, height: window.innerHeight } : region);
       if (capture) hideOverlayForCapture();
@@ -1654,7 +1911,7 @@
       }
       if (!res || res.error) { showOverlay(); throw new Error(res?.error || "no response"); }
       addPin({ id: a.id, number: res.number || pins.length + 1, selector: a.element.selector, comment, el, fp: a.element.fingerprint, region, fresh: true,
-               status: draft ? "draft" : "pending", kind: page ? "page" : null });
+               status: draft ? "draft" : "pending", kind: a.kind || null, steps: steps?.length || 0 });
       setStatus(draft ? "Saved as a draft" : "Sent ✓", "ok");
       lastWasDraft = draft;
       // The overlay stays hidden until the worker has taken its picture ("captureDone"), which
@@ -1717,7 +1974,7 @@
   }
 
   function positionPin(p, taken) {
-    if (p.kind === "page") {
+    if (p.kind === "page" || p.kind === "flow") {
       // About the page, not an element: it lives at the window's top-left, below any others there.
       delete p.node.dataset.orphan;
       p.node.style.display = "block";
@@ -1864,7 +2121,7 @@
       pins.forEach((p) => p.node.remove());
       pins = [];
       for (const a of res.annotations) addPin({ id: a.id, number: a.number, selector: a.element.selector, comment: a.comment, fp: a.element.fingerprint,
-                                               region: a.region || null, status: a.status, kind: a.kind || null, thread: a.thread || [] });
+                                               region: a.region || null, status: a.status, kind: a.kind || null, thread: a.thread || [], steps: a.steps?.length || 0 });
       noticeQuestions();
       positionAll();
       paintDock();
@@ -1901,12 +2158,12 @@
     } catch { replies = []; }
     const ids = new Set(replies.map((a) => a.id));
     if (seenReplies && isTop) {
-      const fresh = replies.filter((a) => !seenReplies.has(a.id));
+      // Accepted somewhere else already (another tab): not news here either.
+      const fresh = replies.filter((a) => !a.acceptedAt && !seenReplies.has(a.id));
       if (fresh.length) {
         unread = true;
-        const a = fresh[0];
-        const more = fresh.length > 1 ? ` (+${fresh.length - 1} more)` : "";
-        toast(`#${a.number} done — ${clip(a.resolution || "marked done", 90)}${more}`, 6000, () => togglePanel(true));
+        doneCard(fresh[0], fresh.length > 1 ? ` (+${fresh.length - 1} more)` : "");
+        fresh.forEach(requestAfter);
       }
     }
     seenReplies = ids;
@@ -1963,9 +2220,15 @@
         const override = msg.region
           ? { x: r.left + window.scrollX + msg.region.dx, y: r.top + window.scrollY + msg.region.dy, width: msg.region.width, height: msg.region.height }
           : null;
+        const capture = await captureRect(el, override);
+        const inWay = capture ? uiInWay(capture.rect) : null;
         reply({
           found: true,
           url: location.href,
+          // Hide the overlay for the shot only when it is in the picture. When that is the panel or the
+          // comment box, you are using it: no fresh crop this time rather than a blink under your cursor.
+          hide: inWay === "passive",
+          busy: inWay === "busy",
           selectorStillMatches: safeQuery(msg.selector) === el,
           element: {
             tag: el.tagName.toLowerCase(),
@@ -1977,7 +2240,7 @@
             styles: computedStyles(el),
             fingerprint: fingerprint(el),
           },
-          capture: await captureRect(el, override),
+          capture: inWay === "busy" ? null : capture,
         });
       })();
       return true;

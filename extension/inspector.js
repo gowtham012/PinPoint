@@ -87,6 +87,34 @@
     return hint;
   }
 
+  // ---------- page context ----------
+  // What went wrong on the page lately: uncaught errors and unhandled rejections, newest last. Only
+  // listening — console is never wrapped, so DevTools keeps showing the page's own call sites. This
+  // file runs at document_start for exactly this, so errors thrown while the page boots are caught.
+  // content.js asks with "pinpoint:context"; the worker redacts before anything leaves the browser.
+  const recent = [];
+  const keep = (message, err) => {
+    let stack = [];
+    try {
+      stack = String(err?.stack || "").split("\n").map((l) => l.trim()).filter(Boolean);
+      if (stack[0] && !/^at |@/.test(stack[0])) stack.shift(); // V8 repeats the message as line one
+    } catch {}
+    recent.push({ at: Date.now(), message: String(message).slice(0, 1000), stack: stack.slice(0, 3).map((l) => l.slice(0, 300)) });
+    if (recent.length > 30) recent.shift();
+  };
+  window.addEventListener("error", (e) => {
+    if (e instanceof ErrorEvent) keep(e.message || "Script error", e.error); // not <img> load failures
+  }, true);
+  window.addEventListener("unhandledrejection", (e) => {
+    let msg = "Unhandled rejection";
+    try { const r = e.reason; msg += ": " + (r instanceof Error ? `${r.name}: ${r.message}` : String(r)); } catch {}
+    try { keep(msg, e.reason); } catch {}
+  });
+  document.addEventListener("pinpoint:context", () => {
+    const since = Date.now() - 60000;
+    document.dispatchEvent(new CustomEvent("pinpoint:context-result", { detail: JSON.stringify(recent.filter((x) => x.at >= since)) }));
+  }, true);
+
   document.addEventListener("pinpoint:inspect", (e) => {
     const el = e.target;
     if (!el || el.nodeType !== 1) return;
