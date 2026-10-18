@@ -10,11 +10,19 @@ on:
         description: Fail the run when Windows fails
         type: boolean
         default: false
-  # The release workflow runs the same suite before it publishes anything. Its gate is ubuntu and
-  # macOS: Windows runs and reports, but blocks only once windows-blocking is passed as true.
+      macos-blocking:
+        description: Fail the run when macOS fails
+        type: boolean
+        default: false
+  # The release workflow runs the same suite before it publishes anything. Its gate is ubuntu:
+  # macOS and Windows run and report, but block only once macos-blocking / windows-blocking is true.
+  # ponytail: macOS stays advisory until its browser suite stops flaking; then default it to true.
   workflow_call:
     inputs:
       windows-blocking:
+        type: boolean
+        default: false
+      macos-blocking:
         type: boolean
         default: false
 
@@ -26,7 +34,7 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
-    continue-on-error: ${{ matrix.os == 'windows-latest' && !inputs.windows-blocking }}
+    continue-on-error: ${{ (matrix.os == 'windows-latest' && !inputs.windows-blocking) || (matrix.os == 'macos-latest' && !inputs.macos-blocking) }}
     # bash on Windows too (Git Bash), so the glob quoting and the scripts are the same everywhere.
     defaults:
       run:
