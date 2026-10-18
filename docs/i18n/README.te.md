@@ -44,7 +44,8 @@ screenshots పోగుపడవు, "ఎడమవైపు మూడో button
 *"close చేసే ముందు draft ని save చేయి"* లాంటివి కూడా చక్కటి notes: agent ఆ element ని మొదలుపెట్టే చోటుగా తీసుకుని,
 దాని వెనకున్న handlers, state, API calls, backend దాకా వెళ్తుంది.
 
-Native app తయారు చేస్తున్నారా? ఇదే **[iOS Simulator](#-నేటివ్-ios-యాప్స్)** మీద కూడా పనిచేస్తుంది.
+Native app తయారు చేస్తున్నారా? ఇదే **[iOS Simulator](#-నేటివ్-ios-యాప్స్)** మీద, ఇంకా
+**[Android emulator](#-android-ఎమ్యులేటర్)** మీద కూడా పనిచేస్తుంది.
 
 ```mermaid
 flowchart LR
@@ -52,6 +53,7 @@ flowchart LR
     direction TB
     B["🌐 <b>Browser</b><br/>Pinpoint extension"]
     S["📱 <b>iOS Simulator</b><br/>127.0.0.1:7331/ios"]
+    AN["🤖 <b>Android emulator</b><br/>127.0.0.1:7331/android"]
   end
   BR(["📍 <b>Pinpoint bridge</b><br/>127.0.0.1:7331"])
   ST[("💾 ~/.pinpoint/<br/>annotations.json")]
@@ -60,6 +62,7 @@ flowchart LR
 
   B -- "selector · styles · crop" --> BR
   S -- "accessibility tree · crop" --> BR
+  AN -- "view tree · crop" --> BR
   BR -- "MCP / hooks" --> A
   A -- "resolve + reply" --> BR
   BR -. "live pins & replies" .-> B
@@ -80,6 +83,7 @@ flowchart LR
 - [మాట్లాడుకుంటూ సరిచేయడం](#-మాట్లాడుకుంటూ-సరిచేయడం)
 - [మీ agent కి ఎలా తెలుస్తుంది](#-మీ-agent-కి-ఎలా-తెలుస్తుంది)
 - [నేటివ్ iOS యాప్స్](#-నేటివ్-ios-యాప్స్)
+- [Android ఎమ్యులేటర్](#-android-ఎమ్యులేటర్)
 - [ఇతర agents ని కనెక్ట్ చేయడం](#-ఇతర-agents-ని-కనెక్ట్-చేయడం)
 - [రిఫరెన్స్](#-రిఫరెన్స్): commands, MCP tools, ఒక note లో ఏముంటుంది
 - [సమస్యల పరిష్కారం](#-సమస్యల-పరిష్కారం)
@@ -98,7 +102,8 @@ Pinpoint పేజీని ఎప్పుడూ ముట్టుకోదు
 
 ## 🚀 త్వరగా మొదలుపెట్టండి
 
-**మీకు కావాల్సినవి:** Node 18+ ఇంకా ఒక Chromium browser (Chrome, Edge, Brave, Arc, Opera, Vivaldi).
+**మీకు కావాల్సినవి:** Node 18+ ఇంకా ఒక Chromium browser (Chrome, Edge, Brave, Arc, Opera, Vivaldi), లేదా
+[Firefox 140+](#-బ్రౌజర్లు).
 
 **1. Install చేయండి**
 
@@ -123,7 +128,7 @@ Claude Code లో ఏదైనా టైప్ చేస్తే, మీ note 
 
 > [!TIP]
 > ప్రతి step వివరంగా కావాలా? [docs/quick-install.md](../quick-install.md) చూడండి.
-> కేవలం native iOS app మాత్రమే తయారు చేస్తున్నారా? Clone అవసరం లేదు:
+> కేవలం native iOS లేదా Android app మాత్రమే తయారు చేస్తున్నారా? Clone అవసరం లేదు:
 > `npx -y pinpoint-bridge`, ఆ తర్వాత `claude mcp add pinpoint -s user -- npx -y pinpoint-bridge mcp`.
 
 <details>
@@ -132,9 +137,10 @@ Claude Code లో ఏదైనా టైప్ చేస్తే, మీ note 
 `setup` ఇవి అడుగుతుంది:
 
 - **ఏ project UI ని annotate చేయాలనుకుంటున్నారు**: మీ agent edit చేసే repo
-- **web app, native iOS app, లేదా రెండూ**: web కి browser extension వస్తుంది; iOS కి
-  [Simulator picker](#-నేటివ్-ios-యాప్స్) వస్తుంది. Setup Xcode, Maestro, Java ఉన్నాయో లేదో చూసి, ఏది లేకపోతే
-  దాన్ని ఎలా తెచ్చుకోవాలో చెప్తుంది (వీటిలో దేన్నీ అది install చేయదు).
+- **web app, native iOS app, Android app, లేదా రెండూ** (web ఇంకా iOS): web కి browser extension వస్తుంది;
+  iOS కి [Simulator picker](#-నేటివ్-ios-యాప్స్), Android కి [emulator picker](#-android-ఎమ్యులేటర్) వస్తాయి.
+  Setup Xcode, Maestro, Java (iOS) లేదా adb (Android) ఉన్నాయో లేదో చూసి, ఏది లేకపోతే దాన్ని ఎలా తెచ్చుకోవాలో
+  చెప్తుంది (వీటిలో దేన్నీ అది install చేయదు).
 - **ఏ agents ని wire up చేయాలి**: Claude Code కి `claude mcp add`, Cursor కి `<project>/.cursor/mcp.json`,
   Codex కి `~/.codex/config.toml`. ఇప్పటికే ఉన్న entries ని merge చేస్తుంది, ఎప్పుడూ replace చేయదు, ఇంకా TOML
   file ని ముందుగా backup తీసుకుంటుంది.
@@ -142,8 +148,8 @@ Claude Code లో ఏదైనా టైప్ చేస్తే, మీ note 
 - **ఏ browser** లోకి extension ని load చేయాలి (మీ దగ్గర ఉన్నవి మాత్రమే చూపిస్తుంది)
 
 ఆ తర్వాత popup లోని **Start bridge** button వెనకాల ఉండే launcher ని register చేసి, bridge ని start చేస్తుంది.
-ప్రశ్నలు లేకుండా: `node pinpoint/bridge/cli.js setup ~/code/my-app --yes` (`--for ios` లేదా
-`--for both` జోడించండి; default `web`).
+ప్రశ్నలు లేకుండా: `node pinpoint/bridge/cli.js setup ~/code/my-app --yes` (`--for ios`,
+`--for android` లేదా `--for both` జోడించండి; default `web`).
 
 **చేతితో చేయడం.** ఇక్కడ క్రమం ముఖ్యం: `$PWD` MCP entry లో అలాగే స్థిరపడిపోతుంది, కాబట్టి bridge terminal ని
 ఆక్రమించే ముందే step 2 ని `pinpoint/bridge` నుంచి రన్ చేయాలి.
@@ -210,6 +216,16 @@ Bridge రన్ అవుతున్నంత సేపు, మీ పేజ�
 - DOM ని మళ్ళీ మళ్ళీ rebuild చేసే apps లో **pins తమ element ని అనుసరిస్తాయి**, తమ element పోయినప్పుడు తప్పు
   element మీద కూర్చోకుండా దాక్కుంటాయి.
 - **Bridge రన్ అవ్వడం లేదా?** అప్పుడు **Send** paste చేయడానికి రెడీగా ఉన్న ఒక prompt ని copy చేస్తుంది, కాబట్టి ఏదీ పోదు.
+- **Steps record చేయడం.** Picking జరుగుతున్నప్పుడు bar మీది **Record steps** నొక్కి, మామూలుగా చేసినట్టే bug దాకా
+  క్లిక్ చేసుకుంటూ వెళ్ళండి. క్లిక్‌లు పేజీకి చేరుతూనే ఉంటాయి, ప్రతి క్లిక్ ఒక step అవుతుంది (element, label, URL, ఒక చిన్న
+  crop), అదే tab లో వేరే పేజీలకు navigate అయినా సరే. **Done** ఒకే note రాస్తుంది (గరిష్ఠంగా 10 steps); **Esc**
+  recording ని పడేస్తుంది. మీ agent కి ఇవి *Steps to reproduce* గా అందుతాయి.
+- **మాట్లాడి చెప్పడం (dictation).** Comment box లోని mic నొక్కి మాట్లాడండి; ఆ text మీరు టైప్ చేసిన దానికి జోడించబడుతుంది.
+  Secure పేజీల మీద Chrome, Safari లో పనిచేస్తుంది (localhost కూడా లెక్కే); transcribe చేసేది browser సొంత speech
+  service. Firefox లో లేదు.
+- **ఏం తప్పు జరిగిందో కూడా వెంట వస్తుంది.** మీరు mark చేయడానికి ముందు నిమిషంలో పేజీలో వచ్చిన uncaught errors, failed
+  requests ప్రతి note తో పాటు వస్తాయి, ముందుగా browser లోనే redact చేయబడి (query strings, tokens, secrets తీసేసి).
+  నిజంగా ఏదైనా తప్పు జరిగినప్పుడు మాత్రమే జతచేయబడతాయి.
 
 **ఎక్కడ పనిచేస్తుంది.** కేవలం లోకల్ development పేజీల్లో మాత్రమే: `localhost`, `127.0.0.1`, `.local` / `.test` /
 `.localhost` hosts, ఇంకా అనుమతి ఇచ్చాక `file://`. మిగతా చోట్ల (ఒక staging URL, phone testing కోసం LAN address)
@@ -223,7 +239,12 @@ toolbar popup తో ఒక tab కోసం దాన్ని ఆన్ చే
   (ఒక **?**) ఇంకా ఒక toast గా కనిపిస్తుంది; notes panel లో జవాబు ఇవ్వండి, note మొత్తం సంభాషణతో కలిపి తిరిగి వెళ్తుంది.
 - **జవాబు మీరు browser లోనే చదువుతారు.** పూర్తయిన note, agent తను ఏం మార్చిందో రాసిన సొంత note తో పాటు panel లో
   ఉంటుంది. Agents తప్పకుండా ఒకటి రాయాలి: "done" అనేది జవాబు కాదు.
-- **సరిగ్గా రాలేదా?** పూర్తయిన ప్రతి note కీ **Reply…** ఉంటుంది. ఇంకా ఏం తప్పుగా ఉందో చెప్పండి, అది మళ్ళీ తెరుచుకుంటుంది.
+- **Accept / Not quite.** Agent పని పూర్తి చేయగానే, దాని reply తో పాటు **Accept**, **Not quite** ఉన్న ఒక card
+  కనిపిస్తుంది. Not quite ఆ note ని మళ్ళీ తెరుస్తుంది, ఇంకా ఏం తప్పుగా ఉందో మీరు చెప్పొచ్చు.
+- **తర్వాత చూస్తే సరిగ్గా లేదా?** Panel లో పూర్తయిన ప్రతి note కీ **Reply…** ఉంటుంది. ఇంకా ఏం తప్పుగా ఉందో
+  చెప్పండి, అది మళ్ళీ తెరుచుకుంటుంది.
+- **Before / After.** ఒక note resolve అయిన కొన్ని సెకన్ల తర్వాత, Pinpoint ఆ element ని మళ్ళీ కొత్తగా crop చేస్తుంది.
+  Panel లో పూర్తయిన notes **Before**, **After** ని పక్కపక్కనే చూపిస్తాయి.
 - **Drafts.** **Draft** (లేదా **⇧⌘↩**) పంపకుండానే ఏదైనా mark చేస్తుంది. Bar మీది **Send** అన్ని drafts ని
   ఒకేసారి అప్పగిస్తుంది.
 - **మొత్తం పేజీ.** Picking జరుగుతున్నప్పుడు, **Whole page** పేజీ గురించే ఒక note చేస్తుంది (*"అంతటా spacing
@@ -241,7 +262,7 @@ toolbar popup తో ఒక tab కోసం దాన్ని ఆన్ చే
 <details>
 <summary><b>Browser నుంచే bridge ని start చేయడం, ఇంకా ఒకేసారి చాలా agents</b></summary>
 
-**Browser నుంచి start / restart.** `install-native-host` Chrome తో (ఇంకా Brave, Edge, Arc, Chromium, Vivaldi, Opera తో)
+**Browser నుంచి start / restart.** `install-native-host` Chrome తో (ఇంకా Brave, Edge, Arc, Chromium, Vivaldi, Opera తో), అలాగే Firefox తో
 ఒక చిన్న launcher ని register చేస్తుంది. అప్పుడు popup లోని **Start bridge** పనిచేస్తుంది, ఇంకా bar మీది
 **↻** కొత్త build ని pull చేశాక bridge ని restart చేస్తుంది. Launcher ఒకే ఒక్క పని చేయగలదు: popup setting లోని port
 నంబర్ మీద ఈ repo సొంత `cli.js` ని రన్ చేయడం, పేజీ నుంచి వచ్చిన నంబర్ మీద ఎప్పుడూ కాదు.
@@ -298,6 +319,34 @@ start చేస్తున్నప్పుడు మొదటి load ~10 s �
 sessions ని మూసేయండి.
 </details>
 
+## 🤖 Android ఎమ్యులేటర్
+
+`/ios` లాంటి picker నే, adb ద్వారా Android **view tree** ని చదువుతుంది. మీ app లో ఏమీ జోడించాల్సిన పనిలేదు, install
+చేయాల్సిన driver కూడా లేదు.
+
+<table>
+<tr>
+<td width="50%"><img src="../images/android-comment.png" alt="Android picker: Settings app లో Search settings field highlight అయి ఉంది, ఒక note టైప్ అవుతోంది"></td>
+<td width="50%"><img src="../images/android-pick.png" alt="పంపిన తర్వాత: field మీద నంబర్ ఉన్న pin, ఇంకా తర్వాతి element మీద hover చేసినప్పుడు దాని id"></td>
+</tr>
+</table>
+
+**మీకు కావాల్సినవి:** Android SDK లోని `adb` (Android Studio దాన్ని install చేస్తుంది), ఇంకా రన్ అవుతున్న ఒక emulator.
+
+Bridge రన్ అవుతున్నప్పుడు, **http://127.0.0.1:7331/android** తెరవండి. Hover చేయండి, క్లిక్ చేయండి, టైప్ చేయండి, పంపండి.
+Agent కి element యొక్క `resource-id`, content-desc, text, class, view tree లో దాని స్థానం ఇంకా ఒక crop అందుతాయి.
+`node bridge/cli.js setup --for android` adb ఉందో లేదో చూసి, మిమ్మల్ని picker దగ్గరకు పంపుతుంది.
+
+<details>
+<summary><b>adb ని వెతకడం, ఏ device ని చదువుతుంది</b></summary>
+
+Pinpoint adb కోసం `$ANDROID_HOME`, `$ANDROID_SDK_ROOT`, Android Studio యొక్క default SDK folder లో, ఆ తర్వాత మీ
+`PATH` లో వెతుకుతుంది. ఒకే emulator రన్ అవుతుంటే, అదే వాడబడుతుంది. చాలా ఉంటే, లేదా ఒక physical device ని చదవాలంటే,
+`ANDROID_SERIAL` ని దాని serial కి (`adb devices` చూపించినట్టు) set చేసి bridge ని restart చేయండి. మీరు పేరు
+చెప్పకపోతే phone ని ఎప్పుడూ ఎంచుకోదు. iOS లాగే, ఇక్కడ source-file hint, styles, `recheck_annotation` ఉండవు: views కి
+ఒక id ఇవ్వండి, agent దాని కోసం grep చేస్తుంది.
+</details>
+
 ## 🔌 ఇతర agents ని కనెక్ట్ చేయడం
 
 అన్నిటికంటే సులభమైన entry published package ని రన్ చేస్తుంది: `npx -y pinpoint-bridge mcp`. ఏ bridge రన్ అవుతుంటే
@@ -339,9 +388,23 @@ line ని copy చేసుకోండి).
 
 | Browser | స్థితి |
 |---|---|
-| **Chrome, Edge, Brave, Arc, Opera, Vivaldi** | ✅ Load unpacked. Headless Chromium మీద CI లో verify చేయబడింది. |
-| **Safari** | ✅ `bash tools/make-safari.sh` తో build చేయాలి (Xcode అవసరం). Component chain, source hint ఉండవు. |
-| **Firefox** | ⏳ ఇంకా లేదు. |
+| **Chrome, Brave, Arc, Opera, Vivaldi** | ✅ Load unpacked. Headless Chromium మీద CI లో verify చేయబడింది. |
+| **Edge** | ✅ Load unpacked: Chrome కి ఉన్న package నే. |
+| **Firefox 140+** | ✅ `bash tools/make-firefox-zip.sh` build చేసే addons.mozilla.org package. Store listing ఇంకా pending. Dictation ఉండదు. |
+| **Safari** | ✅ `bash tools/make-safari.sh` తో build చేయాలి (Xcode అవసరం). Component chain, source hint, page errors ఉండవు. |
+
+<details>
+<summary><b>Edge ఇంకా Firefox</b></summary>
+
+**Edge** Chrome package ని ఉన్నది ఉన్నట్టే తీసుకుంటుంది. **Start bridge** కోసం,
+`node bridge/cli.js install-native-host --id <edge id>` ని ఒక్కసారి రన్ చేయండి (Edge extension కి తన సొంత id ఇస్తుంది).
+
+**Firefox 140+.** addons.mozilla.org listing live అయ్యేదాకా, zip ని
+`about:debugging` → **This Firefox** → **Load Temporary Add-on** నుంచి load చేయండి. Firefox లోకల్ సైట్లకు access
+ఆపి ఉంచితే, popup లోని **Grant access to local sites** నొక్కండి. ఆ తర్వాత **Start bridge** కోసం
+`node bridge/cli.js install-native-host` ని ఒక్కసారి రన్ చేయండి, లేదా `node bridge/cli.js token` output ని popup లో
+paste చేయండి.
+</details>
 
 <details>
 <summary><b>Safari లో ఏం తేడా ఉంటుంది</b></summary>
@@ -349,8 +412,9 @@ line ని copy చేసుకోండి).
 Safari unpacked extensions ని తీసుకోదు, కాబట్టి `tools/make-safari.sh` దాన్ని ఒక చిన్న macOS app లో చుట్టి,
 మార్చాల్సిన నాలుగు Safari settings ని print చేస్తుంది (వాటిలో ముఖ్యమైనది, **Develop ▸ Allow Unsigned Extensions**, Safari
 quit అయిన ప్రతిసారీ reset అవుతుంది). Safari `"world": "MAIN"` content scripts ని support చేయదు, కాబట్టి `inspector.js`
-React fibers ని గానీ Vue instances ని గానీ చదవలేదు: మీరు **component chain, source-file hint** ని కోల్పోతారు.
-మిగతాదంతా పనిచేస్తుంది. Bridge token ని అప్పగించడానికి Safari లో native host లేదు, కాబట్టి popup దాన్ని
+React fibers ని గానీ Vue instances ని గానీ చదవలేదు: మీరు **component chain, source-file hint** ని, ఇంకా
+**page errors** ని (వాటికీ MAIN world అవసరం) కోల్పోతారు. Safari `webRequest` ని support చేసే చోట మాత్రమే failed
+requests వెంట వస్తాయి. మిగతాదంతా పనిచేస్తుంది. Bridge token ని అప్పగించడానికి Safari లో native host లేదు, కాబట్టి popup దాన్ని
 ఒక్కసారి అడుగుతుంది: `node bridge/cli.js token` రన్ చేసి output ని paste చేయండి. Mac App Store కోసం,
 `TEAM=<your team id> bash tools/make-safari.sh --release` ఒక signed build ని export చేస్తుంది.
 </details>
@@ -375,11 +439,14 @@ node cli.js clear              delete everything
 node cli.js --help
 
 http://127.0.0.1:7331/ios      the iOS Simulator picker, served by the running bridge
+http://127.0.0.1:7331/android  the Android emulator picker (needs adb)
 
 --port <n>       default 7331, or $PINPOINT_PORT (set the same number in the popup)
 --project <dir>  mirror pending annotations into <dir>/.pinpoint/
 --print          echo each new annotation to stdout as it arrives
 $PINPOINT_HOME   where annotations are stored (default ~/.pinpoint)
+$PINPOINT_AFTER_DELAY  ms after a resolve before the After crop (default 3000, 0 turns it off)
+$ANDROID_SERIAL  which Android device to read, when it isn't the one running emulator
 ```
 </details>
 
@@ -414,10 +481,16 @@ element          tag, id, classes, a CSS selector built from stable attributes w
 source           framework (react/vue/svelte/angular/astro), component chain,
                  file:line where the dev build exposes it
 screenshot       PNG of just the element (+8px), long edge ≤1200px
+context          only when something went wrong: uncaught errors and failed requests from the
+                 minute before, redacted in the browser
+steps            recorded notes only: up to 10 clicks, each with selector, label, URL and a crop
+after            on done notes: a fresh crop taken after the resolve
 ```
 
 iOS Simulator నుంచి వస్తే, `element` లో దానికి బదులుగా accessibility identifier, label, text, value, tree path,
-frame ఉంటాయి; `source` విలువ `ios-native`, `page.url` విలువ `ios-simulator://<device name>`.
+frame ఉంటాయి; `source` విలువ `ios-native`, `page.url` విలువ `ios-simulator://<device name>`. Android
+emulator నుంచి వస్తే అది `resource-id`, content-desc, text, class, tree path, bounds; `source` విలువ `android-native`,
+`page.url` విలువ `android-emulator://<avd>`.
 
 React 19 లేదా Next లో కచ్చితమైన `file:line` కావాలంటే, dev-only inspector plugin ఒకటి జోడించండి
 (`vite-plugin-react-inspector`, `@react-dev-inspector`). Pinpoint వాటి `data-source`
@@ -513,15 +586,28 @@ cd demo && python3 -m http.server 8080     # then open http://localhost:8080
 cd test && npm install && npx playwright install chromium && npm test
 ```
 
-152 tests. `bridge.test.mjs` daemon, CLI, hooks, iOS picker, ఇంకా ప్రతి MCP tool ని stdio, Streamable HTTP
+210 tests. `bridge.test.mjs` daemon, CLI, hooks, iOS picker, ఇంకా ప్రతి MCP tool ని stdio, Streamable HTTP
 రెండింటి మీదా cover చేస్తుంది. `e2e.test.mjs` extension ని headless Chromium లోకి load చేసి నిజమైన
 పేజీలను నడిపిస్తుంది: React, Vue, shadow DOM, iframes, strict CSP, 3,600-node stress పేజీ, DPR 2, cross-tab sync, ఇంకా
-తన మొత్తం DOM ని rebuild చేసుకునే ఒక form. [CONTRIBUTING.md](../../CONTRIBUTING.md) చూడండి.
+తన మొత్తం DOM ని rebuild చేసుకునే ఒక form.
+
+<details>
+<summary><b>మిగతా suites</b></summary>
+
+| file | ఏం cover చేస్తుంది |
+|---|---|
+| `android-bridge.test.mjs` | adb ని వెతకడం, device ని ఎంచుకోవడం, view tree ని parse చేయడం, `/android` routes |
+| `e2e-picker.test.mjs` | headless Chromium లో `/ios`, `/android` picker పేజీలు |
+| `ui-bridge.test.mjs`, `ui-flow.test.mjs`, `ui-after.test.mjs` | Accept, page context, record చేసిన steps, Before / After |
+| `ui-redact.test.mjs` | page-context redaction నియమాలు |
+| `ship-edge.test.mjs`, `ship-firefox.test.mjs`, `e2e-ship.test.mjs` | Edge upload, Firefox package ఇంకా native host, store zip, popup లోని Firefox దారులు |
+| `ship-windows.test.mjs` | `cmd.exe` కోసం setup commands ని ఎలా quote చేస్తుంది |
+</details>
+
+[CONTRIBUTING.md](../../CONTRIBUTING.md) చూడండి.
 
 ## రోడ్ మ్యాప్
 
-- Android emulator support
-- Firefox
 - React Native, Flutter కోసం native source hints, ఒక optional dev-only package ద్వారా
 - `chrome.debugger` ద్వారా CSS source mapping (ఈ రంగుని ఏ rule పెట్టింది, ఎక్కడ)
 

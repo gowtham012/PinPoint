@@ -46,7 +46,8 @@
 الإغلاق"* ملاحظات مقبولة تمامًا: يعتبر الـ agent العنصر نقطة البداية، ثم يتتبّعه إلى الـ handlers والـ
 state واستدعاءات الـ API والـ backend التي تقف خلفه.
 
-تبني تطبيقًا أصليًا (native)؟ الأمر نفسه يعمل على **[iOS Simulator](#-تطبيقات-ios-الأصلية)**.
+تبني تطبيقًا أصليًا (native)؟ الأمر نفسه يعمل على **[iOS Simulator](#-تطبيقات-ios-الأصلية)** وعلى
+**[Android emulator](#-محاكي-android)**.
 
 <div dir="ltr">
 
@@ -56,6 +57,7 @@ flowchart LR
     direction TB
     B["🌐 <b>Browser</b><br/>Pinpoint extension"]
     S["📱 <b>iOS Simulator</b><br/>127.0.0.1:7331/ios"]
+    AN["🤖 <b>Android emulator</b><br/>127.0.0.1:7331/android"]
   end
   BR(["📍 <b>Pinpoint bridge</b><br/>127.0.0.1:7331"])
   ST[("💾 ~/.pinpoint/<br/>annotations.json")]
@@ -64,6 +66,7 @@ flowchart LR
 
   B -- "selector · styles · crop" --> BR
   S -- "accessibility tree · crop" --> BR
+  AN -- "view tree · crop" --> BR
   BR -- "MCP / hooks" --> A
   A -- "resolve + reply" --> BR
   BR -. "live pins & replies" .-> B
@@ -86,6 +89,7 @@ flowchart LR
 - [التحاور حول الملاحظة](#-التحاور-حول-الملاحظة)
 - [كيف يعرف الوكيل بملاحظاتك](#-كيف-يعرف-الوكيل-بملاحظاتك)
 - [تطبيقات iOS الأصلية](#-تطبيقات-ios-الأصلية)
+- [محاكي Android](#-محاكي-android)
 - [ربط وكلاء آخرين](#-ربط-وكلاء-آخرين)
 - [المرجع](#-المرجع): الأوامر، أدوات MCP، ومحتوى الملاحظة
 - [حل المشكلات](#-حل-المشكلات)
@@ -104,7 +108,8 @@ flowchart LR
 
 ## 🚀 البدء السريع
 
-**تحتاج إلى** Node 18+ ومتصفح مبني على Chromium (Chrome، Edge، Brave، Arc، Opera، Vivaldi).
+**تحتاج إلى** Node 18+ ومتصفح مبني على Chromium (Chrome، Edge، Brave، Arc، Opera، Vivaldi)، أو
+[Firefox 140+](#-المتصفحات).
 
 **1. التثبيت**
 
@@ -132,7 +137,7 @@ Claude Code وستصل ملاحظتك معه.
 
 > [!TIP]
 > تريد كل خطوة بالتفصيل؟ راجع [docs/quick-install.md](../quick-install.md).
-> تبني تطبيق iOS أصليًا فقط؟ لا داعي للـ clone:
+> تبني تطبيق iOS أو Android أصليًا فقط؟ لا داعي للـ clone:
 > `npx -y pinpoint-bridge`، ثم `claude mcp add pinpoint -s user -- npx -y pinpoint-bridge mcp`.
 
 <details>
@@ -141,9 +146,10 @@ Claude Code وستصل ملاحظتك معه.
 يسأل `setup` عن:
 
 - **أي مشروع تريد إضافة ملاحظات على واجهته**: الـ repo الذي سيعدّله الـ agent
-- **تطبيق ويب، أم تطبيق iOS أصلي، أم كلاهما**: الويب يحصل على الـ extension الخاصة بالمتصفح؛ وiOS يحصل على
-  [أداة الاختيار في الـ Simulator](#-تطبيقات-ios-الأصلية). يتحقّق setup من وجود Xcode وMaestro وJava
-  ويخبرك كيف تحصل على الناقص منها (لا يثبّت أيًّا منها بنفسه).
+- **تطبيق ويب، أم تطبيق iOS أصلي، أم تطبيق Android، أم كلاهما** (الويب وiOS): الويب يحصل على الـ extension
+  الخاصة بالمتصفح؛ وiOS يحصل على [أداة الاختيار في الـ Simulator](#-تطبيقات-ios-الأصلية)، وAndroid على
+  [أداة الاختيار في الـ emulator](#-محاكي-android). يتحقّق setup من وجود Xcode وMaestro وJava (لـ iOS) أو adb
+  (لـ Android) ويخبرك كيف تحصل على الناقص منها (لا يثبّت أيًّا منها بنفسه).
 - **أي agents يربطها**: `claude mcp add` لـ Claude Code، و`<project>/.cursor/mcp.json` لـ Cursor،
   و`~/.codex/config.toml` لـ Codex. يتم دمج الإعدادات الموجودة ولا تُستبدل أبدًا، ويُنسخ ملف الـ TOML
   احتياطيًا أولًا.
@@ -152,7 +158,7 @@ Claude Code وستصل ملاحظتك معه.
 
 بعد ذلك يسجّل الـ launcher الذي يقف خلف زر **Start bridge** (تشغيل الـ bridge) في الـ popup، ويشغّل الـ bridge.
 بدون أسئلة تفاعلية: `node pinpoint/bridge/cli.js setup ~/code/my-app --yes` (أضف `--for ios` أو
-`--for both`؛ الافتراضي هو `web`).
+`--for android` أو `--for both`؛ الافتراضي هو `web`).
 
 **يدويًا.** الترتيب مهم: قيمة `$PWD` تُثبَّت داخل إعداد الـ MCP، لذا تُنفَّذ الخطوة 2 من داخل
 `pinpoint/bridge` قبل أن يستولي الـ bridge على الـ terminal.
@@ -223,6 +229,16 @@ node cli.js --project ~/code/my-app
 - **الدبابيس تتبع عناصرها** في التطبيقات التي تعيد بناء الـ DOM، وتختفي بدلًا من أن تستقر على عنصر خاطئ
   إذا زال عنصرها.
 - **لا يوجد bridge يعمل؟** زر **Send** (إرسال) ينسخ لك prompt جاهزًا للصق بدلًا من ذلك، فلا يضيع شيء.
+- **سجّل الخطوات.** أثناء الاختيار، اضغط **Record steps** على الشريط وانقر عبر الخطأ كما تفعل عادةً. تظل
+  النقرات تصل إلى الصفحة، وتصبح كل نقرة خطوة (العنصر، والـ label، والـ URL، ولقطة مقصوصة صغيرة)، حتى عبر
+  التنقّل بين الصفحات في التبويب نفسه. يكتب **Done** ملاحظة واحدة (10 خطوات كحدّ أقصى)؛ ويتجاهل **Esc**
+  التسجيل. يستلمها الـ agent تحت عنوان *Steps to reproduce* (خطوات إعادة إنتاج المشكلة).
+- **الإملاء الصوتي.** اضغط على الميكروفون في مربع التعليق وتحدّث؛ يُضاف النص إلى ما كتبته. يعمل في Chrome
+  وSafari على الصفحات الآمنة (وlocalhost منها)؛ وخدمة التعرّف على الكلام الخاصة بالمتصفح نفسه هي التي تقوم
+  بالتحويل إلى نص. غير متاح في Firefox.
+- **ما الذي حدث من خطأ يأتي معها.** تحمل كل ملاحظة الأخطاء غير الملتقطة (uncaught errors) في الصفحة والطلبات
+  الفاشلة خلال الدقيقة السابقة لتحديدك لها، بعد تنقيحها (redaction) في المتصفح أولًا (تُزال الـ query strings
+  والـ tokens والأسرار). ولا تُرفق إلا إذا حدث خطأ فعلًا.
 
 **أين يعمل.** فقط على صفحات التطوير المحلية: `localhost`، و`127.0.0.1`، والـ hosts المنتهية بـ `.local` /
 `.test` / `.localhost`، و`file://` بعد السماح بها. في أي مكان آخر (عنوان staging، أو عنوان على الشبكة
@@ -236,7 +252,12 @@ node cli.js --project ~/code/my-app
   (علامة **?**) وكإشعار منبثق (toast)؛ أجب في لوحة الملاحظات وستعود الملاحظة ومعها المحادثة كاملة.
 - **تقرأ الرد في المتصفح.** تبقى الملاحظة المنجزة في اللوحة ومعها تعليق الـ agent نفسه عمّا غيّره. والـ
   agents ملزمة بكتابته: كلمة "تم" ليست إجابة.
-- **ليس كما أردت تمامًا؟** كل ملاحظة منجزة فيها **Reply…** (رد). قل ما الذي ما زال خطأً وستُعاد فتحها.
+- **Accept / Not quite.** عندما ينتهي الـ agent، تظهر بطاقة فيها رده مع **Accept** (قبول) و**Not quite**
+  (ليس تمامًا). يعيد Not quite فتح الملاحظة لتقول ما الذي ما زال خطأً.
+- **ليس كما أردت تمامًا لاحقًا؟** كل ملاحظة منجزة في اللوحة فيها **Reply…** (رد). قل ما الذي ما زال خطأً
+  وستُعاد فتحها.
+- **Before / After.** بعد بضع ثوانٍ من إنجاز الملاحظة، يلتقط Pinpoint لقطة مقصوصة جديدة للعنصر. وتعرض
+  الملاحظات المنجزة في اللوحة **Before** (قبل) و**After** (بعد) جنبًا إلى جنب.
 - **المسودات.** **Draft** (مسودة) (أو **⇧⌘↩**) تحدّد شيئًا دون إرساله. و**Send** على الشريط يسلّم كل
   المسودات دفعة واحدة.
 - **الصفحة كاملة.** أثناء الاختيار، يتيح لك **Whole page** (الصفحة كاملة) كتابة ملاحظة عن الصفحة نفسها
@@ -256,7 +277,7 @@ selector لم يعد صالحًا. والأداة `recheck_annotation` تعيد 
 <summary><b>تشغيل الـ bridge من المتصفح، وتشغيل عدة agents في الوقت نفسه</b></summary>
 
 **التشغيل وإعادة التشغيل من المتصفح.** يسجّل `install-native-host` أداة launcher صغيرة لدى Chrome (وكذلك
-Brave وEdge وArc وChromium وVivaldi وOpera). بعدها يعمل زر **Start bridge** في الـ popup، ويعيد زر
+Brave وEdge وArc وChromium وVivaldi وOpera) ولدى Firefox. بعدها يعمل زر **Start bridge** في الـ popup، ويعيد زر
 **↻** على الشريط تشغيل الـ bridge بعد أن تسحب build جديدًا. الـ launcher لا يستطيع إلا شيئًا واحدًا: تشغيل
 `cli.js` الخاص بهذا الـ repo على رقم port مأخوذ من إعدادات الـ popup، وليس من الصفحة أبدًا.
 
@@ -311,6 +332,34 @@ Brave وEdge وArc وChromium وVivaldi وOpera). بعدها يعمل زر **Sta
 server.
 </details>
 
+## 🤖 محاكي Android
+
+أداة الاختيار نفسها الموجودة في `/ios`، لكنها تقرأ **شجرة العرض** (view tree) في Android عبر adb. لا يُضاف
+أي شيء إلى تطبيقك، ولا يوجد driver لتثبيته.
+
+<table>
+<tr>
+<td width="50%"><img src="../images/android-comment.png" alt="أداة الاختيار في Android: حقل Search settings مُبرَز في تطبيق Settings، مع كتابة ملاحظة"></td>
+<td width="50%"><img src="../images/android-pick.png" alt="بعد الإرسال: دبوس مرقّم على الحقل، والمؤشر فوق العنصر التالي مع المعرّف الخاص به"></td>
+</tr>
+</table>
+
+**تحتاج إلى** `adb` من Android SDK (يثبّته Android Studio) وemulator مُشغَّل.
+
+مع تشغيل الـ bridge، افتح **http://127.0.0.1:7331/android**. مرّر المؤشر، وانقر، واكتب، ثم أرسل. يحصل الـ
+agent على `resource-id` الخاص بالعنصر، والـ content-desc، والنص، والـ class، وموقعه في شجرة العرض، ولقطة
+مقصوصة. ويتحقّق الأمر `node bridge/cli.js setup --for android` من وجود adb ويوجّهك إلى أداة الاختيار.
+
+<details>
+<summary><b>العثور على adb، وأي جهاز تتم قراءته</b></summary>
+
+يبحث Pinpoint عن adb في `$ANDROID_HOME` و`$ANDROID_SDK_ROOT` ومجلد الـ SDK الافتراضي لـ Android Studio، ثم
+في الـ `PATH`. إذا كان هناك emulator واحد يعمل، فهو المستخدَم. وإذا كان هناك أكثر من واحد، أو أردت قراءة جهاز
+حقيقي، فاضبط `ANDROID_SERIAL` على الرقم التسلسلي الخاص به (كما يعرضه `adb devices`) وأعد تشغيل الـ bridge.
+لا يُختار الهاتف أبدًا ما لم تسمِّه بنفسك. وكما في iOS، لا يوجد تلميح لملف المصدر، ولا styles، ولا
+`recheck_annotation`: أعطِ الـ views معرّفًا (id) وسيبحث الـ agent عنه بـ grep.
+</details>
+
 ## 🔌 ربط وكلاء آخرين
 
 أبسط إعداد يشغّل الحزمة المنشورة: `npx -y pinpoint-bridge mcp`. وهي تتواصل مع أي bridge يعمل حاليًا. أعد
@@ -360,9 +409,22 @@ agent *"read .pinpoint/pending.md and apply it"* (اقرأ الملف وطبّق
 
 | المتصفح | الحالة |
 |---|---|
-| **Chrome، Edge، Brave، Arc، Opera، Vivaldi** | ✅ عبر Load unpacked. تم التحقق منه في CI على Chromium بدون واجهة (headless). |
-| **Safari** | ✅ يُبنى باستخدام `bash tools/make-safari.sh` (يحتاج إلى Xcode). بدون component chain ولا تلميح للمصدر. |
-| **Firefox** | ⏳ ليس بعد. |
+| **Chrome، Brave، Arc، Opera، Vivaldi** | ✅ عبر Load unpacked. تم التحقق منه في CI على Chromium بدون واجهة (headless). |
+| **Edge** | ✅ عبر Load unpacked: الحزمة نفسها الخاصة بـ Chrome. |
+| **Firefox 140+** | ✅ حزمة لـ addons.mozilla.org يبنيها `bash tools/make-firefox-zip.sh`. الإدراج في المتجر قيد الانتظار. بدون إملاء صوتي. |
+| **Safari** | ✅ يُبنى باستخدام `bash tools/make-safari.sh` (يحتاج إلى Xcode). بدون component chain ولا تلميح للمصدر ولا أخطاء الصفحة. |
+
+<details>
+<summary><b>Edge وFirefox</b></summary>
+
+يقبل **Edge** حزمة Chrome كما هي. ولزر **Start bridge**، شغّل
+`node bridge/cli.js install-native-host --id <edge id>` مرة واحدة (يعطي Edge الـ extension معرّفًا خاصًا بها).
+
+**Firefox 140+.** إلى أن يصبح الإدراج في addons.mozilla.org متاحًا، حمّل الـ zip من
+`about:debugging` ← **This Firefox** ← **Load Temporary Add-on**. إذا حجب Firefox الوصول إلى المواقع المحلية،
+فاضغط **Grant access to local sites** في الـ popup. بعد ذلك شغّل `node bridge/cli.js install-native-host`
+مرة واحدة لزر **Start bridge**، أو الصق ناتج `node bridge/cli.js token` في الـ popup.
+</details>
 
 <details>
 <summary><b>ما الذي يختلف في Safari</b></summary>
@@ -370,8 +432,9 @@ agent *"read .pinpoint/pending.md and apply it"* (اقرأ الملف وطبّق
 لا يقبل Safari الـ extensions غير المضغوطة، لذا يغلّفها `tools/make-safari.sh` داخل تطبيق macOS صغير ويطبع
 إعدادات Safari الأربعة التي يجب تغييرها (أهمها **Develop ▸ Allow Unsigned Extensions**، الذي يُعاد ضبطه في
 كل مرة يُغلق فيها Safari). لا يدعم Safari الـ content scripts من نوع `"world": "MAIN"`، لذا لا يستطيع
-`inspector.js` قراءة React fibers أو Vue instances: فتخسر **الـ component chain وتلميح ملف المصدر**. كل ما
-عدا ذلك يعمل. ليس في Safari native host لتسليم الـ token الخاص بالـ bridge، لذا يطلبه الـ popup منك مرة
+`inspector.js` قراءة React fibers أو Vue instances: فتخسر **الـ component chain وتلميح ملف المصدر**،
+و**أخطاء الصفحة** (فهي تحتاج إلى الـ MAIN world أيضًا). ولا تأتي الطلبات الفاشلة إلا حيث يدعم Safari
+`webRequest`. كل ما عدا ذلك يعمل. ليس في Safari native host لتسليم الـ token الخاص بالـ bridge، لذا يطلبه الـ popup منك مرة
 واحدة: شغّل `node bridge/cli.js token` والصق الناتج. وللنشر على Mac App Store، يُصدّر الأمر
 `TEAM=<your team id> bash tools/make-safari.sh --release` نسخة build موقّعة.
 </details>
@@ -398,11 +461,14 @@ node cli.js clear              delete everything
 node cli.js --help
 
 http://127.0.0.1:7331/ios      the iOS Simulator picker, served by the running bridge
+http://127.0.0.1:7331/android  the Android emulator picker (needs adb)
 
 --port <n>       default 7331, or $PINPOINT_PORT (set the same number in the popup)
 --project <dir>  mirror pending annotations into <dir>/.pinpoint/
 --print          echo each new annotation to stdout as it arrives
 $PINPOINT_HOME   where annotations are stored (default ~/.pinpoint)
+$PINPOINT_AFTER_DELAY  ms after a resolve before the After crop (default 3000, 0 turns it off)
+$ANDROID_SERIAL  which Android device to read, when it isn't the one running emulator
 ```
 
 </div>
@@ -441,12 +507,18 @@ element          tag, id, classes, a CSS selector built from stable attributes w
 source           framework (react/vue/svelte/angular/astro), component chain,
                  file:line where the dev build exposes it
 screenshot       PNG of just the element (+8px), long edge ≤1200px
+context          only when something went wrong: uncaught errors and failed requests from the
+                 minute before, redacted in the browser
+steps            recorded notes only: up to 10 clicks, each with selector, label, URL and a crop
+after            on done notes: a fresh crop taken after the resolve
 ```
 
 </div>
 
 من iOS Simulator، يحمل `element` بدلًا من ذلك الـ accessibility identifier والـ label والنص والقيمة ومسار
 الشجرة والـ frame؛ وتكون قيمة `source` هي `ios-native`، وقيمة `page.url` هي `ios-simulator://<device name>`.
+ومن Android emulator، يحمل `resource-id` والـ content-desc والنص والـ class ومسار الشجرة والـ bounds؛ وتكون
+قيمة `source` هي `android-native`، وقيمة `page.url` هي `android-emulator://<avd>`.
 
 للحصول على `file:line` دقيق في React 19 أو Next، أضف inspector plugin للتطوير فقط
 (`vite-plugin-react-inspector`، `@react-dev-inspector`). يقرأ Pinpoint الـ attributes ‏`data-source`
@@ -550,15 +622,28 @@ cd test && npm install && npx playwright install chromium && npm test
 
 </div>
 
-152 اختبارًا. يغطّي `bridge.test.mjs` الـ daemon والـ CLI والـ hooks وأداة الاختيار في iOS وكل أداة MCP عبر
+210 اختبارات. يغطّي `bridge.test.mjs` الـ daemon والـ CLI والـ hooks وأداة الاختيار في iOS وكل أداة MCP عبر
 stdio وStreamable HTTP. ويحمّل `e2e.test.mjs` الـ extension في Chromium بدون واجهة (headless) ويقود صفحات
 حقيقية: React، وVue، وshadow DOM، وiframes، وCSP صارم، وصفحة ضغط فيها 3,600 node، وDPR 2، والمزامنة بين
-التبويبات، ونموذج يعيد بناء الـ DOM بالكامل. راجع [CONTRIBUTING.md](../../CONTRIBUTING.md).
+التبويبات، ونموذج يعيد بناء الـ DOM بالكامل.
+
+<details>
+<summary><b>مجموعات الاختبار الأخرى</b></summary>
+
+| الملف | ما يغطّيه |
+|---|---|
+| `android-bridge.test.mjs` | العثور على adb، واختيار الجهاز، وتحليل شجرة العرض، ومسارات `/android` |
+| `e2e-picker.test.mjs` | صفحات أداة الاختيار `/ios` و`/android` في Chromium بدون واجهة (headless) |
+| `ui-bridge.test.mjs`، `ui-flow.test.mjs`، `ui-after.test.mjs` | Accept، وسياق الصفحة، والخطوات المسجّلة، وBefore / After |
+| `ui-redact.test.mjs` | قواعد تنقيح سياق الصفحة |
+| `ship-edge.test.mjs`، `ship-firefox.test.mjs`، `e2e-ship.test.mjs` | الرفع إلى Edge، وحزمة Firefox والـ native host الخاص به، والـ zip الخاص بالمتجر، ومسارات Firefox في الـ popup |
+| `ship-windows.test.mjs` | كيف يضع setup علامات الاقتباس حول الأوامر لـ `cmd.exe` |
+</details>
+
+راجع [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
 ## خارطة الطريق
 
-- دعم Android emulator
-- Firefox
 - تلميحات المصدر الأصلية لـ React Native وFlutter، عبر حزمة اختيارية للتطوير فقط
 - ربط مصدر الـ CSS عبر `chrome.debugger` (أي قاعدة حدّدت هذا اللون، وأين)
 

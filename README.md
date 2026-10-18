@@ -42,7 +42,8 @@ It works for **behaviour**, not only looks. *"Disable this until the form is val
 draft before closing"* are fine notes: the agent treats the element as where to start, then follows it
 into the handlers, state, API calls and backend behind it.
 
-Building a native app? The same works on the **[iOS Simulator](#-native-ios-apps)**.
+Building a native app? The same works on the **[iOS Simulator](#-native-ios-apps)** and the
+**[Android emulator](#-android-emulator)**.
 
 ```mermaid
 flowchart LR
@@ -50,6 +51,7 @@ flowchart LR
     direction TB
     B["🌐 <b>Browser</b><br/>Pinpoint extension"]
     S["📱 <b>iOS Simulator</b><br/>127.0.0.1:7331/ios"]
+    AN["🤖 <b>Android emulator</b><br/>127.0.0.1:7331/android"]
   end
   BR(["📍 <b>Pinpoint bridge</b><br/>127.0.0.1:7331"])
   ST[("💾 ~/.pinpoint/<br/>annotations.json")]
@@ -58,6 +60,7 @@ flowchart LR
 
   B -- "selector · styles · crop" --> BR
   S -- "accessibility tree · crop" --> BR
+  AN -- "view tree · crop" --> BR
   BR -- "MCP / hooks" --> A
   A -- "resolve + reply" --> BR
   BR -. "live pins & replies" .-> B
@@ -78,6 +81,7 @@ flowchart LR
 - [Talking it through](#-talking-it-through)
 - [How your agent finds out](#-how-your-agent-finds-out)
 - [Native iOS apps](#-native-ios-apps)
+- [Android emulator](#-android-emulator)
 - [Connecting other agents](#-connecting-other-agents)
 - [Reference](#-reference): commands, MCP tools, what a note contains
 - [Troubleshooting](#-troubleshooting)
@@ -96,7 +100,8 @@ with it: point at the thing, let the agent change the code, let your tests drive
 
 ## 🚀 Quick start
 
-**You need** Node 18+ and a Chromium browser (Chrome, Edge, Brave, Arc, Opera, Vivaldi).
+**You need** Node 18+ and a Chromium browser (Chrome, Edge, Brave, Arc, Opera, Vivaldi), or
+[Firefox 140+](#-browsers).
 
 **1. Install**
 
@@ -121,7 +126,7 @@ in Claude Code and your note comes along.
 
 > [!TIP]
 > Want every step spelled out? See [docs/quick-install.md](docs/quick-install.md).
-> Only building a native iOS app? Skip the clone:
+> Only building a native iOS or Android app? Skip the clone:
 > `npx -y pinpoint-bridge`, then `claude mcp add pinpoint -s user -- npx -y pinpoint-bridge mcp`.
 
 <details>
@@ -130,9 +135,10 @@ in Claude Code and your note comes along.
 `setup` asks:
 
 - **which project's UI you want to annotate**: the repo your agent will edit
-- **web app, native iOS app, or both**: web gets the browser extension; iOS gets the
-  [Simulator picker](#-native-ios-apps). Setup checks for Xcode, Maestro and Java and says how to get
-  whichever is missing (it installs none of them).
+- **web app, native iOS app, Android app, or both** (web and iOS): web gets the browser extension;
+  iOS gets the [Simulator picker](#-native-ios-apps), Android the [emulator picker](#-android-emulator).
+  Setup checks for Xcode, Maestro and Java (iOS) or adb (Android) and says how to get whichever is
+  missing (it installs none of them).
 - **which agents to wire up**: `claude mcp add` for Claude Code, `<project>/.cursor/mcp.json` for
   Cursor, `~/.codex/config.toml` for Codex. Existing entries are merged, never replaced, and the TOML
   file is backed up first.
@@ -140,8 +146,8 @@ in Claude Code and your note comes along.
 - **which browser** to load the extension into (only the ones you have)
 
 Then it registers the launcher behind the popup's **Start bridge** button and starts the bridge.
-Non-interactive: `node pinpoint/bridge/cli.js setup ~/code/my-app --yes` (add `--for ios` or
-`--for both`; the default is `web`).
+Non-interactive: `node pinpoint/bridge/cli.js setup ~/code/my-app --yes` (add `--for ios`,
+`--for android` or `--for both`; the default is `web`).
 
 **By hand.** The order matters: `$PWD` is baked into the MCP entry, so step 2 runs from
 `pinpoint/bridge` before the bridge takes over the terminal.
@@ -208,6 +214,16 @@ While the bridge runs, a small bar sits in the top-right corner of your page.
 - **Pins follow their element** on apps that rebuild their DOM, and hide rather than sit on the wrong
   element when theirs is gone.
 - **No bridge running?** **Send** copies a ready-to-paste prompt instead, so nothing is lost.
+- **Record steps.** While picking, press **Record steps** on the bar and click through the bug as you
+  normally would. Clicks still reach the page and each becomes a step (element, label, URL, a small
+  crop), across navigations in the same tab. **Done** writes one note (10 steps at most); **Esc**
+  throws the recording away. Your agent gets them as *Steps to reproduce*.
+- **Dictate.** Press the mic in the comment box and talk; the text is added to what you typed. Chrome
+  and Safari on secure pages (localhost counts); the browser's own speech service does the
+  transcribing. Not on Firefox.
+- **What went wrong comes along.** Each note carries the page's uncaught errors and failed requests
+  from the minute before you marked it, redacted in the browser first (query strings, tokens and
+  secrets removed). Only attached when something actually went wrong.
 
 **Where it runs.** Only on local development pages: `localhost`, `127.0.0.1`, `.local` / `.test` /
 `.localhost` hosts, and `file://` once allowed. Anywhere else (a staging URL, a LAN address for phone
@@ -222,7 +238,12 @@ A note is a conversation, not a one-way ticket.
   conversation.
 - **You read the reply in the browser.** A finished note stays in the panel with the agent's own note
   on what it changed. Agents must write one: "done" is not an answer.
-- **Not quite right?** Every finished note has **Reply…**. Say what's still wrong and it reopens.
+- **Accept / Not quite.** When the agent finishes, a card shows its reply with **Accept** and **Not
+  quite**. Not quite opens the note again so you can say what is still wrong.
+- **Not quite right later?** Every finished note in the panel has **Reply…**. Say what's still wrong
+  and it reopens.
+- **Before / After.** A few seconds after a note is resolved, Pinpoint takes a fresh crop of the
+  element. Done notes in the panel show **Before** and **After** side by side.
 - **Drafts.** **Draft** (or **⇧⌘↩**) marks something without sending it. **Send** on the bar hands
   every draft over at once.
 - **The whole page.** While picking, **Whole page** makes a note about the page itself (*"the spacing
@@ -242,7 +263,7 @@ to the original.
 <summary><b>Starting the bridge from the browser, and several agents at once</b></summary>
 
 **Start / restart from the browser.** `install-native-host` registers a tiny launcher with Chrome
-(and Brave, Edge, Arc, Chromium, Vivaldi, Opera). The popup's **Start bridge** then works, and the
+(and Brave, Edge, Arc, Chromium, Vivaldi, Opera) and Firefox. The popup's **Start bridge** then works, and the
 **↻** on the bar restarts the bridge after you pull a new build. The launcher can do one thing: run
 this repo's own `cli.js` on a port number from the popup's setting, never from the page.
 
@@ -298,6 +319,34 @@ once more. If the first load takes minutes, close idle Claude Code sessions that
 server.
 </details>
 
+## 🤖 Android emulator
+
+The same picker as `/ios`, reading the Android **view tree** through adb. Nothing is added to your app
+and there is no driver to install.
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/android-comment.png" alt="The Android picker: the Search settings field highlighted in the Settings app, with a note being typed"></td>
+<td width="50%"><img src="docs/images/android-pick.png" alt="After sending: a numbered pin on the field, and the next element hovered with its id"></td>
+</tr>
+</table>
+
+**You need** `adb` from the Android SDK (Android Studio installs it) and a running emulator.
+
+With the bridge running, open **http://127.0.0.1:7331/android**. Hover, click, type, send. The agent
+gets the element's `resource-id`, content-desc, text, class, its place in the view tree and a crop.
+`node bridge/cli.js setup --for android` checks for adb and points you at the picker.
+
+<details>
+<summary><b>Finding adb, and which device is read</b></summary>
+
+Pinpoint looks for adb in `$ANDROID_HOME`, `$ANDROID_SDK_ROOT` and Android Studio's default SDK
+folder, then on your `PATH`. With one emulator running, that one is used. With several, or to read a
+physical device, set `ANDROID_SERIAL` to its serial (as `adb devices` lists it) and restart the
+bridge. A phone is never picked unless you name it. Like iOS, there's no source-file hint, no styles
+and no `recheck_annotation`: give views an id and the agent greps for it.
+</details>
+
 ## 🔌 Connecting other agents
 
 The simplest entry runs the published package: `npx -y pinpoint-bridge mcp`. It talks to whichever
@@ -339,9 +388,23 @@ To pin an agent to your clone instead of npm, use the absolute path to `cli.js` 
 
 | Browser | Status |
 |---|---|
-| **Chrome, Edge, Brave, Arc, Opera, Vivaldi** | ✅ Load unpacked. Verified in CI on headless Chromium. |
-| **Safari** | ✅ Built with `bash tools/make-safari.sh` (needs Xcode). No component chain or source hint. |
-| **Firefox** | ⏳ Not yet. |
+| **Chrome, Brave, Arc, Opera, Vivaldi** | ✅ Load unpacked. Verified in CI on headless Chromium. |
+| **Edge** | ✅ Load unpacked: the same package as Chrome. |
+| **Firefox 140+** | ✅ An addons.mozilla.org package built by `bash tools/make-firefox-zip.sh`. Store listing pending. No dictation. |
+| **Safari** | ✅ Built with `bash tools/make-safari.sh` (needs Xcode). No component chain, source hint or page errors. |
+
+<details>
+<summary><b>Edge and Firefox</b></summary>
+
+**Edge** takes the Chrome package as is. For **Start bridge**, run
+`node bridge/cli.js install-native-host --id <edge id>` once (Edge gives the extension its own id).
+
+**Firefox 140+.** Until the addons.mozilla.org listing is live, load the zip from
+`about:debugging` → **This Firefox** → **Load Temporary Add-on**. If Firefox withheld access to local
+sites, press **Grant access to local sites** in the popup. Then run
+`node bridge/cli.js install-native-host` once for **Start bridge**, or paste the output of
+`node bridge/cli.js token` into the popup.
+</details>
 
 <details>
 <summary><b>What differs on Safari</b></summary>
@@ -349,8 +412,9 @@ To pin an agent to your clone instead of npm, use the absolute path to `cli.js` 
 Safari doesn't take unpacked extensions, so `tools/make-safari.sh` wraps it in a small macOS app and
 prints the four Safari settings to flip (the key one, **Develop ▸ Allow Unsigned Extensions**, resets
 every time Safari quits). Safari doesn't support `"world": "MAIN"` content scripts, so `inspector.js`
-can't read React fibers or Vue instances: you lose the **component chain and source-file hint**.
-Everything else works. Safari has no native host to hand over the bridge token, so the popup asks for
+can't read React fibers or Vue instances: you lose the **component chain and source-file hint**, and
+**page errors** (they need the MAIN world too). Failed requests come along only where Safari supports
+`webRequest`. Everything else works. Safari has no native host to hand over the bridge token, so the popup asks for
 it once: run `node bridge/cli.js token` and paste the output. For the Mac App Store,
 `TEAM=<your team id> bash tools/make-safari.sh --release` exports a signed build.
 </details>
@@ -375,11 +439,14 @@ node cli.js clear              delete everything
 node cli.js --help
 
 http://127.0.0.1:7331/ios      the iOS Simulator picker, served by the running bridge
+http://127.0.0.1:7331/android  the Android emulator picker (needs adb)
 
 --port <n>       default 7331, or $PINPOINT_PORT (set the same number in the popup)
 --project <dir>  mirror pending annotations into <dir>/.pinpoint/
 --print          echo each new annotation to stdout as it arrives
 $PINPOINT_HOME   where annotations are stored (default ~/.pinpoint)
+$PINPOINT_AFTER_DELAY  ms after a resolve before the After crop (default 3000, 0 turns it off)
+$ANDROID_SERIAL  which Android device to read, when it isn't the one running emulator
 ```
 </details>
 
@@ -414,10 +481,16 @@ element          tag, id, classes, a CSS selector built from stable attributes w
 source           framework (react/vue/svelte/angular/astro), component chain,
                  file:line where the dev build exposes it
 screenshot       PNG of just the element (+8px), long edge ≤1200px
+context          only when something went wrong: uncaught errors and failed requests from the
+                 minute before, redacted in the browser
+steps            recorded notes only: up to 10 clicks, each with selector, label, URL and a crop
+after            on done notes: a fresh crop taken after the resolve
 ```
 
 From the iOS Simulator, `element` carries the accessibility identifier, label, text, value, tree path
-and frame instead; `source` is `ios-native` and `page.url` is `ios-simulator://<device name>`.
+and frame instead; `source` is `ios-native` and `page.url` is `ios-simulator://<device name>`. From
+the Android emulator it is the `resource-id`, content-desc, text, class, tree path and bounds;
+`source` is `android-native` and `page.url` is `android-emulator://<avd>`.
 
 For exact `file:line` on React 19 or Next, add a dev-only inspector plugin
 (`vite-plugin-react-inspector`, `@react-dev-inspector`). Pinpoint reads their `data-source`
@@ -513,15 +586,28 @@ cd demo && python3 -m http.server 8080     # then open http://localhost:8080
 cd test && npm install && npx playwright install chromium && npm test
 ```
 
-152 tests. `bridge.test.mjs` covers the daemon, CLI, hooks, the iOS picker and every MCP tool over
+210 tests. `bridge.test.mjs` covers the daemon, CLI, hooks, the iOS picker and every MCP tool over
 stdio and Streamable HTTP. `e2e.test.mjs` loads the extension into headless Chromium and drives real
 pages: React, Vue, shadow DOM, iframes, strict CSP, a 3,600-node stress page, DPR 2, cross-tab sync and
-a form that rebuilds its whole DOM. See [CONTRIBUTING.md](CONTRIBUTING.md).
+a form that rebuilds its whole DOM.
+
+<details>
+<summary><b>The other suites</b></summary>
+
+| file | covers |
+|---|---|
+| `android-bridge.test.mjs` | finding adb, picking the device, parsing the view tree, the `/android` routes |
+| `e2e-picker.test.mjs` | the `/ios` and `/android` picker pages in headless Chromium |
+| `ui-bridge.test.mjs`, `ui-flow.test.mjs`, `ui-after.test.mjs` | Accept, page context, recorded steps, Before / After |
+| `ui-redact.test.mjs` | the page-context redaction rules |
+| `ship-edge.test.mjs`, `ship-firefox.test.mjs`, `e2e-ship.test.mjs` | the Edge upload, the Firefox package and native host, the store zip and the popup's Firefox paths |
+| `ship-windows.test.mjs` | how setup quotes commands for `cmd.exe` |
+</details>
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Roadmap
 
-- Android emulator support
-- Firefox
 - Native source hints for React Native and Flutter, via an optional dev-only package
 - CSS source mapping via `chrome.debugger` (which rule set this colour, and where)
 

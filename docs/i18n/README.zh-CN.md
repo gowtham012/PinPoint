@@ -39,7 +39,7 @@
 
 它不只管**外观**，也管**行为**。*“表单校验通过之前禁用这个按钮”*、*“关闭前先保存草稿”* 都是合格的备注：agent 会把这个元素当作切入点，再顺着它追到背后的事件处理函数、state、API 调用和后端逻辑。
 
-在做原生应用？同样的流程也适用于 **[iOS Simulator](#-原生-ios-应用)**。
+在做原生应用？同样的流程也适用于 **[iOS Simulator](#-原生-ios-应用)** 和 **[Android 模拟器](#-android-模拟器)**。
 
 ```mermaid
 flowchart LR
@@ -47,6 +47,7 @@ flowchart LR
     direction TB
     B["🌐 <b>Browser</b><br/>Pinpoint extension"]
     S["📱 <b>iOS Simulator</b><br/>127.0.0.1:7331/ios"]
+    AN["🤖 <b>Android emulator</b><br/>127.0.0.1:7331/android"]
   end
   BR(["📍 <b>Pinpoint bridge</b><br/>127.0.0.1:7331"])
   ST[("💾 ~/.pinpoint/<br/>annotations.json")]
@@ -55,6 +56,7 @@ flowchart LR
 
   B -- "selector · styles · crop" --> BR
   S -- "accessibility tree · crop" --> BR
+  AN -- "view tree · crop" --> BR
   BR -- "MCP / hooks" --> A
   A -- "resolve + reply" --> BR
   BR -. "live pins & replies" .-> B
@@ -75,6 +77,7 @@ flowchart LR
 - [来回沟通](#-来回沟通)
 - [agent 如何得知](#-agent-如何得知)
 - [原生 iOS 应用](#-原生-ios-应用)
+- [Android 模拟器](#-android-模拟器)
 - [接入其他 agent](#-接入其他-agent)
 - [参考](#-参考)：命令、MCP 工具、备注里包含什么
 - [故障排查](#-故障排查)
@@ -92,7 +95,7 @@ Pinpoint 从不操作页面本身，所以它和浏览器自动化是互补关�
 
 ## 🚀 快速上手
 
-**前置要求：** Node 18+，以及一款 Chromium 内核浏览器（Chrome、Edge、Brave、Arc、Opera、Vivaldi）。
+**前置要求：** Node 18+，以及一款 Chromium 内核浏览器（Chrome、Edge、Brave、Arc、Opera、Vivaldi），或者 [Firefox 140+](#-浏览器)。
 
 **1. 安装**
 
@@ -111,7 +114,7 @@ node pinpoint/bridge/cli.js setup
 
 > [!TIP]
 > 想看每一步的详细说明？请看 [docs/quick-install.md](../quick-install.md)。
-> 只做原生 iOS 应用？可以跳过 clone：
+> 只做原生 iOS 或 Android 应用？可以跳过 clone：
 > `npx -y pinpoint-bridge`，然后 `claude mcp add pinpoint -s user -- npx -y pinpoint-bridge mcp`。
 
 <details>
@@ -120,13 +123,13 @@ node pinpoint/bridge/cli.js setup
 `setup` 会问：
 
 - **你要标注哪个项目的 UI**：也就是 agent 要修改的那个 repo
-- **Web 应用、原生 iOS 应用，还是两者都要**：Web 使用浏览器 extension；iOS 使用 [Simulator 选择器](#-原生-ios-应用)。Setup 会检查 Xcode、Maestro 和 Java，缺哪个就告诉你怎么装（它自己一个都不装）。
+- **Web 应用、原生 iOS 应用、Android 应用，还是两者都要**（Web 和 iOS）：Web 使用浏览器 extension；iOS 使用 [Simulator 选择器](#-原生-ios-应用)，Android 使用[模拟器选择器](#-android-模拟器)。Setup 会检查 Xcode、Maestro 和 Java（iOS）或 adb（Android），缺哪个就告诉你怎么装（它自己一个都不装）。
 - **要接入哪些 agent**：Claude Code 用 `claude mcp add`，Cursor 用 `<project>/.cursor/mcp.json`，Codex 用 `~/.codex/config.toml`。已有配置只会合并、绝不覆盖，TOML 文件会先备份。
 - **是否安装 Claude Code hooks**：装了之后，待处理的备注会随你的下一条消息一起带进去
 - **把 extension 装进哪个浏览器**（只列出你已安装的）
 
 之后它会注册 popup 里 **Start bridge**（启动 bridge）按钮背后的启动器，并启动 bridge。
-非交互模式：`node pinpoint/bridge/cli.js setup ~/code/my-app --yes`（可加 `--for ios` 或 `--for both`；默认是 `web`）。
+非交互模式：`node pinpoint/bridge/cli.js setup ~/code/my-app --yes`（可加 `--for ios`、`--for android` 或 `--for both`；默认是 `web`）。
 
 **手动安装。** 顺序很重要：`$PWD` 会被写进 MCP 配置，所以第 2 步要在 bridge 占用终端之前、在 `pinpoint/bridge` 目录下执行。
 
@@ -184,6 +187,9 @@ bridge 运行期间，页面右上角会出现一个小工具条。
 - **×**：在该站点隐藏工具条；通过浏览器工具栏的 popup 可以重新打开。
 - **图钉会跟随元素**：在会重建 DOM 的应用里也一样；如果对应元素没了，图钉会隐藏，而不是错贴到别的元素上。
 - **bridge 没在运行？** **Send**（发送）会改为复制一段可直接粘贴的 prompt，什么都不会丢。
+- **Record steps（录制步骤）。** 选取时点工具条上的 **Record steps**，然后像平时一样点一遍出 bug 的流程。点击照常传到页面，每次点击都会成为一个步骤（元素、label、URL、一张小裁剪图），在同一标签页内跨页面跳转也会继续录。**Done** 会生成一条备注（最多 10 步）；**Esc** 则丢弃这次录制。agent 会以 *Steps to reproduce*（复现步骤）的形式收到它们。
+- **语音输入。** 点备注框里的麦克风直接说话，识别出的文字会追加到你已输入的内容后面。支持 Chrome 和 Safari 上的安全页面（localhost 也算）；转写由浏览器自带的语音服务完成。Firefox 不支持。
+- **出错信息自动附上。** 每条备注都会带上你标记前一分钟内页面未捕获的错误和失败的请求，并且先在浏览器里脱敏（去掉 query string、token 和密钥）。只有真出了问题时才会附上。
 
 **在哪些页面生效。** 只在本地开发页面上：`localhost`、`127.0.0.1`、`.local` / `.test` / `.localhost` 域名，以及授权后的 `file://`。其他地址（staging URL、用于手机测试的局域网地址）可以通过工具栏 popup 针对单个标签页开启。
 
@@ -193,7 +199,9 @@ bridge 运行期间，页面右上角会出现一个小工具条。
 
 - **agent 可以反问。** 需求有歧义时，它会提问而不是瞎猜。问题会显示在图钉上（一个 **?**），同时弹出 toast 提示；在备注面板里回答后，备注会连同完整对话一起发回去。
 - **在浏览器里看回复。** 已完成的备注会留在面板里，附上 agent 写的改动说明。agent 必须写这条说明：只回一句“done”不算数。
-- **改得不太对？** 每条已完成的备注都有 **Reply…**（回复）。说明哪里还不对，它就会重新打开。
+- **Accept / Not quite。** agent 处理完后，会弹出一张卡片显示它的回复，带有 **Accept**（接受）和 **Not quite**（不太对）两个按钮。点 Not quite 会重新打开这条备注，你可以说明哪里还不对。
+- **之后发现不太对？** 面板里每条已完成的备注都有 **Reply…**（回复）。说明哪里还不对，它就会重新打开。
+- **Before / After（前后对比）。** 备注被 resolve 几秒后，Pinpoint 会重新给该元素拍一张裁剪截图。面板里已完成的备注会把 **Before** 和 **After** 并排显示。
 - **草稿。** **Draft**（草稿，或 **⇧⌘↩**）只做标记、不发送。工具条上的 **Send** 会一次性把所有草稿交出去。
 - **整个页面。** 选取时点 **Whole page**（整个页面）可以针对页面本身写备注（*“整体间距都太挤了”*），并附带截图。
 
@@ -208,7 +216,7 @@ bridge 运行期间，页面右上角会出现一个小工具条。
 <details>
 <summary><b>从浏览器启动 bridge，以及同时使用多个 agent</b></summary>
 
-**从浏览器启动 / 重启。** `install-native-host` 会向 Chrome（以及 Brave、Edge、Arc、Chromium、Vivaldi、Opera）注册一个很小的启动器。之后 popup 里的 **Start bridge** 就能用了，工具条上的 **↻** 可以在你拉取新版本后重启 bridge。这个启动器只能做一件事：用 popup 设置里的端口号（绝不会来自页面）运行本 repo 自带的 `cli.js`。
+**从浏览器启动 / 重启。** `install-native-host` 会向 Chrome（以及 Brave、Edge、Arc、Chromium、Vivaldi、Opera）和 Firefox 注册一个很小的启动器。之后 popup 里的 **Start bridge** 就能用了，工具条上的 **↻** 可以在你拉取新版本后重启 bridge。这个启动器只能做一件事：用 popup 设置里的端口号（绝不会来自页面）运行本 repo 自带的 `cli.js`。
 
 **多个 agent。** agent 会通过 MCP 自报家门，所以工具条会显示当前在干活的是哪个（`claude-code`、`cursor-vscode`、`codex`），每条回复也会注明来源。`wait_for_annotation` 会把每条新备注只交给一个正在等待的 agent，这样两个 agent 共享同一个队列，不会重复处理同一条备注。
 </details>
@@ -248,6 +256,27 @@ bridge 运行时，打开 **http://127.0.0.1:7331/ios**（setup 会帮你打开�
 这里没有源文件提示和组件链（无障碍树里两者都没有；给元素加上 identifier，agent 就能 grep 到它），没有样式，也没有 `recheck_annotation`。首次加载需要等待约 10 秒，因为 Maestro 要启动设备端 driver；之后每次刷新大约一秒。你 Mac 上所有的 Maestro 共用一个 driver，如果别的 Maestro 重启了它，bridge 会启动一个新的 Maestro 并重试一次。如果首次加载要好几分钟，请关掉那些挂着 Maestro MCP server 的闲置 Claude Code 会话。
 </details>
 
+## 🤖 Android 模拟器
+
+和 `/ios` 一样的选择器，通过 adb 读取 Android 的 **view tree（视图树）**。不需要往你的应用里加任何东西，也不用安装 driver。
+
+<table>
+<tr>
+<td width="50%"><img src="../images/android-comment.png" alt="Android 选择器：设置应用中高亮的 Search settings 输入框，正在输入备注"></td>
+<td width="50%"><img src="../images/android-pick.png" alt="发送后：输入框上出现编号图钉，鼠标悬停在下一个元素上并显示其 id"></td>
+</tr>
+</table>
+
+**前置要求：** Android SDK 里的 `adb`（Android Studio 会自动安装），以及一个正在运行的模拟器。
+
+bridge 运行时，打开 **http://127.0.0.1:7331/android**。悬停、点击、输入、发送。agent 会拿到元素的 `resource-id`、content-desc、文本、class、它在视图树中的位置，以及一张裁剪截图。`node bridge/cli.js setup --for android` 会检查 adb 并把你引导到选择器。
+
+<details>
+<summary><b>如何找到 adb，以及读取哪台设备</b></summary>
+
+Pinpoint 会依次在 `$ANDROID_HOME`、`$ANDROID_SDK_ROOT` 和 Android Studio 默认的 SDK 目录里查找 adb，最后再找 `PATH`。只运行了一个模拟器时就用那一个。运行了多个，或者想读取一台实体设备时，把 `ANDROID_SERIAL` 设为它的序列号（即 `adb devices` 列出的那个），然后重启 bridge。除非你明确指定，否则绝不会选中手机。和 iOS 一样，这里没有源文件提示、没有样式，也没有 `recheck_annotation`：给 view 加上 id，agent 就能 grep 到它。
+</details>
+
 ## 🔌 接入其他 Agent
 
 最简单的配置是直接运行已发布的包：`npx -y pinpoint-bridge mcp`。它会连接当前正在运行的 bridge。配置完成后重启编辑器。
@@ -284,14 +313,23 @@ args = ["-y", "pinpoint-bridge", "mcp"]
 
 | 浏览器 | 状态 |
 |---|---|
-| **Chrome, Edge, Brave, Arc, Opera, Vivaldi** | ✅ 使用 Load unpacked 加载。已在 CI 中通过 headless Chromium 验证。 |
-| **Safari** | ✅ 用 `bash tools/make-safari.sh` 构建（需要 Xcode）。没有组件链和源码提示。 |
-| **Firefox** | ⏳ 暂不支持。 |
+| **Chrome, Brave, Arc, Opera, Vivaldi** | ✅ 使用 Load unpacked 加载。已在 CI 中通过 headless Chromium 验证。 |
+| **Edge** | ✅ 使用 Load unpacked 加载：与 Chrome 是同一个包。 |
+| **Firefox 140+** | ✅ 用 `bash tools/make-firefox-zip.sh` 构建 addons.mozilla.org 包。商店上架审核中。不支持语音输入。 |
+| **Safari** | ✅ 用 `bash tools/make-safari.sh` 构建（需要 Xcode）。没有组件链、源码提示和页面错误。 |
+
+<details>
+<summary><b>Edge 和 Firefox</b></summary>
+
+**Edge** 直接使用 Chrome 的包。要用 **Start bridge**，请运行一次 `node bridge/cli.js install-native-host --id <edge id>`（Edge 会给 extension 分配它自己的 id）。
+
+**Firefox 140+。** 在 addons.mozilla.org 上架之前，请从 `about:debugging` → **This Firefox** → **Load Temporary Add-on** 加载 zip 包。如果 Firefox 没有授予本地站点的访问权限，在 popup 里点 **Grant access to local sites**。然后运行一次 `node bridge/cli.js install-native-host` 以启用 **Start bridge**，或者把 `node bridge/cli.js token` 的输出粘贴到 popup 里。
+</details>
 
 <details>
 <summary><b>Safari 上有哪些不同</b></summary>
 
-Safari 不支持加载未打包的 extension，所以 `tools/make-safari.sh` 会把它包装进一个小型 macOS 应用，并打印出需要打开的四项 Safari 设置（其中最关键的 **Develop ▸ Allow Unsigned Extensions** 每次退出 Safari 都会被重置）。Safari 不支持 `"world": "MAIN"` 的 content script，所以 `inspector.js` 无法读取 React fiber 或 Vue 实例：你会失去**组件链和源文件提示**。其他功能都正常。Safari 没有 native host 来传递 bridge token，所以 popup 会让你手动输入一次：运行 `node bridge/cli.js token` 并粘贴输出结果。如需上架 Mac App Store，`TEAM=<your team id> bash tools/make-safari.sh --release` 会导出一个已签名的构建。
+Safari 不支持加载未打包的 extension，所以 `tools/make-safari.sh` 会把它包装进一个小型 macOS 应用，并打印出需要打开的四项 Safari 设置（其中最关键的 **Develop ▸ Allow Unsigned Extensions** 每次退出 Safari 都会被重置）。Safari 不支持 `"world": "MAIN"` 的 content script，所以 `inspector.js` 无法读取 React fiber 或 Vue 实例：你会失去**组件链和源文件提示**，以及**页面错误**（它同样需要 MAIN world）。失败的请求只在 Safari 支持 `webRequest` 的情况下才会附上。其他功能都正常。Safari 没有 native host 来传递 bridge token，所以 popup 会让你手动输入一次：运行 `node bridge/cli.js token` 并粘贴输出结果。如需上架 Mac App Store，`TEAM=<your team id> bash tools/make-safari.sh --release` 会导出一个已签名的构建。
 </details>
 
 ## 📚 参考
@@ -314,11 +352,14 @@ node cli.js clear              delete everything
 node cli.js --help
 
 http://127.0.0.1:7331/ios      the iOS Simulator picker, served by the running bridge
+http://127.0.0.1:7331/android  the Android emulator picker (needs adb)
 
 --port <n>       default 7331, or $PINPOINT_PORT (set the same number in the popup)
 --project <dir>  mirror pending annotations into <dir>/.pinpoint/
 --print          echo each new annotation to stdout as it arrives
 $PINPOINT_HOME   where annotations are stored (default ~/.pinpoint)
+$PINPOINT_AFTER_DELAY  ms after a resolve before the After crop (default 3000, 0 turns it off)
+$ANDROID_SERIAL  which Android device to read, when it isn't the one running emulator
 ```
 </details>
 
@@ -353,9 +394,13 @@ element          tag, id, classes, a CSS selector built from stable attributes w
 source           framework (react/vue/svelte/angular/astro), component chain,
                  file:line where the dev build exposes it
 screenshot       PNG of just the element (+8px), long edge ≤1200px
+context          only when something went wrong: uncaught errors and failed requests from the
+                 minute before, redacted in the browser
+steps            recorded notes only: up to 10 clicks, each with selector, label, URL and a crop
+after            on done notes: a fresh crop taken after the resolve
 ```
 
-来自 iOS Simulator 时，`element` 里携带的是 accessibility identifier、label、文本、value、树路径和 frame；`source` 为 `ios-native`，`page.url` 为 `ios-simulator://<device name>`。
+来自 iOS Simulator 时，`element` 里携带的是 accessibility identifier、label、文本、value、树路径和 frame；`source` 为 `ios-native`，`page.url` 为 `ios-simulator://<device name>`。来自 Android 模拟器时，则是 `resource-id`、content-desc、文本、class、树路径和 bounds；`source` 为 `android-native`，`page.url` 为 `android-emulator://<avd>`。
 
 如果想在 React 19 或 Next 上拿到精确的 `file:line`，请添加一个仅用于开发环境的 inspector 插件（`vite-plugin-react-inspector`、`@react-dev-inspector`）。Pinpoint 会读取它们的 `data-source` 属性，也会读取 React 的 `_debugSource`/`_debugStack` 和 Vue 的 `__file`。
 </details>
@@ -433,12 +478,25 @@ cd demo && python3 -m http.server 8080     # then open http://localhost:8080
 cd test && npm install && npx playwright install chromium && npm test
 ```
 
-共 152 个测试。`bridge.test.mjs` 覆盖了守护进程、CLI、hooks、iOS 选择器，以及通过 stdio 和 Streamable HTTP 调用的每个 MCP 工具。`e2e.test.mjs` 会把 extension 加载到 headless Chromium 中并驱动真实页面：React、Vue、shadow DOM、iframe、严格 CSP、一个 3,600 节点的压力测试页面、DPR 2、跨标签页同步，以及一个会重建整个 DOM 的表单。详见 [CONTRIBUTING.md](../../CONTRIBUTING.md)。
+共 210 个测试。`bridge.test.mjs` 覆盖了守护进程、CLI、hooks、iOS 选择器，以及通过 stdio 和 Streamable HTTP 调用的每个 MCP 工具。`e2e.test.mjs` 会把 extension 加载到 headless Chromium 中并驱动真实页面：React、Vue、shadow DOM、iframe、严格 CSP、一个 3,600 节点的压力测试页面、DPR 2、跨标签页同步，以及一个会重建整个 DOM 的表单。
+
+<details>
+<summary><b>其他测试套件</b></summary>
+
+| 文件 | 覆盖内容 |
+|---|---|
+| `android-bridge.test.mjs` | 查找 adb、选择设备、解析视图树、`/android` 路由 |
+| `e2e-picker.test.mjs` | 在 headless Chromium 中测试 `/ios` 和 `/android` 选择器页面 |
+| `ui-bridge.test.mjs`、`ui-flow.test.mjs`、`ui-after.test.mjs` | Accept、页面上下文、录制步骤、Before / After |
+| `ui-redact.test.mjs` | 页面上下文的脱敏规则 |
+| `ship-edge.test.mjs`、`ship-firefox.test.mjs`、`e2e-ship.test.mjs` | Edge 上传、Firefox 包和 native host、商店 zip 包，以及 popup 中的 Firefox 相关路径 |
+| `ship-windows.test.mjs` | setup 如何为 `cmd.exe` 给命令加引号 |
+</details>
+
+详见 [CONTRIBUTING.md](../../CONTRIBUTING.md)。
 
 ## 路线图
 
-- 支持 Android 模拟器
-- Firefox
 - 通过一个可选的、仅用于开发环境的包，为 React Native 和 Flutter 提供原生源码提示
 - 通过 `chrome.debugger` 实现 CSS 源码映射（是哪条规则设置了这个颜色，在哪里）
 

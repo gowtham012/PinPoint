@@ -46,7 +46,8 @@ gültig ist“* oder *„speicher den Entwurf vor dem Schließen“* sind völli
 Element als Startpunkt und folgt ihm dann in die Handler, den State, die API-Calls und das Backend
 dahinter.
 
-Du baust eine native App? Das Gleiche funktioniert im **[iOS Simulator](#-native-ios-apps)**.
+Du baust eine native App? Das Gleiche funktioniert im **[iOS Simulator](#-native-ios-apps)** und im
+**[Android-Emulator](#-android-emulator)**.
 
 ```mermaid
 flowchart LR
@@ -54,6 +55,7 @@ flowchart LR
     direction TB
     B["🌐 <b>Browser</b><br/>Pinpoint-Extension"]
     S["📱 <b>iOS Simulator</b><br/>127.0.0.1:7331/ios"]
+    AN["🤖 <b>Android-Emulator</b><br/>127.0.0.1:7331/android"]
   end
   BR(["📍 <b>Pinpoint bridge</b><br/>127.0.0.1:7331"])
   ST[("💾 ~/.pinpoint/<br/>annotations.json")]
@@ -62,6 +64,7 @@ flowchart LR
 
   B -- "Selector · Styles · Ausschnitt" --> BR
   S -- "Accessibility Tree · Ausschnitt" --> BR
+  AN -- "View Tree · Ausschnitt" --> BR
   BR -- "MCP / hooks" --> A
   A -- "resolve + Antwort" --> BR
   BR -. "Live-Pins & Antworten" .-> B
@@ -82,6 +85,7 @@ flowchart LR
 - [Im Dialog klären](#-im-dialog-klären)
 - [Wie dein Agent davon erfährt](#-wie-dein-agent-davon-erfährt)
 - [Native iOS-Apps](#-native-ios-apps)
+- [Android-Emulator](#-android-emulator)
 - [Andere Agents anbinden](#-andere-agents-anbinden)
 - [Referenz](#-referenz): Befehle, MCP-Tools, was eine Notiz enthält
 - [Fehlerbehebung](#-fehlerbehebung)
@@ -100,7 +104,8 @@ konkurrieren: Du zeigst auf die Stelle, der Agent ändert den Code, und deine Te
 
 ## 🚀 Schnellstart
 
-**Du brauchst** Node 18+ und einen Chromium-Browser (Chrome, Edge, Brave, Arc, Opera, Vivaldi).
+**Du brauchst** Node 18+ und einen Chromium-Browser (Chrome, Edge, Brave, Arc, Opera, Vivaldi) oder
+[Firefox 140+](#-browser).
 
 **1. Installieren**
 
@@ -126,7 +131,7 @@ Das Terminal bestätigt **✓ Pinpoint is live in Chrome** von selbst.
 
 > [!TIP]
 > Du willst jeden Schritt ausführlich? Siehe [docs/quick-install.md](../quick-install.md).
-> Du baust nur eine native iOS-App? Dann spar dir das Klonen:
+> Du baust nur eine native iOS- oder Android-App? Dann spar dir das Klonen:
 > `npx -y pinpoint-bridge`, danach `claude mcp add pinpoint -s user -- npx -y pinpoint-bridge mcp`.
 
 <details>
@@ -135,9 +140,11 @@ Das Terminal bestätigt **✓ Pinpoint is live in Chrome** von selbst.
 `setup` fragt:
 
 - **für welches Projekt du die UI annotieren willst**: das Repo, das dein Agent bearbeiten wird
-- **Web-App, native iOS-App oder beides**: Web bekommt die Browser-Extension, iOS den
-  [Simulator-Picker](#-native-ios-apps). Setup prüft, ob Xcode, Maestro und Java vorhanden sind, und
-  sagt dir, wie du an das Fehlende kommst (es installiert selbst nichts davon).
+- **Web-App, native iOS-App, Android-App oder beides** (Web und iOS): Web bekommt die
+  Browser-Extension, iOS den [Simulator-Picker](#-native-ios-apps), Android den
+  [Emulator-Picker](#-android-emulator). Setup prüft, ob Xcode, Maestro und Java (iOS) bzw. adb
+  (Android) vorhanden sind, und sagt dir, wie du an das Fehlende kommst (es installiert selbst nichts
+  davon).
 - **welche Agents eingerichtet werden sollen**: `claude mcp add` für Claude Code,
   `<project>/.cursor/mcp.json` für Cursor, `~/.codex/config.toml` für Codex. Bestehende Einträge werden
   zusammengeführt, nie ersetzt, und die TOML-Datei wird vorher gesichert.
@@ -146,8 +153,8 @@ Das Terminal bestätigt **✓ Pinpoint is live in Chrome** von selbst.
 - **in welchen Browser** die Extension geladen werden soll (nur die, die du installiert hast)
 
 Danach registriert es den Launcher hinter dem **Start bridge**-Button im Popup und startet die Bridge.
-Nicht-interaktiv: `node pinpoint/bridge/cli.js setup ~/code/my-app --yes` (ergänze `--for ios` oder
-`--for both`; Standard ist `web`).
+Nicht-interaktiv: `node pinpoint/bridge/cli.js setup ~/code/my-app --yes` (ergänze `--for ios`,
+`--for android` oder `--for both`; Standard ist `web`).
 
 **Von Hand.** Die Reihenfolge ist wichtig: `$PWD` wird fest in den MCP-Eintrag geschrieben, deshalb
 läuft Schritt 2 aus `pinpoint/bridge`, bevor die Bridge das Terminal übernimmt.
@@ -216,6 +223,17 @@ Solange die Bridge läuft, sitzt eine kleine Leiste oben rechts auf deiner Seite
   auf dem falschen Element zu sitzen, wenn ihres weg ist.
 - **Keine Bridge aktiv?** Dann kopiert **Send** stattdessen einen fertigen Prompt zum Einfügen, damit
   nichts verloren geht.
+- **Record steps** (Schritte aufzeichnen). Drück im Auswahlmodus **Record steps** auf der Leiste und
+  klick dich ganz normal durch den Bug. Die Klicks kommen weiterhin bei der Seite an, und jeder wird zu
+  einem Schritt (Element, Label, URL, ein kleiner Ausschnitt), auch über Navigationen im selben Tab
+  hinweg. **Done** schreibt eine Notiz (höchstens 10 Schritte); **Esc** verwirft die Aufzeichnung. Dein
+  Agent bekommt sie als *Steps to reproduce*.
+- **Diktieren.** Drück auf das Mikrofon im Kommentarfeld und sprich; der Text wird an das angehängt, was
+  du getippt hast. Chrome und Safari auf sicheren Seiten (localhost zählt dazu); die Transkription
+  übernimmt der eigene Spracherkennungsdienst des Browsers. Nicht unter Firefox.
+- **Was schiefging, kommt mit.** Jede Notiz enthält die nicht abgefangenen Fehler und fehlgeschlagenen
+  Requests der Seite aus der Minute, bevor du sie markiert hast, vorher schon im Browser geschwärzt
+  (Query-Strings, Tokens und Secrets entfernt). Wird nur angehängt, wenn tatsächlich etwas schiefging.
 
 **Wo es läuft.** Nur auf lokalen Entwicklungsseiten: `localhost`, `127.0.0.1`, Hosts mit `.local` /
 `.test` / `.localhost` und `file://`, sobald erlaubt. Überall sonst (eine Staging-URL, eine LAN-Adresse
@@ -230,8 +248,14 @@ Eine Notiz ist ein Gespräch, kein Ticket in eine Richtung.
   ganzen Gesprächsverlauf zurück.
 - **Die Antwort liest du im Browser.** Eine erledigte Notiz bleibt im Panel, zusammen mit der eigenen
   Notiz des Agents dazu, was er geändert hat. Agents müssen eine schreiben: „erledigt“ ist keine Antwort.
-- **Nicht ganz richtig?** Jede erledigte Notiz hat **Reply…** (Antworten…). Sag, was noch nicht stimmt,
-  und sie wird wieder geöffnet.
+- **Accept / Not quite** (Annehmen / Nicht ganz). Wenn der Agent fertig ist, zeigt eine Karte seine
+  Antwort mit **Accept** und **Not quite**. Not quite öffnet die Notiz wieder, damit du sagen kannst, was
+  noch nicht stimmt.
+- **Später doch nicht ganz richtig?** Jede erledigte Notiz im Panel hat **Reply…** (Antworten…). Sag,
+  was noch nicht stimmt, und sie wird wieder geöffnet.
+- **Before / After** (Vorher / Nachher). Ein paar Sekunden nachdem eine Notiz erledigt wurde, nimmt
+  Pinpoint einen frischen Ausschnitt des Elements auf. Erledigte Notizen im Panel zeigen **Before** und
+  **After** nebeneinander.
 - **Entwürfe.** **Draft** (Entwurf, oder **⇧⌘↩**) markiert etwas, ohne es abzuschicken. **Send** auf der
   Leiste übergibt alle Entwürfe auf einmal.
 - **Die ganze Seite.** Im Auswahlmodus erstellt **Whole page** (Ganze Seite) eine Notiz zur Seite selbst
@@ -251,7 +275,7 @@ einmal nach und liefert einen frischen Ausschnitt neben dem ursprünglichen.
 <summary><b>Die Bridge aus dem Browser starten, und mehrere Agents gleichzeitig</b></summary>
 
 **Start / Neustart aus dem Browser.** `install-native-host` registriert einen winzigen Launcher bei
-Chrome (sowie Brave, Edge, Arc, Chromium, Vivaldi, Opera). Danach funktioniert **Start bridge** im
+Chrome (sowie Brave, Edge, Arc, Chromium, Vivaldi, Opera) und Firefox. Danach funktioniert **Start bridge** im
 Popup, und das **↻** auf der Leiste startet die Bridge neu, nachdem du einen neuen Build gezogen hast.
 Der Launcher kann genau eine Sache: das `cli.js` aus diesem Repo auf einem Port ausführen, der aus der
 Popup-Einstellung kommt, niemals von der Seite.
@@ -310,6 +334,37 @@ ihn neu, startet die Bridge ein frisches Maestro und versucht es noch einmal. We
 Minuten dauert, schließ inaktive Claude-Code-Sessions, die den Maestro-MCP-Server geladen haben.
 </details>
 
+## 🤖 Android-Emulator
+
+Derselbe Picker wie `/ios`, nur liest er den Android-**View-Tree** über adb. Deiner App wird nichts
+hinzugefügt, und es gibt keinen Treiber zu installieren.
+
+<table>
+<tr>
+<td width="50%"><img src="../images/android-comment.png" alt="Der Android-Picker: das Feld Search settings in der Einstellungen-App hervorgehoben, während eine Notiz eingetippt wird"></td>
+<td width="50%"><img src="../images/android-pick.png" alt="Nach dem Absenden: ein nummerierter Pin am Feld, und das nächste Element mit seiner ID unter dem Mauszeiger"></td>
+</tr>
+</table>
+
+**Du brauchst** `adb` aus dem Android SDK (Android Studio installiert es mit) und einen laufenden
+Emulator.
+
+Öffne bei laufender Bridge **http://127.0.0.1:7331/android**. Hover, klick, tipp, abschicken. Der Agent
+bekommt die `resource-id` des Elements, content-desc, Text, Klasse, seine Position im View-Tree und einen
+Ausschnitt. `node bridge/cli.js setup --for android` prüft, ob adb da ist, und verweist dich auf den
+Picker.
+
+<details>
+<summary><b>adb finden, und welches Gerät gelesen wird</b></summary>
+
+Pinpoint sucht adb in `$ANDROID_HOME`, `$ANDROID_SDK_ROOT` und im Standard-SDK-Ordner von Android
+Studio, danach in deinem `PATH`. Läuft genau ein Emulator, wird der verwendet. Bei mehreren, oder um ein
+physisches Gerät zu lesen, setz `ANDROID_SERIAL` auf dessen Seriennummer (so, wie `adb devices` sie
+auflistet) und starte die Bridge neu. Ein Handy wird nie ausgewählt, wenn du es nicht ausdrücklich
+nennst. Wie bei iOS gibt es keinen Quelldatei-Hinweis, keine Styles und kein `recheck_annotation`: Gib
+Views eine ID, dann greppt der Agent danach.
+</details>
+
 ## 🔌 Andere Agents anbinden
 
 Der einfachste Eintrag nutzt das veröffentlichte Paket: `npx -y pinpoint-bridge mcp`. Es spricht mit
@@ -352,9 +407,24 @@ die Zeile, die `node cli.js --help` ausgibt).
 
 | Browser | Status |
 |---|---|
-| **Chrome, Edge, Brave, Arc, Opera, Vivaldi** | ✅ Load unpacked. In der CI auf Headless Chromium verifiziert. |
-| **Safari** | ✅ Gebaut mit `bash tools/make-safari.sh` (braucht Xcode). Keine Komponentenkette, kein Quellhinweis. |
-| **Firefox** | ⏳ Noch nicht. |
+| **Chrome, Brave, Arc, Opera, Vivaldi** | ✅ Load unpacked. In der CI auf Headless Chromium verifiziert. |
+| **Edge** | ✅ Load unpacked: dasselbe Paket wie für Chrome. |
+| **Firefox 140+** | ✅ Ein addons.mozilla.org-Paket, gebaut mit `bash tools/make-firefox-zip.sh`. Store-Eintrag steht noch aus. Kein Diktieren. |
+| **Safari** | ✅ Gebaut mit `bash tools/make-safari.sh` (braucht Xcode). Keine Komponentenkette, kein Quellhinweis, keine Seitenfehler. |
+
+<details>
+<summary><b>Edge und Firefox</b></summary>
+
+**Edge** nimmt das Chrome-Paket unverändert. Für **Start bridge** führ einmal
+`node bridge/cli.js install-native-host --id <edge id>` aus (Edge vergibt eine eigene ID für die
+Extension).
+
+**Firefox 140+.** Bis der Eintrag auf addons.mozilla.org live ist, lädst du das Zip über
+`about:debugging` → **This Firefox** → **Load Temporary Add-on**. Hat Firefox den Zugriff auf lokale
+Sites zurückgehalten, drück im Popup auf **Grant access to local sites**. Führ danach einmal
+`node bridge/cli.js install-native-host` für **Start bridge** aus, oder füg die Ausgabe von
+`node bridge/cli.js token` ins Popup ein.
+</details>
 
 <details>
 <summary><b>Was unter Safari anders ist</b></summary>
@@ -363,8 +433,9 @@ Safari akzeptiert keine entpackten Extensions, daher verpackt `tools/make-safari
 macOS-App und gibt die vier Safari-Einstellungen aus, die du umstellen musst (die wichtigste,
 **Develop ▸ Allow Unsigned Extensions**, wird bei jedem Beenden von Safari zurückgesetzt). Safari
 unterstützt keine Content Scripts mit `"world": "MAIN"`, daher kann `inspector.js` keine React Fibers
-oder Vue-Instanzen lesen: Dir fehlen die **Komponentenkette und der Quelldatei-Hinweis**. Alles andere
-funktioniert. Safari hat keinen Native Host, der den Bridge-Token übergeben könnte, also fragt das Popup
+oder Vue-Instanzen lesen: Dir fehlen die **Komponentenkette und der Quelldatei-Hinweis** sowie die
+**Seitenfehler** (auch die brauchen die MAIN world). Fehlgeschlagene Requests kommen nur dort mit, wo
+Safari `webRequest` unterstützt. Alles andere funktioniert. Safari hat keinen Native Host, der den Bridge-Token übergeben könnte, also fragt das Popup
 einmal danach: Führ `node bridge/cli.js token` aus und füg die Ausgabe ein. Für den Mac App Store
 exportiert `TEAM=<your team id> bash tools/make-safari.sh --release` einen signierten Build.
 </details>
@@ -389,11 +460,14 @@ node cli.js clear              delete everything
 node cli.js --help
 
 http://127.0.0.1:7331/ios      the iOS Simulator picker, served by the running bridge
+http://127.0.0.1:7331/android  the Android emulator picker (needs adb)
 
 --port <n>       default 7331, or $PINPOINT_PORT (set the same number in the popup)
 --project <dir>  mirror pending annotations into <dir>/.pinpoint/
 --print          echo each new annotation to stdout as it arrives
 $PINPOINT_HOME   where annotations are stored (default ~/.pinpoint)
+$PINPOINT_AFTER_DELAY  ms after a resolve before the After crop (default 3000, 0 turns it off)
+$ANDROID_SERIAL  which Android device to read, when it isn't the one running emulator
 ```
 </details>
 
@@ -428,10 +502,16 @@ element          tag, id, classes, a CSS selector built from stable attributes w
 source           framework (react/vue/svelte/angular/astro), component chain,
                  file:line where the dev build exposes it
 screenshot       PNG of just the element (+8px), long edge ≤1200px
+context          only when something went wrong: uncaught errors and failed requests from the
+                 minute before, redacted in the browser
+steps            recorded notes only: up to 10 clicks, each with selector, label, URL and a crop
+after            on done notes: a fresh crop taken after the resolve
 ```
 
 Aus dem iOS Simulator enthält `element` stattdessen den Accessibility Identifier, Label, Text, Wert,
-Tree-Pfad und Frame; `source` ist `ios-native` und `page.url` ist `ios-simulator://<device name>`.
+Tree-Pfad und Frame; `source` ist `ios-native` und `page.url` ist `ios-simulator://<device name>`. Aus
+dem Android-Emulator sind es `resource-id`, content-desc, Text, Klasse, Tree-Pfad und Bounds; `source`
+ist `android-native` und `page.url` ist `android-emulator://<avd>`.
 
 Für exakte `file:line`-Angaben unter React 19 oder Next füg ein reines Dev-Inspector-Plugin hinzu
 (`vite-plugin-react-inspector`, `@react-dev-inspector`). Pinpoint liest deren `data-source`-Attribute,
@@ -529,16 +609,28 @@ cd demo && python3 -m http.server 8080     # then open http://localhost:8080
 cd test && npm install && npx playwright install chromium && npm test
 ```
 
-152 Tests. `bridge.test.mjs` deckt den Daemon, die CLI, die Hooks, den iOS-Picker und jedes MCP-Tool
+210 Tests. `bridge.test.mjs` deckt den Daemon, die CLI, die Hooks, den iOS-Picker und jedes MCP-Tool
 über stdio und Streamable HTTP ab. `e2e.test.mjs` lädt die Extension in Headless Chromium und steuert
 echte Seiten: React, Vue, Shadow DOM, iframes, strikte CSP, eine Stress-Seite mit 3.600 Nodes, DPR 2,
-Tab-übergreifende Synchronisierung und ein Formular, das sein komplettes DOM neu aufbaut. Siehe
-[CONTRIBUTING.md](../../CONTRIBUTING.md).
+Tab-übergreifende Synchronisierung und ein Formular, das sein komplettes DOM neu aufbaut.
+
+<details>
+<summary><b>Die anderen Suites</b></summary>
+
+| Datei | deckt ab |
+|---|---|
+| `android-bridge.test.mjs` | adb finden, das Gerät auswählen, den View-Tree parsen, die `/android`-Routen |
+| `e2e-picker.test.mjs` | die Picker-Seiten `/ios` und `/android` in Headless Chromium |
+| `ui-bridge.test.mjs`, `ui-flow.test.mjs`, `ui-after.test.mjs` | Accept, Seitenkontext, aufgezeichnete Schritte, Before / After |
+| `ui-redact.test.mjs` | die Schwärzungsregeln für den Seitenkontext |
+| `ship-edge.test.mjs`, `ship-firefox.test.mjs`, `e2e-ship.test.mjs` | den Edge-Upload, das Firefox-Paket und den Native Host, das Store-Zip und die Firefox-Pfade im Popup |
+| `ship-windows.test.mjs` | wie setup Befehle für `cmd.exe` quotet |
+</details>
+
+Siehe [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
 ## Roadmap
 
-- Unterstützung für den Android-Emulator
-- Firefox
 - Native Quellhinweise für React Native und Flutter, über ein optionales, reines Dev-Paket
 - CSS-Source-Mapping über `chrome.debugger` (welche Regel diese Farbe gesetzt hat, und wo)
 

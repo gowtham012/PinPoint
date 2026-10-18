@@ -39,7 +39,7 @@
 
 見た目だけでなく、**振る舞い**にも使えます。*「フォームが valid になるまでこれを無効にして」*や*「閉じる前に下書きを保存して」*といったメモも OK です。エージェントは要素を出発点として扱い、そこからハンドラ、state、API 呼び出し、その裏のバックエンドまでたどっていきます。
 
-ネイティブアプリを作っている場合は、同じことが **[iOS Simulator](#-ネイティブ-ios-アプリ)** でもできます。
+ネイティブアプリを作っている場合は、同じことが **[iOS Simulator](#-ネイティブ-ios-アプリ)** と **[Android エミュレータ](#-android-エミュレータ)** でもできます。
 
 ```mermaid
 flowchart LR
@@ -47,6 +47,7 @@ flowchart LR
     direction TB
     B["🌐 <b>ブラウザ</b><br/>Pinpoint extension"]
     S["📱 <b>iOS Simulator</b><br/>127.0.0.1:7331/ios"]
+    AN["🤖 <b>Android エミュレータ</b><br/>127.0.0.1:7331/android"]
   end
   BR(["📍 <b>Pinpoint bridge</b><br/>127.0.0.1:7331"])
   ST[("💾 ~/.pinpoint/<br/>annotations.json")]
@@ -55,6 +56,7 @@ flowchart LR
 
   B -- "selector · スタイル · 切り抜き" --> BR
   S -- "accessibility tree · 切り抜き" --> BR
+  AN -- "view tree · 切り抜き" --> BR
   BR -- "MCP / hooks" --> A
   A -- "完了 + 返信" --> BR
   BR -. "pin と返信をリアルタイム表示" .-> B
@@ -74,6 +76,7 @@ flowchart LR
 - [やり取りしながら進める](#-やり取りしながら進める)
 - [エージェントへの届き方](#-エージェントへの届き方)
 - [ネイティブ iOS アプリ](#-ネイティブ-ios-アプリ)
+- [Android エミュレータ](#-android-エミュレータ)
 - [ほかのエージェントとの接続](#-ほかのエージェントとの接続)
 - [リファレンス](#-リファレンス): コマンド、MCP ツール、メモに含まれる内容
 - [トラブルシューティング](#-トラブルシューティング)
@@ -91,7 +94,7 @@ Pinpoint はページそのものには一切手を触れないので、ブラ�
 
 ## 🚀 クイックスタート
 
-**必要なもの:** Node 18 以上と Chromium 系ブラウザ（Chrome、Edge、Brave、Arc、Opera、Vivaldi）。
+**必要なもの:** Node 18 以上と Chromium 系ブラウザ（Chrome、Edge、Brave、Arc、Opera、Vivaldi）、または [Firefox 140 以上](#-ブラウザ)。
 
 **1. インストール**
 
@@ -110,7 +113,7 @@ node pinpoint/bridge/cli.js setup
 
 > [!TIP]
 > 手順をすべて丁寧に知りたい場合は [docs/quick-install.md](../quick-install.md) を参照してください。
-> ネイティブ iOS アプリだけを作っているなら clone は不要です:
+> ネイティブ iOS アプリや Android アプリだけを作っているなら clone は不要です:
 > `npx -y pinpoint-bridge` を実行し、続けて `claude mcp add pinpoint -s user -- npx -y pinpoint-bridge mcp`。
 
 <details>
@@ -119,14 +122,14 @@ node pinpoint/bridge/cli.js setup
 `setup` が聞いてくること:
 
 - **どのプロジェクトの UI にアノテーションしたいか**: エージェントが編集する repo
-- **Web アプリ、ネイティブ iOS アプリ、またはその両方か**: Web ならブラウザ extension、iOS なら
-  [Simulator picker](#-ネイティブ-ios-アプリ) が使えるようになります。setup は Xcode、Maestro、Java の有無を確認し、足りないものの入手方法を案内します（どれも自動ではインストールしません）。
+- **Web アプリ、ネイティブ iOS アプリ、Android アプリ、またはその両方（Web と iOS）か**: Web ならブラウザ extension、iOS なら
+  [Simulator picker](#-ネイティブ-ios-アプリ)、Android なら [emulator picker](#-android-エミュレータ) が使えるようになります。setup は Xcode、Maestro、Java（iOS）または adb（Android）の有無を確認し、足りないものの入手方法を案内します（どれも自動ではインストールしません）。
 - **どのエージェントを設定するか**: Claude Code には `claude mcp add`、Cursor には `<project>/.cursor/mcp.json`、Codex には `~/.codex/config.toml`。既存のエントリは置き換えずにマージし、TOML ファイルは事前にバックアップします。
 - **Claude Code の hook をインストールするか**: 保留中のメモを次のメッセージと一緒に届けるためのものです
 - **どのブラウザ**に extension を読み込むか（インストールされているものだけが選択肢になります）
 
 そのあと、ポップアップの **Start bridge** ボタンの裏で動くランチャーを登録し、bridge を起動します。
-非対話モード: `node pinpoint/bridge/cli.js setup ~/code/my-app --yes`（`--for ios` または `--for both` を追加できます。デフォルトは `web`）。
+非対話モード: `node pinpoint/bridge/cli.js setup ~/code/my-app --yes`（`--for ios`、`--for android`、`--for both` のいずれかを追加できます。デフォルトは `web`）。
 
 **手動で行う場合。** 順番が大事です。`$PWD` が MCP エントリに埋め込まれるので、bridge がターミナルを占有する前に、手順 2 を `pinpoint/bridge` で実行してください。
 
@@ -186,6 +189,9 @@ bridge が動いている間は、ページの右上に小さなバーが表示�
 - **×:** そのサイトでバーを非表示にします。ツールバーのポップアップから元に戻せます。
 - **pin は要素に追従します。** DOM を作り直すアプリでも追いかけ、対象の要素がなくなった場合は、間違った要素に居座らずに非表示になります。
 - **bridge が動いていない?** **Send** を押すと、代わりにそのまま貼り付けられるプロンプトがコピーされるので、何も失われません。
+- **手順の記録（Record steps）。** 選択中にバーの **Record steps** を押し、いつもどおりバグを再現するようにクリックしていきます。クリックはそのままページに届き、1 回ごとに 1 ステップ（要素、ラベル、URL、小さな切り抜き）として記録されます。同じタブ内ならページ遷移をまたいでも続きます。**Done** で 1 つのメモにまとめ（最大 10 ステップ）、**Esc** で記録を破棄します。エージェントには *Steps to reproduce*（再現手順）として届きます。
+- **音声入力。** コメント欄のマイクを押して話すと、入力済みのテキストに追記されます。セキュアなページ（localhost も含む）の Chrome と Safari で使え、文字起こしはブラウザ自身の音声認識サービスが行います。Firefox では使えません。
+- **何がおかしかったかも一緒に届きます。** 各メモには、マークする直前 1 分間にページで発生した未捕捉のエラーと失敗したリクエストが付きます。これらは先にブラウザ内で redact されます（クエリ文字列、トークン、シークレットを除去）。実際に何か問題が起きたときだけ添付されます。
 
 **動作する場所。** ローカルの開発ページのみです: `localhost`、`127.0.0.1`、`.local` / `.test` / `.localhost` のホスト、そして許可した場合の `file://`。それ以外（ステージングの URL や、スマホでのテスト用の LAN アドレスなど）では、ツールバーのポップアップからタブ単位でオンにできます。
 
@@ -195,7 +201,9 @@ bridge が動いている間は、ページの右上に小さなバーが表示�
 
 - **エージェントが聞き返してきます。** 依頼が曖昧なときは、推測せずに質問してきます。質問は pin 上（**?**）とトーストに表示されます。メモパネルで答えると、会話全体と一緒にメモがエージェントに戻ります。
 - **返信はブラウザで読めます。** 完了したメモはパネルに残り、何を変更したかについてのエージェント自身のメモが付きます。エージェントは必ずこれを書く必要があり、「done」だけでは答えになりません。
-- **ちょっと違う?** 完了したメモにはすべて **Reply…**（返信）があります。まだ何がおかしいかを伝えれば、再オープンされます。
+- **Accept / Not quite。** エージェントが作業を終えると、その返信がカードで表示され、**Accept** と **Not quite** のボタンが付きます。Not quite を押すとメモが再びオープンされ、まだ何がおかしいかを伝えられます。
+- **あとで違うと気づいた?** パネルにある完了済みのメモにはすべて **Reply…**（返信）があります。まだ何がおかしいかを伝えれば、再オープンされます。
+- **Before / After。** メモが完了して数秒たつと、Pinpoint がその要素の新しい切り抜きを撮ります。パネルの完了済みメモには **Before** と **After** が横に並んで表示されます。
 - **下書き。** **Draft**（下書き、または **⇧⌘↩**）で、送信せずにマークだけしておけます。バーの **Send** を押すと、すべての下書きをまとめて渡します。
 - **ページ全体。** 選択中に **Whole page**（ページ全体）を使うと、ページそのものについてのメモ（*「全体的に余白が詰まりすぎている」*）をスクリーンショット付きで残せます。
 
@@ -210,7 +218,7 @@ bridge が動いている間は、ページの右上に小さなバーが表示�
 <details>
 <summary><b>ブラウザから bridge を起動する、複数のエージェントを同時に使う</b></summary>
 
-**ブラウザからの起動・再起動。** `install-native-host` は Chrome（および Brave、Edge、Arc、Chromium、Vivaldi、Opera）に小さなランチャーを登録します。これでポップアップの **Start bridge** が使えるようになり、新しいビルドを pull したあとはバーの **↻** で bridge を再起動できます。ランチャーができることは 1 つだけです: この repo 自身の `cli.js` を、ポップアップの設定にあるポート番号で実行すること。ページから指定されたポートは使いません。
+**ブラウザからの起動・再起動。** `install-native-host` は Chrome（および Brave、Edge、Arc、Chromium、Vivaldi、Opera）と Firefox に小さなランチャーを登録します。これでポップアップの **Start bridge** が使えるようになり、新しいビルドを pull したあとはバーの **↻** で bridge を再起動できます。ランチャーができることは 1 つだけです: この repo 自身の `cli.js` を、ポップアップの設定にあるポート番号で実行すること。ページから指定されたポートは使いません。
 
 **複数のエージェント。** エージェントは MCP 経由で名乗るので、バーには作業中のエージェント名（`claude-code`、`cursor-vscode`、`codex`）が表示され、各返信にも誰からのものかが記録されます。`wait_for_annotation` は新しいメモを待機中のエージェントのうちちょうど 1 つにだけ渡すので、2 つのエージェントが同じメモに取り組むことはなく、キューを分け合えます。
 </details>
@@ -250,6 +258,28 @@ bridge を動かした状態で **http://127.0.0.1:7331/ios** を開きます（
 ソースファイルのヒントやコンポーネントチェーンはありません（ツリーにはどちらの情報もないため、要素に identifier を付けておけば、エージェントがそれを grep します）。スタイルも `recheck_annotation` もありません。初回の読み込みでは、Maestro がデバイス上の driver を起動するまで約 10 秒待ちます。それ以降は 1 回の更新が 1 秒ほどです。Mac 上のすべての Maestro は 1 つの driver を共有しているため、別の Maestro がそれを再起動した場合、bridge は新しい Maestro を起動してもう一度だけ試します。初回の読み込みに何分もかかる場合は、Maestro MCP サーバーを持っているアイドル状態の Claude Code セッションを閉じてください。
 </details>
 
+## 🤖 Android エミュレータ
+
+`/ios` と同じ picker で、adb を通して Android の **view tree** を読み取ります。アプリ側に何かを追加する必要はなく、インストールする driver もありません。
+
+<table>
+<tr>
+<td width="50%"><img src="../images/android-comment.png" alt="Android picker: Settings アプリの Search settings フィールドがハイライトされ、メモを入力している"></td>
+<td width="50%"><img src="../images/android-pick.png" alt="送信後: フィールドに番号付きの pin が付き、次の要素がその id とともにホバー表示されている"></td>
+</tr>
+</table>
+
+**必要なもの:** Android SDK の `adb`（Android Studio と一緒にインストールされます）と、起動済みのエミュレータ。
+
+bridge を動かした状態で **http://127.0.0.1:7331/android** を開きます。ホバーして、クリックして、入力して、送信。エージェントは要素の `resource-id`、content-desc、テキスト、class、view tree 上の位置、切り抜き画像を受け取ります。
+`node bridge/cli.js setup --for android` を実行すると、adb の有無を確認し、picker を案内してくれます。
+
+<details>
+<summary><b>adb の探し方と、どのデバイスを読み取るか</b></summary>
+
+Pinpoint は `$ANDROID_HOME`、`$ANDROID_SDK_ROOT`、Android Studio のデフォルトの SDK フォルダの順に adb を探し、最後に `PATH` を見ます。エミュレータが 1 台だけ動いていれば、それが使われます。複数台動いている場合や実機を読み取りたい場合は、`ANDROID_SERIAL` にそのシリアル（`adb devices` に表示されるもの）を設定して bridge を再起動してください。明示的に指定しない限り、実機が選ばれることはありません。iOS と同じく、ソースファイルのヒント、スタイル、`recheck_annotation` はありません。view に id を付けておけば、エージェントがそれを grep します。
+</details>
+
 ## 🔌 ほかのエージェントとの接続
 
 いちばん簡単なのは、公開済みのパッケージを実行するエントリです: `npx -y pinpoint-bridge mcp`。動いている bridge がどれであっても、それと通信します。設定後はエディタを再起動してください。
@@ -286,14 +316,24 @@ npm ではなく手元の clone をエージェントに使わせたい場合は
 
 | ブラウザ | 状況 |
 |---|---|
-| **Chrome、Edge、Brave、Arc、Opera、Vivaldi** | ✅ Load unpacked で読み込み。CI 上の headless Chromium で検証済み。 |
-| **Safari** | ✅ `bash tools/make-safari.sh` でビルド（Xcode が必要）。コンポーネントチェーンとソースのヒントはなし。 |
-| **Firefox** | ⏳ 未対応。 |
+| **Chrome、Brave、Arc、Opera、Vivaldi** | ✅ Load unpacked で読み込み。CI 上の headless Chromium で検証済み。 |
+| **Edge** | ✅ Load unpacked で読み込み。Chrome と同じパッケージです。 |
+| **Firefox 140 以上** | ✅ `bash tools/make-firefox-zip.sh` でビルドする addons.mozilla.org 向けパッケージ。ストアでの公開は準備中。音声入力はなし。 |
+| **Safari** | ✅ `bash tools/make-safari.sh` でビルド（Xcode が必要）。コンポーネントチェーン、ソースのヒント、ページのエラーはなし。 |
+
+<details>
+<summary><b>Edge と Firefox</b></summary>
+
+**Edge** は Chrome のパッケージをそのまま使えます。**Start bridge** を使うには、
+`node bridge/cli.js install-native-host --id <edge id>` を一度実行してください（Edge は extension に独自の id を割り当てます）。
+
+**Firefox 140 以上。** addons.mozilla.org での公開が始まるまでは、`about:debugging` → **This Firefox** → **Load Temporary Add-on** から zip を読み込んでください。Firefox がローカルサイトへのアクセスを保留している場合は、ポップアップの **Grant access to local sites** を押します。そのあと、**Start bridge** 用に `node bridge/cli.js install-native-host` を一度実行するか、`node bridge/cli.js token` の出力をポップアップに貼り付けてください。
+</details>
 
 <details>
 <summary><b>Safari での違い</b></summary>
 
-Safari はパッケージ化されていない extension を受け付けないため、`tools/make-safari.sh` が小さな macOS アプリで包み、切り替えが必要な Safari の設定 4 つを表示します（要となる **Develop ▸ Allow Unsigned Extensions** は Safari を終了するたびにリセットされます）。Safari は `"world": "MAIN"` の content script をサポートしていないので、`inspector.js` が React fiber や Vue インスタンスを読めず、**コンポーネントチェーンとソースファイルのヒント**が使えません。それ以外はすべて動作します。Safari には bridge のトークンを渡す native host がないため、ポップアップが一度だけトークンを尋ねます: `node bridge/cli.js token` を実行して、その出力を貼り付けてください。Mac App Store 向けには、`TEAM=<your team id> bash tools/make-safari.sh --release` で署名済みビルドを書き出せます。
+Safari はパッケージ化されていない extension を受け付けないため、`tools/make-safari.sh` が小さな macOS アプリで包み、切り替えが必要な Safari の設定 4 つを表示します（要となる **Develop ▸ Allow Unsigned Extensions** は Safari を終了するたびにリセットされます）。Safari は `"world": "MAIN"` の content script をサポートしていないので、`inspector.js` が React fiber や Vue インスタンスを読めず、**コンポーネントチェーンとソースファイルのヒント**、そして**ページのエラー**（これも MAIN world が必要です）が使えません。失敗したリクエストは、Safari が `webRequest` をサポートしている範囲でのみ付きます。それ以外はすべて動作します。Safari には bridge のトークンを渡す native host がないため、ポップアップが一度だけトークンを尋ねます: `node bridge/cli.js token` を実行して、その出力を貼り付けてください。Mac App Store 向けには、`TEAM=<your team id> bash tools/make-safari.sh --release` で署名済みビルドを書き出せます。
 </details>
 
 ## 📚 リファレンス
@@ -316,11 +356,14 @@ node cli.js clear              delete everything
 node cli.js --help
 
 http://127.0.0.1:7331/ios      the iOS Simulator picker, served by the running bridge
+http://127.0.0.1:7331/android  the Android emulator picker (needs adb)
 
 --port <n>       default 7331, or $PINPOINT_PORT (set the same number in the popup)
 --project <dir>  mirror pending annotations into <dir>/.pinpoint/
 --print          echo each new annotation to stdout as it arrives
 $PINPOINT_HOME   where annotations are stored (default ~/.pinpoint)
+$PINPOINT_AFTER_DELAY  ms after a resolve before the After crop (default 3000, 0 turns it off)
+$ANDROID_SERIAL  which Android device to read, when it isn't the one running emulator
 ```
 </details>
 
@@ -355,9 +398,13 @@ element          tag, id, classes, a CSS selector built from stable attributes w
 source           framework (react/vue/svelte/angular/astro), component chain,
                  file:line where the dev build exposes it
 screenshot       PNG of just the element (+8px), long edge ≤1200px
+context          only when something went wrong: uncaught errors and failed requests from the
+                 minute before, redacted in the browser
+steps            recorded notes only: up to 10 clicks, each with selector, label, URL and a crop
+after            on done notes: a fresh crop taken after the resolve
 ```
 
-iOS Simulator からの場合、`element` には代わりに accessibility identifier、ラベル、テキスト、値、ツリー上のパス、frame が入ります。`source` は `ios-native`、`page.url` は `ios-simulator://<device name>` になります。
+iOS Simulator からの場合、`element` には代わりに accessibility identifier、ラベル、テキスト、値、ツリー上のパス、frame が入ります。`source` は `ios-native`、`page.url` は `ios-simulator://<device name>` になります。Android エミュレータからの場合は `resource-id`、content-desc、テキスト、class、ツリー上のパス、bounds が入り、`source` は `android-native`、`page.url` は `android-emulator://<avd>` になります。
 
 React 19 や Next で正確な `file:line` を得るには、開発時専用の inspector プラグイン（`vite-plugin-react-inspector`、`@react-dev-inspector`）を追加してください。Pinpoint はそれらの `data-source` 属性に加えて、React の `_debugSource`/`_debugStack` と Vue の `__file` も読み取ります。
 </details>
@@ -436,12 +483,25 @@ cd demo && python3 -m http.server 8080     # then open http://localhost:8080
 cd test && npm install && npx playwright install chromium && npm test
 ```
 
-テストは 152 件。`bridge.test.mjs` は daemon、CLI、hook、iOS picker、そして stdio と Streamable HTTP 上のすべての MCP ツールをカバーします。`e2e.test.mjs` は extension を headless Chromium に読み込んで実際のページを操作します: React、Vue、shadow DOM、iframe、厳格な CSP、3,600 ノードのストレステストページ、DPR 2、タブ間の同期、そして DOM 全体を作り直すフォーム。詳しくは [CONTRIBUTING.md](../../CONTRIBUTING.md) を参照してください。
+テストは 210 件。`bridge.test.mjs` は daemon、CLI、hook、iOS picker、そして stdio と Streamable HTTP 上のすべての MCP ツールをカバーします。`e2e.test.mjs` は extension を headless Chromium に読み込んで実際のページを操作します: React、Vue、shadow DOM、iframe、厳格な CSP、3,600 ノードのストレステストページ、DPR 2、タブ間の同期、そして DOM 全体を作り直すフォーム。
+
+<details>
+<summary><b>ほかのテストスイート</b></summary>
+
+| ファイル | カバー範囲 |
+|---|---|
+| `android-bridge.test.mjs` | adb の検出、デバイスの選択、view tree のパース、`/android` のルート |
+| `e2e-picker.test.mjs` | headless Chromium 上での `/ios` と `/android` の picker ページ |
+| `ui-bridge.test.mjs`、`ui-flow.test.mjs`、`ui-after.test.mjs` | Accept、ページのコンテキスト、記録した手順、Before / After |
+| `ui-redact.test.mjs` | ページのコンテキストの redact ルール |
+| `ship-edge.test.mjs`、`ship-firefox.test.mjs`、`e2e-ship.test.mjs` | Edge へのアップロード、Firefox のパッケージと native host、ストア用 zip、ポップアップの Firefox 向け処理 |
+| `ship-windows.test.mjs` | setup が `cmd.exe` 向けにコマンドをどうクォートするか |
+</details>
+
+詳しくは [CONTRIBUTING.md](../../CONTRIBUTING.md) を参照してください。
 
 ## ロードマップ
 
-- Android エミュレータ対応
-- Firefox
 - オプションの開発時専用パッケージによる、React Native と Flutter のネイティブなソースヒント
 - `chrome.debugger` による CSS ソースマッピング（どのルールがこの色を設定したのか、それはどこか）
 

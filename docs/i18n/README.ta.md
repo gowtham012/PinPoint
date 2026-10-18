@@ -44,7 +44,8 @@
 draft-ஐ save செய்"* போன்றவையும் சரியான notes தான்: agent அந்த element-ஐத் தொடக்கப் புள்ளியாக வைத்துக்கொண்டு, அதன் பின்னால் இருக்கும்
 handlers, state, API calls, backend வரை பின்தொடர்ந்து செல்லும்.
 
-Native app உருவாக்குகிறீர்களா? இதே வசதி **[iOS Simulator](#-native-ios-ஆப்கள்)**-இலும் வேலை செய்யும்.
+Native app உருவாக்குகிறீர்களா? இதே வசதி **[iOS Simulator](#-native-ios-ஆப்கள்)**-இலும்
+**[Android emulator](#-android-எமுலேட்டர்)**-இலும் வேலை செய்யும்.
 
 ```mermaid
 flowchart LR
@@ -52,6 +53,7 @@ flowchart LR
     direction TB
     B["🌐 <b>Browser</b><br/>Pinpoint extension"]
     S["📱 <b>iOS Simulator</b><br/>127.0.0.1:7331/ios"]
+    AN["🤖 <b>Android emulator</b><br/>127.0.0.1:7331/android"]
   end
   BR(["📍 <b>Pinpoint bridge</b><br/>127.0.0.1:7331"])
   ST[("💾 ~/.pinpoint/<br/>annotations.json")]
@@ -60,6 +62,7 @@ flowchart LR
 
   B -- "selector · styles · crop" --> BR
   S -- "accessibility tree · crop" --> BR
+  AN -- "view tree · crop" --> BR
   BR -- "MCP / hooks" --> A
   A -- "resolve + பதில்" --> BR
   BR -. "live pins & பதில்கள்" .-> B
@@ -80,6 +83,7 @@ flowchart LR
 - [பேசித் தெளிவுபடுத்துதல்](#-பேசித்-தெளிவுபடுத்துதல்)
 - [உங்கள் agent-க்கு எப்படித் தெரிய வருகிறது](#-உங்கள்-agent-க்கு-எப்படித்-தெரிய-வருகிறது)
 - [Native iOS ஆப்கள்](#-native-ios-ஆப்கள்)
+- [Android எமுலேட்டர்](#-android-எமுலேட்டர்)
 - [மற்ற agents-ஐ இணைத்தல்](#-மற்ற-agents-ஐ-இணைத்தல்)
 - [குறிப்புகள்](#-குறிப்புகள்): commands, MCP tools, ஒரு note-இல் என்ன இருக்கும்
 - [பிரச்சனைகளைத் தீர்த்தல்](#-பிரச்சனைகளைத்-தீர்த்தல்)
@@ -98,7 +102,8 @@ Pinpoint பக்கத்தைத் தானே ஒருபோதும்
 
 ## 🚀 விரைவுத் தொடக்கம்
 
-**தேவையானவை:** Node 18+ மற்றும் ஒரு Chromium browser (Chrome, Edge, Brave, Arc, Opera, Vivaldi).
+**தேவையானவை:** Node 18+ மற்றும் ஒரு Chromium browser (Chrome, Edge, Brave, Arc, Opera, Vivaldi), அல்லது
+[Firefox 140+](#-பிரவுசர்கள்).
 
 **1. Install செய்யுங்கள்**
 
@@ -123,7 +128,7 @@ unpacked**-ஐ click செய்து, paste செய்யுங்கள்
 
 > [!TIP]
 > ஒவ்வொரு படியும் விரிவாக வேண்டுமா? [docs/quick-install.md](../quick-install.md)-ஐப் பாருங்கள்.
-> Native iOS app மட்டும் உருவாக்குகிறீர்களா? Clone செய்ய வேண்டியதில்லை:
+> Native iOS அல்லது Android app மட்டும் உருவாக்குகிறீர்களா? Clone செய்ய வேண்டியதில்லை:
 > `npx -y pinpoint-bridge`, பிறகு `claude mcp add pinpoint -s user -- npx -y pinpoint-bridge mcp`.
 
 <details>
@@ -132,8 +137,9 @@ unpacked**-ஐ click செய்து, paste செய்யுங்கள்
 `setup` கேட்கும் கேள்விகள்:
 
 - **எந்த project-இன் UI-ஐ annotate செய்ய விரும்புகிறீர்கள்**: உங்கள் agent edit செய்யப்போகும் repo
-- **web app, native iOS app, அல்லது இரண்டும்**: web-க்கு browser extension கிடைக்கும்; iOS-க்கு
-  [Simulator picker](#-native-ios-ஆப்கள்) கிடைக்கும். Setup, Xcode, Maestro, Java இருக்கிறதா என்று சரிபார்த்து, இல்லாதவற்றை
+- **web app, native iOS app, Android app, அல்லது இரண்டும்** (web மற்றும் iOS): web-க்கு browser extension கிடைக்கும்;
+  iOS-க்கு [Simulator picker](#-native-ios-ஆப்கள்), Android-க்கு [emulator picker](#-android-எமுலேட்டர்) கிடைக்கும்.
+  Setup, Xcode, Maestro, Java (iOS) அல்லது adb (Android) இருக்கிறதா என்று சரிபார்த்து, இல்லாதவற்றை
   எப்படிப் பெறுவது என்று சொல்லும் (அவற்றில் எதையும் அது install செய்யாது).
 - **எந்த agents-ஐ இணைக்க வேண்டும்**: Claude Code-க்கு `claude mcp add`, Cursor-க்கு `<project>/.cursor/mcp.json`,
   Codex-க்கு `~/.codex/config.toml`. ஏற்கனவே இருக்கும் entries merge செய்யப்படும், ஒருபோதும் replace செய்யப்படாது; TOML
@@ -142,8 +148,8 @@ unpacked**-ஐ click செய்து, paste செய்யுங்கள்
 - **எந்த browser**-இல் extension-ஐ load செய்ய வேண்டும் (உங்களிடம் இருப்பவை மட்டும்)
 
 பிறகு popup-இல் உள்ள **Start bridge** button-க்குப் பின்னால் இருக்கும் launcher-ஐ register செய்து, bridge-ஐ start செய்யும்.
-Non-interactive முறை: `node pinpoint/bridge/cli.js setup ~/code/my-app --yes` (`--for ios` அல்லது
-`--for both` சேர்க்கலாம்; default `web`).
+Non-interactive முறை: `node pinpoint/bridge/cli.js setup ~/code/my-app --yes` (`--for ios`,
+`--for android` அல்லது `--for both` சேர்க்கலாம்; default `web`).
 
 **கையால் செய்வது.** வரிசை முக்கியம்: `$PWD` MCP entry-க்குள் பதிக்கப்படுகிறது, அதனால் bridge terminal-ஐ எடுத்துக்கொள்வதற்கு முன்பே
 step 2-ஐ `pinpoint/bridge`-இலிருந்து run செய்ய வேண்டும்.
@@ -210,6 +216,16 @@ Bridge ஓடிக்கொண்டிருக்கும்போது, �
 - தங்கள் DOM-ஐ மீண்டும் கட்டும் apps-இல் **pins தங்கள் element-ஐப் பின்தொடரும்**; அவற்றின் element இல்லாமல் போனால் தவறான
   element மீது உட்கார்வதற்குப் பதிலாக மறைந்துவிடும்.
 - **Bridge ஓடவில்லையா?** **Send** அதற்குப் பதிலாக paste செய்யத் தயாரான ஒரு prompt-ஐ copy செய்யும், அதனால் எதுவும் தொலையாது.
+- **Steps-ஐப் பதிவு செய்தல்.** தேர்ந்தெடுக்கும்போது bar-இல் **Record steps** அழுத்தி, வழக்கம்போல bug வரை click செய்துகொண்டே
+  போங்கள். Clicks பக்கத்தை அடையும், ஒவ்வொன்றும் ஒரு step ஆகும் (element, label, URL, ஒரு சிறிய crop), அதே tab-இல்
+  navigate ஆனாலும் தொடரும். **Done** ஒரே ஒரு note-ஐ எழுதும் (அதிகபட்சம் 10 steps); **Esc** பதிவை நீக்கிவிடும்.
+  உங்கள் agent-க்கு இவை *Steps to reproduce* ஆகக் கிடைக்கும்.
+- **குரல் மூலம் சொல்லுங்கள்.** Comment box-இல் உள்ள mic-ஐ அழுத்திப் பேசுங்கள்; நீங்கள் type செய்ததுடன் text சேர்க்கப்படும்.
+  Secure பக்கங்களில் Chrome, Safari-இல் வேலை செய்யும் (localhost-உம் அதில் அடங்கும்); transcribe செய்வது browser-இன் சொந்த speech service.
+  Firefox-இல் கிடையாது.
+- **என்ன தவறு நடந்தது என்பதும் கூடவே வரும்.** நீங்கள் mark செய்வதற்கு முந்தைய ஒரு நிமிடத்தில் பக்கத்தில் நடந்த uncaught errors,
+  failed requests ஒவ்வொரு note-உடனும் வரும்; முதலில் browser-இலேயே redact செய்யப்படும் (query strings, tokens, secrets நீக்கப்படும்).
+  உண்மையில் ஏதாவது தவறு நடந்தால் மட்டுமே இவை சேர்க்கப்படும்.
 
 **எங்கே வேலை செய்யும்.** Local development பக்கங்களில் மட்டும்: `localhost`, `127.0.0.1`, `.local` / `.test` /
 `.localhost` hosts, மற்றும் அனுமதி கொடுத்த பிறகு `file://`. மற்ற இடங்களில் (staging URL, phone testing-க்கான LAN address)
@@ -223,7 +239,12 @@ toolbar popup மூலம் ஒரு tab-க்கு மட்டும் �
   (**?** ஆக) மற்றும் ஒரு toast ஆகத் தெரியும்; notes panel-இல் பதில் சொன்னால், அந்த note முழு உரையாடலுடன் திரும்பிப் போகும்.
 - **பதிலை browser-இலேயே படிக்கலாம்.** முடிந்த ஒரு note, agent என்ன மாற்றியது என்ற அதன் சொந்தக் குறிப்புடன் panel-இல் இருக்கும்.
   Agents கட்டாயம் அதை எழுத வேண்டும்: "done" என்பது பதில் அல்ல.
-- **சரியாக வரவில்லையா?** முடிந்த ஒவ்வொரு note-க்கும் **Reply…** button உண்டு. இன்னும் என்ன தவறாக இருக்கிறது என்று சொன்னால் அது மீண்டும் திறக்கும்.
+- **Accept / Not quite.** Agent வேலையை முடித்ததும், அதன் பதிலை **Accept**, **Not quite** buttons-உடன் ஒரு card காட்டும்.
+  Not quite அந்த note-ஐ மீண்டும் திறக்கும், அதனால் இன்னும் என்ன தவறாக இருக்கிறது என்று சொல்லலாம்.
+- **பிறகு சரியில்லை என்று தோன்றினால்?** Panel-இல் முடிந்த ஒவ்வொரு note-க்கும் **Reply…** button உண்டு. இன்னும் என்ன தவறாக இருக்கிறது
+  என்று சொன்னால் அது மீண்டும் திறக்கும்.
+- **Before / After.** ஒரு note resolve ஆன சில நொடிகளுக்குப் பிறகு, Pinpoint அந்த element-இன் புதிய crop ஒன்றை எடுக்கும்.
+  Panel-இல் முடிந்த notes **Before**, **After** இரண்டையும் பக்கம் பக்கமாகக் காட்டும்.
 - **Drafts.** **Draft** (அல்லது **⇧⌘↩**) ஒன்றை அனுப்பாமல் mark செய்து வைக்கும். Bar-இல் உள்ள **Send** எல்லா
   drafts-ஐயும் ஒரே நேரத்தில் ஒப்படைக்கும்.
 - **முழுப் பக்கம்.** தேர்ந்தெடுக்கும்போது, **Whole page** பக்கத்தைப் பற்றியே ஒரு note-ஐ உருவாக்கும் (*"எல்லா இடத்திலும்
@@ -242,7 +263,7 @@ toolbar popup மூலம் ஒரு tab-க்கு மட்டும் �
 <summary><b>Browser-இலிருந்தே bridge-ஐ start செய்வது, மற்றும் ஒரே நேரத்தில் பல agents</b></summary>
 
 **Browser-இலிருந்து start / restart.** `install-native-host` ஒரு சிறிய launcher-ஐ Chrome-இல் register செய்யும்
-(Brave, Edge, Arc, Chromium, Vivaldi, Opera-விலும்). அதன் பிறகு popup-இன் **Start bridge** வேலை செய்யும்; புதிய build-ஐ pull செய்த பிறகு
+(Brave, Edge, Arc, Chromium, Vivaldi, Opera-விலும்), Firefox-இலும். அதன் பிறகு popup-இன் **Start bridge** வேலை செய்யும்; புதிய build-ஐ pull செய்த பிறகு
 bar-இல் உள்ள **↻** bridge-ஐ restart செய்யும். Launcher ஒரே ஒரு வேலையைத்தான் செய்ய முடியும்: இந்த repo-வின் சொந்த `cli.js`-ஐ
 popup setting-இல் உள்ள port எண்ணில் run செய்வது — page-இலிருந்து வரும் எண்ணில் ஒருபோதும் அல்ல.
 
@@ -297,6 +318,34 @@ styles கிடையாது, `recheck_annotation`-உம் கிடைய�
 நிமிடக்கணக்கில் எடுத்தால், Maestro MCP server உள்ள சும்மா இருக்கும் Claude Code sessions-ஐ மூடுங்கள்.
 </details>
 
+## 🤖 Android எமுலேட்டர்
+
+`/ios`-இல் உள்ள அதே picker தான், adb மூலம் Android **view tree**-ஐப் படிக்கும். உங்கள் app-இல் எதுவும் சேர்க்கப்படுவதில்லை,
+install செய்ய driver-உம் கிடையாது.
+
+<table>
+<tr>
+<td width="50%"><img src="../images/android-comment.png" alt="Android picker: Settings app-இல் Search settings field highlight செய்யப்பட்டு, ஒரு note type செய்யப்படுகிறது"></td>
+<td width="50%"><img src="../images/android-pick.png" alt="அனுப்பிய பிறகு: field மீது எண்ணிடப்பட்ட ஒரு pin, அடுத்த element அதன் id-உடன் hover செய்யப்பட்டுள்ளது"></td>
+</tr>
+</table>
+
+**தேவையானவை:** Android SDK-இலிருந்து `adb` (Android Studio அதை install செய்யும்), மற்றும் ஓடிக்கொண்டிருக்கும் ஒரு emulator.
+
+Bridge ஓடிக்கொண்டிருக்கும்போது **http://127.0.0.1:7331/android**-ஐத் திறங்கள். Hover, click, type, send. Agent-க்கு element-இன்
+`resource-id`, content-desc, text, class, view tree-இல் அதன் இடம், ஒரு crop கிடைக்கும்.
+`node bridge/cli.js setup --for android` adb இருக்கிறதா என்று சரிபார்த்து, picker-க்கு வழிகாட்டும்.
+
+<details>
+<summary><b>adb-ஐக் கண்டுபிடிப்பது, எந்த device படிக்கப்படுகிறது</b></summary>
+
+Pinpoint, adb-ஐ `$ANDROID_HOME`, `$ANDROID_SDK_ROOT`, Android Studio-வின் default SDK folder ஆகியவற்றில் தேடும்,
+பிறகு உங்கள் `PATH`-இல். ஒரு emulator மட்டும் ஓடினால், அதுவே பயன்படுத்தப்படும். பல emulators ஓடினால், அல்லது ஒரு
+physical device-ஐப் படிக்க வேண்டுமென்றால், `ANDROID_SERIAL`-ஐ அதன் serial-க்கு (`adb devices` காட்டுவது போல) அமைத்து bridge-ஐ
+restart செய்யுங்கள். நீங்கள் பெயர் சொல்லாதவரை ஒரு phone ஒருபோதும் தேர்ந்தெடுக்கப்படாது. iOS போலவே, source-file hint-ஓ styles-ஓ
+`recheck_annotation`-ஓ கிடையாது: views-க்கு ஒரு id கொடுங்கள், agent அதை grep செய்யும்.
+</details>
+
 ## 🔌 மற்ற agents-ஐ இணைத்தல்
 
 எளிமையான entry, publish செய்யப்பட்ட package-ஐ run செய்யும்: `npx -y pinpoint-bridge mcp`. எந்த bridge ஓடிக்கொண்டிருக்கிறதோ
@@ -338,9 +387,22 @@ Gemini CLI எல்லாமே ஒரு URL-ஐ ஏற்றுக்கொ�
 
 | Browser | நிலை |
 |---|---|
-| **Chrome, Edge, Brave, Arc, Opera, Vivaldi** | ✅ Load unpacked. Headless Chromium-இல் CI மூலம் சரிபார்க்கப்பட்டது. |
-| **Safari** | ✅ `bash tools/make-safari.sh` மூலம் build செய்யப்படுகிறது (Xcode தேவை). Component chain, source hint கிடையாது. |
-| **Firefox** | ⏳ இன்னும் இல்லை. |
+| **Chrome, Brave, Arc, Opera, Vivaldi** | ✅ Load unpacked. Headless Chromium-இல் CI மூலம் சரிபார்க்கப்பட்டது. |
+| **Edge** | ✅ Load unpacked: Chrome-இன் அதே package. |
+| **Firefox 140+** | ✅ `bash tools/make-firefox-zip.sh` build செய்யும் addons.mozilla.org package. Store listing இன்னும் வரவில்லை. Dictation கிடையாது. |
+| **Safari** | ✅ `bash tools/make-safari.sh` மூலம் build செய்யப்படுகிறது (Xcode தேவை). Component chain, source hint, page errors கிடையாது. |
+
+<details>
+<summary><b>Edge மற்றும் Firefox</b></summary>
+
+**Edge** Chrome package-ஐ அப்படியே ஏற்கும். **Start bridge**-க்கு,
+`node bridge/cli.js install-native-host --id <edge id>`-ஐ ஒருமுறை run செய்யுங்கள் (Edge extension-க்குத் தனி id கொடுக்கும்).
+
+**Firefox 140+.** addons.mozilla.org listing live ஆகும் வரை, zip-ஐ
+`about:debugging` → **This Firefox** → **Load Temporary Add-on** மூலம் load செய்யுங்கள். Firefox local sites-க்கான
+அனுமதியைத் தர மறுத்திருந்தால், popup-இல் **Grant access to local sites** அழுத்துங்கள். பிறகு **Start bridge**-க்கு
+`node bridge/cli.js install-native-host`-ஐ ஒருமுறை run செய்யுங்கள், அல்லது `node bridge/cli.js token`-இன் output-ஐ popup-இல் paste செய்யுங்கள்.
+</details>
 
 <details>
 <summary><b>Safari-இல் என்ன வித்தியாசம்</b></summary>
@@ -348,8 +410,9 @@ Gemini CLI எல்லாமே ஒரு URL-ஐ ஏற்றுக்கொ�
 Safari unpacked extensions-ஐ ஏற்காது, அதனால் `tools/make-safari.sh` அதை ஒரு சிறிய macOS app-க்குள் wrap செய்து,
 மாற்ற வேண்டிய நான்கு Safari settings-ஐ print செய்யும் (முக்கியமானது **Develop ▸ Allow Unsigned Extensions**; Safari-ஐ quit செய்யும்
 ஒவ்வொரு முறையும் அது reset ஆகிவிடும்). Safari `"world": "MAIN"` content scripts-ஐ support செய்வதில்லை, அதனால் `inspector.js`
-React fibers-ஐயோ Vue instances-ஐயோ படிக்க முடியாது: **component chain, source-file hint** இரண்டும் கிடைக்காது.
-மற்ற எல்லாமே வேலை செய்யும். Bridge token-ஐ ஒப்படைக்க Safari-இல் native host கிடையாது, அதனால் popup அதை ஒருமுறை கேட்கும்:
+React fibers-ஐயோ Vue instances-ஐயோ படிக்க முடியாது: **component chain, source-file hint** இரண்டும் கிடைக்காது,
+**page errors**-உம் கிடைக்காது (அவற்றுக்கும் MAIN world தேவை). Safari `webRequest`-ஐ support செய்யும் இடங்களில் மட்டுமே
+failed requests கூடவே வரும். மற்ற எல்லாமே வேலை செய்யும். Bridge token-ஐ ஒப்படைக்க Safari-இல் native host கிடையாது, அதனால் popup அதை ஒருமுறை கேட்கும்:
 `node bridge/cli.js token` run செய்து output-ஐ paste செய்யுங்கள். Mac App Store-க்கு,
 `TEAM=<your team id> bash tools/make-safari.sh --release` ஒரு signed build-ஐ export செய்யும்.
 </details>
@@ -374,11 +437,14 @@ node cli.js clear              delete everything
 node cli.js --help
 
 http://127.0.0.1:7331/ios      the iOS Simulator picker, served by the running bridge
+http://127.0.0.1:7331/android  the Android emulator picker (needs adb)
 
 --port <n>       default 7331, or $PINPOINT_PORT (set the same number in the popup)
 --project <dir>  mirror pending annotations into <dir>/.pinpoint/
 --print          echo each new annotation to stdout as it arrives
 $PINPOINT_HOME   where annotations are stored (default ~/.pinpoint)
+$PINPOINT_AFTER_DELAY  ms after a resolve before the After crop (default 3000, 0 turns it off)
+$ANDROID_SERIAL  which Android device to read, when it isn't the one running emulator
 ```
 </details>
 
@@ -413,10 +479,16 @@ element          tag, id, classes, a CSS selector built from stable attributes w
 source           framework (react/vue/svelte/angular/astro), component chain,
                  file:line where the dev build exposes it
 screenshot       PNG of just the element (+8px), long edge ≤1200px
+context          only when something went wrong: uncaught errors and failed requests from the
+                 minute before, redacted in the browser
+steps            recorded notes only: up to 10 clicks, each with selector, label, URL and a crop
+after            on done notes: a fresh crop taken after the resolve
 ```
 
 iOS Simulator-இலிருந்து வரும்போது, `element`-இல் அதற்குப் பதிலாக accessibility identifier, label, text, value, tree path,
-frame இருக்கும்; `source` என்பது `ios-native`, `page.url` என்பது `ios-simulator://<device name>`.
+frame இருக்கும்; `source` என்பது `ios-native`, `page.url` என்பது `ios-simulator://<device name>`. Android emulator-இலிருந்து வரும்போது அது
+`resource-id`, content-desc, text, class, tree path, bounds; `source` என்பது `android-native`, `page.url` என்பது
+`android-emulator://<avd>`.
 
 React 19 அல்லது Next-இல் துல்லியமான `file:line` வேண்டுமென்றால், dev-only inspector plugin ஒன்றைச் சேர்க்கவும்
 (`vite-plugin-react-inspector`, `@react-dev-inspector`). Pinpoint அவற்றின் `data-source`
@@ -512,15 +584,27 @@ cd demo && python3 -m http.server 8080     # then open http://localhost:8080
 cd test && npm install && npx playwright install chromium && npm test
 ```
 
-152 tests. `bridge.test.mjs`, daemon, CLI, hooks, iOS picker, மற்றும் stdio, Streamable HTTP மூலம் ஒவ்வொரு MCP tool-ஐயும்
+210 tests. `bridge.test.mjs`, daemon, CLI, hooks, iOS picker, மற்றும் stdio, Streamable HTTP மூலம் ஒவ்வொரு MCP tool-ஐயும்
 cover செய்கிறது. `e2e.test.mjs` extension-ஐ headless Chromium-இல் load செய்து உண்மையான பக்கங்களை இயக்குகிறது: React, Vue, shadow DOM,
 iframes, strict CSP, 3,600-node stress page, DPR 2, cross-tab sync, தன் முழு DOM-ஐயும் மீண்டும் கட்டும் ஒரு form.
+
+<details>
+<summary><b>மற்ற test suites</b></summary>
+
+| file | எதை cover செய்கிறது |
+|---|---|
+| `android-bridge.test.mjs` | adb-ஐக் கண்டுபிடித்தல், device-ஐத் தேர்ந்தெடுத்தல், view tree-ஐ parse செய்தல், `/android` routes |
+| `e2e-picker.test.mjs` | headless Chromium-இல் `/ios`, `/android` picker பக்கங்கள் |
+| `ui-bridge.test.mjs`, `ui-flow.test.mjs`, `ui-after.test.mjs` | Accept, page context, பதிவு செய்த steps, Before / After |
+| `ui-redact.test.mjs` | page context-க்கான redaction விதிகள் |
+| `ship-edge.test.mjs`, `ship-firefox.test.mjs`, `e2e-ship.test.mjs` | Edge upload, Firefox package மற்றும் native host, store zip, popup-இன் Firefox paths |
+| `ship-windows.test.mjs` | `cmd.exe`-க்காக setup commands-ஐ எப்படி quote செய்கிறது |
+</details>
+
 [CONTRIBUTING.md](../../CONTRIBUTING.md)-ஐப் பாருங்கள்.
 
 ## எதிர்காலத் திட்டங்கள்
 
-- Android emulator support
-- Firefox
 - React Native, Flutter-க்கு native source hints, ஒரு optional dev-only package மூலம்
 - `chrome.debugger` மூலம் CSS source mapping (எந்த rule இந்த நிறத்தை அமைத்தது, எங்கே)
 

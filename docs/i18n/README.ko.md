@@ -44,7 +44,8 @@
 *"닫기 전에 초안을 저장해 줘"* 같은 노트도 괜찮습니다. 에이전트는 요소를 출발점으로 삼고, 그 뒤에 있는
 handler, state, API 호출, 백엔드까지 따라 들어갑니다.
 
-네이티브 앱을 만들고 있나요? [**iOS Simulator**](#-네이티브-ios-앱)에서도 똑같이 동작합니다.
+네이티브 앱을 만들고 있나요? [**iOS Simulator**](#-네이티브-ios-앱)와
+[**Android 에뮬레이터**](#-android-에뮬레이터)에서도 똑같이 동작합니다.
 
 ```mermaid
 flowchart LR
@@ -52,6 +53,7 @@ flowchart LR
     direction TB
     B["🌐 <b>브라우저</b><br/>Pinpoint extension"]
     S["📱 <b>iOS Simulator</b><br/>127.0.0.1:7331/ios"]
+    AN["🤖 <b>Android 에뮬레이터</b><br/>127.0.0.1:7331/android"]
   end
   BR(["📍 <b>Pinpoint bridge</b><br/>127.0.0.1:7331"])
   ST[("💾 ~/.pinpoint/<br/>annotations.json")]
@@ -60,6 +62,7 @@ flowchart LR
 
   B -- "selector · style · 크롭" --> BR
   S -- "accessibility tree · 크롭" --> BR
+  AN -- "view tree · 크롭" --> BR
   BR -- "MCP / hooks" --> A
   A -- "resolve + 답변" --> BR
   BR -. "실시간 pin과 답변" .-> B
@@ -79,6 +82,7 @@ flowchart LR
 - [대화로 다듬기](#-대화로-다듬기)
 - [에이전트가 노트를 알게 되는 방법](#-에이전트가-노트를-알게-되는-방법)
 - [네이티브 iOS 앱](#-네이티브-ios-앱)
+- [Android 에뮬레이터](#-android-에뮬레이터)
 - [다른 에이전트 연결하기](#-다른-에이전트-연결하기)
 - [레퍼런스](#-레퍼런스): 명령어, MCP 도구, 노트에 담기는 내용
 - [문제 해결](#-문제-해결)
@@ -97,7 +101,8 @@ Pinpoint는 페이지 자체를 전혀 건드리지 않습니다. 그래서 브�
 
 ## 🚀 빠른 시작
 
-**필요한 것:** Node 18+ 와 Chromium 계열 브라우저(Chrome, Edge, Brave, Arc, Opera, Vivaldi).
+**필요한 것:** Node 18+ 와 Chromium 계열 브라우저(Chrome, Edge, Brave, Arc, Opera, Vivaldi), 또는
+[Firefox 140+](#-브라우저).
 
 **1. 설치**
 
@@ -122,7 +127,7 @@ setup이 extensions 페이지를 열고 폴더 경로를 복사해 둡니다. **
 
 > [!TIP]
 > 단계별로 자세히 보고 싶다면 [docs/quick-install.md](../quick-install.md)를 참고하세요.
-> 네이티브 iOS 앱만 만든다면 clone은 건너뛰어도 됩니다:
+> 네이티브 iOS나 Android 앱만 만든다면 clone은 건너뛰어도 됩니다:
 > `npx -y pinpoint-bridge`, 그다음 `claude mcp add pinpoint -s user -- npx -y pinpoint-bridge mcp`.
 
 <details>
@@ -131,17 +136,18 @@ setup이 extensions 페이지를 열고 폴더 경로를 복사해 둡니다. **
 `setup`이 묻는 것:
 
 - **어느 프로젝트의 UI에 annotation을 달지**: 에이전트가 수정할 repo
-- **웹 앱, 네이티브 iOS 앱, 또는 둘 다**: 웹은 브라우저 extension을, iOS는
-  [Simulator picker](#-네이티브-ios-앱)를 씁니다. setup이 Xcode, Maestro, Java가 있는지 확인하고
-  없는 게 있으면 설치 방법을 알려 줍니다(직접 설치하지는 않습니다).
+- **웹 앱, 네이티브 iOS 앱, Android 앱, 또는 둘 다**(웹과 iOS): 웹은 브라우저 extension을, iOS는
+  [Simulator picker](#-네이티브-ios-앱)를, Android는 [에뮬레이터 picker](#-android-에뮬레이터)를 씁니다.
+  setup이 Xcode, Maestro, Java(iOS) 또는 adb(Android)가 있는지 확인하고 없는 게 있으면 설치 방법을
+  알려 줍니다(직접 설치하지는 않습니다).
 - **어떤 에이전트를 연결할지**: Claude Code는 `claude mcp add`, Cursor는 `<project>/.cursor/mcp.json`,
   Codex는 `~/.codex/config.toml`. 기존 항목은 덮어쓰지 않고 병합하며, TOML 파일은 먼저 백업합니다.
 - **Claude Code hook을 설치할지**: 설치하면 대기 중인 노트가 다음 메시지와 함께 들어옵니다
 - **어느 브라우저**에 extension을 로드할지(설치된 브라우저만 보여 줍니다)
 
 그런 다음 popup의 **Start bridge**(bridge 시작) 버튼 뒤에서 동작하는 launcher를 등록하고 bridge를 시작합니다.
-비대화형으로 실행하려면: `node pinpoint/bridge/cli.js setup ~/code/my-app --yes` (`--for ios` 또는
-`--for both`를 추가할 수 있고, 기본값은 `web`입니다).
+비대화형으로 실행하려면: `node pinpoint/bridge/cli.js setup ~/code/my-app --yes` (`--for ios`,
+`--for android` 또는 `--for both`를 추가할 수 있고, 기본값은 `web`입니다).
 
 **수동 설정.** 순서가 중요합니다. `$PWD`가 MCP 항목에 그대로 박히기 때문에, bridge가 터미널을 차지하기
 전에 2단계를 `pinpoint/bridge`에서 실행해야 합니다.
@@ -208,6 +214,16 @@ bridge가 실행 중이면 페이지 오른쪽 위에 작은 바가 나타납니
 - **pin은 요소를 따라갑니다.** DOM을 다시 그리는 앱에서도 마찬가지이고, 원래 요소가 사라지면 엉뚱한
   요소 위에 남지 않고 숨겨집니다.
 - **bridge가 꺼져 있나요?** **Send**(보내기)가 대신 바로 붙여 넣을 수 있는 prompt를 복사해 주므로 잃어버리는 건 없습니다.
+- **Record steps.** 선택 중에 바의 **Record steps**를 누르고 평소처럼 버그를 재현하며 클릭하세요. 클릭은
+  그대로 페이지에 전달되고, 클릭 하나하나가 단계(요소, label, URL, 작은 크롭)가 됩니다. 같은 탭이라면
+  페이지를 이동해도 이어집니다. **Done**을 누르면 노트 하나로 저장되고(최대 10단계), **Esc**를 누르면 녹화를
+  버립니다. 에이전트는 이를 *Steps to reproduce*로 받습니다.
+- **받아쓰기.** 코멘트 상자의 마이크를 누르고 말하면, 입력한 내용 뒤에 텍스트가 추가됩니다. 보안
+  페이지(localhost 포함)의 Chrome과 Safari에서 동작하며, 음성 인식은 브라우저 자체의 음성 서비스가 합니다.
+  Firefox에서는 지원하지 않습니다.
+- **무엇이 잘못됐는지도 함께 갑니다.** 노트마다 표시하기 직전 1분 동안 페이지에서 발생한 uncaught error와
+  실패한 요청이 담깁니다. 브라우저에서 먼저 redact되며(query string, token, secret 제거), 실제로 문제가
+  있었을 때만 첨부됩니다.
 
 **동작하는 곳.** 로컬 개발 페이지에서만 동작합니다: `localhost`, `127.0.0.1`, `.local` / `.test` /
 `.localhost` 호스트, 그리고 허용한 경우 `file://`. 그 밖의 주소(staging URL, 휴대폰 테스트용 LAN 주소 등)에서는
@@ -221,7 +237,12 @@ bridge가 실행 중이면 페이지 오른쪽 위에 작은 바가 나타납니
   toast로 표시되고, notes 패널에서 답하면 노트가 대화 전체와 함께 다시 전달됩니다.
 - **답변은 브라우저에서 읽습니다.** 완료된 노트는 무엇을 바꿨는지 적은 에이전트의 노트와 함께 패널에 남습니다.
   에이전트는 반드시 이걸 작성해야 합니다. "done"은 답이 아닙니다.
-- **뭔가 아쉬운가요?** 완료된 노트마다 **Reply…**(답장)가 있습니다. 아직 잘못된 점을 말하면 노트가 다시 열립니다.
+- **Accept / Not quite.** 에이전트가 작업을 끝내면 답변이 담긴 카드가 **Accept**와 **Not quite** 버튼과
+  함께 나타납니다. Not quite를 누르면 노트가 다시 열려서 아직 잘못된 점을 말할 수 있습니다.
+- **나중에 보니 아쉬운가요?** 패널의 완료된 노트마다 **Reply…**(답장)가 있습니다. 아직 잘못된 점을 말하면
+  노트가 다시 열립니다.
+- **Before / After.** 노트가 resolve되고 몇 초 뒤, Pinpoint가 요소를 새로 잘라 냅니다. 패널의 완료된 노트에는
+  **Before**와 **After**가 나란히 표시됩니다.
 - **Draft.** **Draft**(임시 저장, 또는 **⇧⌘↩**)는 보내지 않고 표시만 해 둡니다. 바의 **Send**를 누르면
   모든 draft를 한 번에 넘깁니다.
 - **페이지 전체.** 선택 중에 **Whole page**(페이지 전체)를 누르면 페이지 자체에 대한 노트를 스크린샷과 함께
@@ -240,7 +261,7 @@ bridge가 실행 중이면 페이지 오른쪽 위에 작은 바가 나타납니
 <summary><b>브라우저에서 bridge 시작하기, 그리고 여러 에이전트 동시에 쓰기</b></summary>
 
 **브라우저에서 시작 / 재시작.** `install-native-host`는 Chrome(그리고 Brave, Edge, Arc, Chromium,
-Vivaldi, Opera)에 작은 launcher를 등록합니다. 그러면 popup의 **Start bridge**가 동작하고, 새 빌드를 pull한
+Vivaldi, Opera)과 Firefox에 작은 launcher를 등록합니다. 그러면 popup의 **Start bridge**가 동작하고, 새 빌드를 pull한
 뒤에는 바의 **↻** 로 bridge를 재시작할 수 있습니다. launcher가 할 수 있는 일은 딱 하나입니다. 이 repo의
 `cli.js`를 popup 설정에 있는 포트 번호로 실행하는 것뿐이며, 그 번호를 페이지에서 받아 오는 일은 절대 없습니다.
 
@@ -294,6 +315,34 @@ driver 하나를 공유하므로, 다른 Maestro가 그걸 재시작하면 bridg
 첫 로드가 몇 분씩 걸린다면, Maestro MCP 서버가 붙어 있는 유휴 Claude Code 세션을 닫아 보세요.
 </details>
 
+## 🤖 Android 에뮬레이터
+
+`/ios`와 같은 picker로, adb를 통해 Android **view tree**를 읽습니다. 앱에 아무것도 추가하지 않으며
+설치할 driver도 없습니다.
+
+<table>
+<tr>
+<td width="50%"><img src="../images/android-comment.png" alt="Android picker: Settings 앱의 Search settings 필드가 강조되고 노트를 입력하는 중"></td>
+<td width="50%"><img src="../images/android-pick.png" alt="보낸 뒤: 필드 위의 번호 pin과, id가 표시된 채 hover된 다음 요소"></td>
+</tr>
+</table>
+
+**필요한 것:** Android SDK의 `adb`(Android Studio가 설치해 줍니다)와 실행 중인 에뮬레이터.
+
+bridge가 실행 중일 때 **http://127.0.0.1:7331/android** 를 엽니다. 마우스를 올리고, 클릭하고, 입력하고,
+보내세요. 에이전트는 요소의 `resource-id`, content-desc, text, class, view tree에서의 위치, 크롭 이미지를
+받습니다. `node bridge/cli.js setup --for android`는 adb가 있는지 확인하고 picker를 안내해 줍니다.
+
+<details>
+<summary><b>adb 찾기, 그리고 어느 기기를 읽는지</b></summary>
+
+Pinpoint는 `$ANDROID_HOME`, `$ANDROID_SDK_ROOT`, Android Studio의 기본 SDK 폴더 순으로 adb를 찾고, 그다음
+`PATH`를 봅니다. 에뮬레이터가 하나만 실행 중이면 그것을 씁니다. 여러 개가 실행 중이거나 실제 기기를 읽으려면
+`ANDROID_SERIAL`을 그 기기의 serial(`adb devices`에 나오는 값)로 설정하고 bridge를 재시작하세요. 이름을
+지정하지 않는 한 휴대폰은 절대 선택되지 않습니다. iOS와 마찬가지로 소스 파일 힌트도, style도,
+`recheck_annotation`도 없습니다. view에 id를 붙여 두면 에이전트가 그걸로 grep합니다.
+</details>
+
 ## 🔌 다른 에이전트 연결하기
 
 가장 간단한 방법은 배포된 패키지를 실행하는 것입니다: `npx -y pinpoint-bridge mcp`. 실행 중인 bridge가
@@ -335,9 +384,22 @@ npm 대신 내 clone을 쓰도록 에이전트를 고정하려면 `cli.js`의 �
 
 | 브라우저 | 상태 |
 |---|---|
-| **Chrome, Edge, Brave, Arc, Opera, Vivaldi** | ✅ Load unpacked. CI에서 headless Chromium으로 검증. |
-| **Safari** | ✅ `bash tools/make-safari.sh`로 빌드(Xcode 필요). 컴포넌트 체인과 소스 힌트 없음. |
-| **Firefox** | ⏳ 아직 지원하지 않음. |
+| **Chrome, Brave, Arc, Opera, Vivaldi** | ✅ Load unpacked. CI에서 headless Chromium으로 검증. |
+| **Edge** | ✅ Load unpacked. Chrome과 같은 패키지. |
+| **Firefox 140+** | ✅ `bash tools/make-firefox-zip.sh`로 만드는 addons.mozilla.org 패키지. 스토어 등록 대기 중. 받아쓰기 없음. |
+| **Safari** | ✅ `bash tools/make-safari.sh`로 빌드(Xcode 필요). 컴포넌트 체인, 소스 힌트, 페이지 오류 없음. |
+
+<details>
+<summary><b>Edge와 Firefox</b></summary>
+
+**Edge**는 Chrome 패키지를 그대로 씁니다. **Start bridge**를 쓰려면
+`node bridge/cli.js install-native-host --id <edge id>`를 한 번 실행하세요(Edge는 extension에 별도의 id를 부여합니다).
+
+**Firefox 140+.** addons.mozilla.org 등록이 완료될 때까지는 `about:debugging` → **This Firefox** →
+**Load Temporary Add-on**에서 zip을 로드하세요. Firefox가 로컬 사이트 접근을 막았다면 popup에서
+**Grant access to local sites**를 누르세요. 그다음 **Start bridge**를 위해 `node bridge/cli.js install-native-host`를
+한 번 실행하거나, `node bridge/cli.js token`의 출력값을 popup에 붙여 넣으세요.
+</details>
 
 <details>
 <summary><b>Safari에서 달라지는 점</b></summary>
@@ -345,8 +407,8 @@ npm 대신 내 clone을 쓰도록 에이전트를 고정하려면 `cli.js`의 �
 Safari는 unpacked extension을 받지 않기 때문에, `tools/make-safari.sh`가 extension을 작은 macOS 앱으로 감싸고
 바꿔야 할 Safari 설정 네 가지를 출력합니다(그중 핵심인 **Develop ▸ Allow Unsigned Extensions**는 Safari를
 종료할 때마다 초기화됩니다). Safari는 `"world": "MAIN"` content script를 지원하지 않으므로 `inspector.js`가
-React fiber나 Vue 인스턴스를 읽을 수 없습니다. 즉 **컴포넌트 체인과 소스 파일 힌트**를 쓸 수 없습니다.
-나머지는 모두 동작합니다. Safari에는 bridge token을 넘겨줄 native host가 없어서 popup이 한 번 token을 묻습니다.
+React fiber나 Vue 인스턴스를 읽을 수 없습니다. 즉 **컴포넌트 체인과 소스 파일 힌트**, 그리고 **페이지 오류**(이것도 MAIN world가 필요합니다)를 쓸 수 없습니다.
+실패한 요청은 Safari가 `webRequest`를 지원하는 경우에만 함께 갑니다. 나머지는 모두 동작합니다. Safari에는 bridge token을 넘겨줄 native host가 없어서 popup이 한 번 token을 묻습니다.
 `node bridge/cli.js token`을 실행하고 출력값을 붙여 넣으세요. Mac App Store용으로는
 `TEAM=<your team id> bash tools/make-safari.sh --release`가 서명된 빌드를 내보냅니다.
 </details>
@@ -371,11 +433,14 @@ node cli.js clear              delete everything
 node cli.js --help
 
 http://127.0.0.1:7331/ios      the iOS Simulator picker, served by the running bridge
+http://127.0.0.1:7331/android  the Android emulator picker (needs adb)
 
 --port <n>       default 7331, or $PINPOINT_PORT (set the same number in the popup)
 --project <dir>  mirror pending annotations into <dir>/.pinpoint/
 --print          echo each new annotation to stdout as it arrives
 $PINPOINT_HOME   where annotations are stored (default ~/.pinpoint)
+$PINPOINT_AFTER_DELAY  ms after a resolve before the After crop (default 3000, 0 turns it off)
+$ANDROID_SERIAL  which Android device to read, when it isn't the one running emulator
 ```
 </details>
 
@@ -410,10 +475,16 @@ element          tag, id, classes, a CSS selector built from stable attributes w
 source           framework (react/vue/svelte/angular/astro), component chain,
                  file:line where the dev build exposes it
 screenshot       PNG of just the element (+8px), long edge ≤1200px
+context          only when something went wrong: uncaught errors and failed requests from the
+                 minute before, redacted in the browser
+steps            recorded notes only: up to 10 clicks, each with selector, label, URL and a crop
+after            on done notes: a fresh crop taken after the resolve
 ```
 
 iOS Simulator에서 온 노트의 `element`에는 그 대신 accessibility identifier, label, text, value, tree 경로, frame이
-담기고, `source`는 `ios-native`, `page.url`은 `ios-simulator://<device name>`입니다.
+담기고, `source`는 `ios-native`, `page.url`은 `ios-simulator://<device name>`입니다. Android 에뮬레이터에서
+온 노트에는 `resource-id`, content-desc, text, class, tree 경로, bounds가 담기고, `source`는 `android-native`,
+`page.url`은 `android-emulator://<avd>`입니다.
 
 React 19나 Next에서 정확한 `file:line`을 얻으려면 개발 전용 inspector 플러그인
 (`vite-plugin-react-inspector`, `@react-dev-inspector`)을 추가하세요. Pinpoint는 이 플러그인들의 `data-source`
@@ -508,15 +579,28 @@ cd demo && python3 -m http.server 8080     # then open http://localhost:8080
 cd test && npm install && npx playwright install chromium && npm test
 ```
 
-테스트는 152개입니다. `bridge.test.mjs`는 daemon, CLI, hook, iOS picker, 그리고 stdio와 Streamable HTTP
+테스트는 210개입니다. `bridge.test.mjs`는 daemon, CLI, hook, iOS picker, 그리고 stdio와 Streamable HTTP
 위의 모든 MCP 도구를 다룹니다. `e2e.test.mjs`는 extension을 headless Chromium에 로드해서 실제 페이지를
 돌립니다: React, Vue, shadow DOM, iframe, 엄격한 CSP, 3,600개 노드 스트레스 페이지, DPR 2, 탭 간 동기화,
-그리고 DOM 전체를 다시 그리는 폼까지. [CONTRIBUTING.md](../../CONTRIBUTING.md)를 참고하세요.
+그리고 DOM 전체를 다시 그리는 폼까지.
+
+<details>
+<summary><b>나머지 테스트 스위트</b></summary>
+
+| 파일 | 다루는 내용 |
+|---|---|
+| `android-bridge.test.mjs` | adb 찾기, 기기 선택, view tree 파싱, `/android` 라우트 |
+| `e2e-picker.test.mjs` | headless Chromium에서 `/ios`와 `/android` picker 페이지 |
+| `ui-bridge.test.mjs`, `ui-flow.test.mjs`, `ui-after.test.mjs` | Accept, 페이지 컨텍스트, 녹화된 단계, Before / After |
+| `ui-redact.test.mjs` | 페이지 컨텍스트 redaction 규칙 |
+| `ship-edge.test.mjs`, `ship-firefox.test.mjs`, `e2e-ship.test.mjs` | Edge 업로드, Firefox 패키지와 native host, 스토어 zip, popup의 Firefox 경로 |
+| `ship-windows.test.mjs` | setup이 `cmd.exe`용 명령어를 quote하는 방식 |
+</details>
+
+[CONTRIBUTING.md](../../CONTRIBUTING.md)를 참고하세요.
 
 ## 로드맵
 
-- Android 에뮬레이터 지원
-- Firefox
 - 선택형 개발 전용 패키지를 통한 React Native와 Flutter의 네이티브 소스 힌트
 - `chrome.debugger`를 통한 CSS 소스 매핑(어떤 rule이 이 색을 지정했고, 그게 어디 있는지)
 

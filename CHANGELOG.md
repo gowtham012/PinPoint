@@ -11,12 +11,106 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   changelog and pushes a tag; `.github/workflows/release.yml` then tests and publishes to npm (trusted
   publishing, with provenance), the MCP Registry, the Chrome Web Store (API v2) and GitHub releases.
   See `docs/releasing.md`.
+- **Android emulator picker** at `/android`: the same point-and-comment page as `/ios`. It reads the
+  screen through adb (`uiautomator dump` + `screencap`), with no driver to install. It prefers the one
+  running emulator and reads a physical device only when `ANDROID_SERIAL` names it. Notes carry
+  `android-emulator://<avd>` URLs and an `android-native` source hint, and the MCP instructions and
+  `pending.md` tell agents to grep the `resource-id` first. `setup --for android` checks for adb.
+  (`bridge/ios.html` is now `bridge/picker.html` and serves both pages.)
+- **Accept / Not quite.** When your agent finishes a note, the "#n done" message is now a card with its
+  reply and two buttons. **Accept** marks the note accepted. **Not quite** opens the notes panel with
+  that note's reopen box ready to type in. The card stays about 10 seconds and holds while the pointer
+  is on it. A note you accepted never pops up again in another tab. Reopening a note, or the agent
+  resolving it again, clears the acceptance. New bridge route: `POST /annotations/:id/accept`, which
+  works only on a resolved note and needs the bridge token like every other extension call.
+- **Page context on every note.** A note now carries the page's uncaught errors and unhandled promise
+  rejections (message plus three stack lines) and its failed requests (status 400 or above, or a
+  network error) from the minute before you marked it. It is attached only when something went wrong.
+  Everything is redacted in the browser first (see Security). Request bodies and headers are never
+  read. Agents get it as page data, not instructions. The console is not wrapped, so DevTools still
+  points at your own code. `inspector.js` now runs at `document_start` so it catches errors thrown
+  while the page loads.
+- **Dictation.** A mic button in the comment box, in Chrome and Safari on secure pages (localhost
+  counts). Only a real click starts it; click again to stop. Speech is added to whatever you have
+  already typed. A blocked microphone, a missing microphone and an unreachable speech service each get
+  their own message. Not offered on Firefox.
+- **Record steps.** While picking, **Record steps** on the bar turns each real click into a step
+  (selector, description, label, URL; at most 10). Recording survives navigation in the same tab (kept
+  in `storage.session` per tab, cleared on Done, Esc or tab close). Done sends one note of kind `flow`
+  with `steps[]`. The markdown lists "Steps to reproduce", and `get_annotation` attaches up to 5 step
+  crops (each 600 px at most).
+- **Before / after on resolve.** `PINPOINT_AFTER_DELAY` ms after a resolve (default 3000, `0` = off),
+  the bridge re-checks the element and stores an `after` crop, but only if the note is still the same
+  resolved answer. The page also asks for one when it shows the done card or the panel. The panel
+  shows Before / After thumbnails. Only the newest 20 done notes keep after pixels. New route
+  `POST /annotations/:id/after` (token-guarded like every extension route).
+- **Edge Add-ons.** The release workflow uploads the same zip as the Chrome Web Store and submits it
+  for certification through the Edge Add-ons Update REST API v1.1 (`tools/edge-publish.sh`). It is
+  skipped until `EDGE_PRODUCT_ID`, `EDGE_CLIENT_ID` and `EDGE_API_KEY` are set.
+- **Firefox.** `tools/make-firefox-zip.sh` builds an addons.mozilla.org package from the same
+  `extension/` (gecko id `pinpoint@gowtham012.github.io`, Firefox 140+, `redact.js` loaded before
+  `background.js`, no Firefox for Android). CI runs `web-ext lint` on it, and the release submits it
+  with `web-ext sign --channel listed` when `AMO_JWT_ISSUER` / `AMO_JWT_SECRET` are set.
+- **"Start bridge" on Firefox.** `install-native-host` also registers the bridge launcher with Firefox
+  (`~/Library/Application Support/Mozilla/NativeMessagingHosts` or `~/.mozilla/native-messaging-hosts`).
+- **Grant access to local sites.** A popup button that appears when the browser has withheld access to
+  local dev sites (Firefox lets users do this at install). It asks for the local patterns only.
+- **GitHub releases attach every store zip** that was built (Chrome/Edge and Firefox).
+- **CI runs on ubuntu, macOS and Windows.** Only ubuntu blocks PRs and releases for now. macOS and
+  Windows report results, and each starts blocking once its `macos-blocking` / `windows-blocking` input
+  is set to true.
+
+### Changed
+- **New permission: `webRequest`**, used only to see which requests from your local dev pages failed.
+  Chrome shows no new install warning (checked with `chrome.management.getPermissionWarningsByManifest`
+  against the 0.6.0 manifest; the warnings are identical).
+- **Lighter note lists.** `GET /annotations` and the project's `pending.json` carry step and after
+  crops as their size only, without pixels (`images=1` still returns everything).
+- **Re-checks blink less.** A re-check hides Pinpoint's overlay only when part of it would be in the
+  crop. If that part is the open panel or the comment box, it skips the fresh crop ("Pinpoint's own
+  panel was in front of it") instead of blinking them.
+- **The notes panel no longer re-renders** over an answer you are typing.
+- **After crops from the panel** wait the same rebuild delay as a resolve does, are no longer asked
+  for notes resolved more than 10 minutes ago, and an element that is gone is recorded once, so the
+  panel stops asking for it.
+- **The Android screenshot is taken after the view tree has settled**, so hover boxes and crops match
+  the picture even when the screen was still animating.
+- **Selectors built from app or page strings** (Android, iOS) are kept to one line, with quotes
+  escaped, in `list_annotations` and the bridge log.
+- **The ui-* test suites run** in `npm test`, `test:bridge` and CI.
 
 ### Fixed
 - **Restarting the bridge on Windows** no longer kills the replacement along with the old process.
 - **"Start bridge" works for the Chrome Web Store install.** The Store gives the extension its own id
   (`mkjegdlcpijniabibingcbmjfedcepgp`); the native host now allows it as well as the unpacked build.
   Re-run `node bridge/cli.js install-native-host` once to pick it up.
+- **`resolve_annotation`'s "never re-checked" warning never went away.** It read
+  `element.recheckedAt`, but nothing ever wrote it. Every successful re-check (`recheck_annotation`
+  and the automatic after check) now sets it.
+- **`setup` on Windows** runs `claude` and `npm` as one quoted command line, so the `.cmd` shims work,
+  with no DEP0190 warning.
+- **Firefox: `file://` pages** no longer show Chrome's "Allow access to file URLs" advice, or a
+  `chrome://extensions` link that cannot open there.
+- **The setup test's `/ios` URL** follows `PINPOINT_TEST_PORT`.
+
+### Security
+- **Page context is redacted before it leaves the browser** (`extension/redact.js`). Each string is cut
+  to 2000 characters, scrubbed, then capped at 300. Query strings and fragments are dropped from URLs
+  (a stack frame's `:line:col` is kept, even after Vite's `?t=`), passwords in URLs are removed, and
+  Bearer and Basic credentials, JWTs and long hex/base64 strings are replaced. So are the values of
+  `key=value` and `"key":"value"` pairs whose name ends in a secret word, including prefixed names
+  such as `DB_PASSWORD`, `csrf_token` and `connect.sid`. If the redaction script is missing, nothing
+  is attached.
+- **Page context and recorded steps are untrusted data** in the agent's markdown: flattened to one
+  line, emphasis and backticks removed, under a label saying they are page data. Only trusted
+  pointerdown events in the top frame become steps.
+- **Dictation starts only from a trusted click** inside Pinpoint's closed shadow root.
+- **`/android/screen` (which runs adb) needs the `x-pinpoint: 1` header**, like `/ios/screen`, and the
+  `/android` routes accept only the bridge's own origin or a token-carrying extension. View-tree text
+  is rendered with `textContent` only.
+- **Release credentials stay in repository secrets.** `tools/edge-publish.sh` hands the Edge key to
+  curl through a temporary header file, never on a command line or in the log. The Firefox
+  native-messaging manifest allows only Pinpoint's gecko id.
 
 ## [0.6.0] — 2026-10-18
 
