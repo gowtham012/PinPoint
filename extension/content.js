@@ -306,6 +306,11 @@
       .panel form button { font: 600 11.5px var(--sans); border-radius: 7px; padding: 6px 11px; }
       .panel form .go { background: var(--accent); color: var(--accent-ink); }
       .panel form .no { color: var(--paper-faint); }
+      /* Before and after: the crop from when it was marked, and one from once the agent was done. */
+      .panel .ba { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; }
+      .panel .ba figure { margin: 0; min-width: 0; }
+      .panel .ba img { display: block; width: 100%; max-height: 90px; object-fit: contain; background: var(--graphite-2); border-radius: 6px; }
+      .panel .ba figcaption { font: 600 10.5px/1 var(--sans); color: var(--paper-faint); margin-top: 4px; }
       .panel .follow { margin-top: 6px; font: 500 11.5px var(--sans); color: var(--paper-faint); padding: 3px 0; }
       .panel .follow:hover { color: var(--accent); }
       .panel .group .send-all { margin-left: auto; font: 700 11.5px var(--sans); color: var(--accent-ink); background: var(--accent); padding: 4px 9px; border-radius: 7px; }
@@ -1017,17 +1022,21 @@
   function togglePanel(force) {
     const open = force !== undefined ? force : ui.panel.style.display !== "flex";
     ui.panel.style.display = open ? "flex" : "none";
-    if (!open) return;
+    if (!open) { askedAfter.clear(); replies.forEach(requestAfter); return; }
     unread = false;
     paintDock();
-    renderPanel();
+    renderPanel(true);
     // Opening the panel is a request for the current state: an agent may have finished something
     // since the page loaded, and its reply is the whole point of looking.
     return loadReplies().then(() => { paintDock(); if (ui.panel.style.display === "flex") renderPanel(); });
   }
   ui.panelClose.addEventListener("click", () => togglePanel(false));
 
-  function renderPanel() {
+  // Something changing at the bridge (an agent at work, an after crop landing) re-renders the panel;
+  // that must never throw away an answer you are in the middle of writing. `force`: you asked for it.
+  const panelTyping = () => [...ui.panelList.querySelectorAll("form textarea")].some((t) => t.value.trim() || t === shadow.activeElement);
+  function renderPanel(force = false) {
+    if (!force && panelTyping()) return;
     ui.panelList.innerHTML = "";
     if (!pins.length && !replies.length) {
       ui.panelList.innerHTML = `<li class="empty">Nothing marked on this page yet. Turn on Pinpoint and click anything you want changed.</li>`;
@@ -1085,7 +1094,7 @@
       if (results.some((r) => !r || r.error)) toast("Some notes were not removed — the bridge isn't answering");
       await loadReplies();
       paintDock();
-      renderPanel();
+      renderPanel(true);
     });
     ui.panelList.appendChild(head);
 
@@ -1102,7 +1111,7 @@
         if (!r || r.error) return toast("Not removed — the bridge isn't answering");
         await loadReplies();
         paintDock();
-        renderPanel();
+        renderPanel(true);
       });
       li.querySelector(".n").textContent = a.number;
       li.querySelector(".c").textContent = a.comment;
@@ -1113,6 +1122,8 @@
         what.textContent = "marked done without a note";
         li.querySelector(".reply").classList.add("none");
       }
+      if (a.after?.screenshot) li.querySelector(".body").appendChild(beforeAfter(a));
+      else requestAfter(a);
       // Not what you meant? Say so here: the note reopens with this conversation attached.
       const follow = document.createElement("button");
       follow.className = "follow";
@@ -1125,6 +1136,36 @@
       li.querySelector(".body").appendChild(follow);
       ui.panelList.appendChild(li);
     }
+  }
+
+  // The list carries no pixels; the pictures come per note, once, and are kept for this page.
+  // ponytail: a page whose CSP forbids data: images shows empty frames here.
+  const askedAfter = new Set(), shots = new Map();
+  // Its tab was most likely not in front when the agent finished; it is now. Asked when the done
+  // card shows, when the panel shows the note, and once more when the panel closes — the panel
+  // itself may have been in front of the element (then the page answers "busy" and nothing blinks).
+  function requestAfter(a) {
+    if (a.after || askedAfter.has(a.id)) return;
+    askedAfter.add(a.id);
+    chrome.runtime.sendMessage({ type: "after", id: a.id }).catch(() => {});
+  }
+  const png = (x) => (typeof x?.base64 === "string" && /^[A-Za-z0-9+/=]+$/.test(x.base64) ? "data:image/png;base64," + x.base64 : null);
+  function beforeAfter(a) {
+    const box = document.createElement("div");
+    box.className = "ba";
+    box.innerHTML = `<figure><img alt="Before"><figcaption>Before</figcaption></figure><figure><img alt="After"><figcaption>After</figcaption></figure>`;
+    const [bi, ai] = box.querySelectorAll("img");
+    const key = a.id + ":" + a.after.at;
+    const paint = (s) => { if (s.before) bi.src = s.before; else bi.parentNode.remove(); ai.src = s.after; };
+    if (shots.has(key)) paint(shots.get(key));
+    else chrome.runtime.sendMessage({ type: "get", id: a.id }).then((r) => {
+      const after = png(r?.annotation?.after?.screenshot);
+      if (!after) return;
+      const s = { before: png(r.annotation.screenshot), after };
+      shots.set(key, s);
+      paint(s);
+    }).catch(() => {});
+    return box;
   }
 
   // The conversation on a note, oldest first: what the agent asked or said, and what you answered.
@@ -1161,7 +1202,7 @@
       if (!r || r.error || r.ok === false) return toast("Not sent — the bridge isn't answering");
       toast("Sent to your agent");
       await loadPins();
-      renderPanel();
+      renderPanel(true);
     });
     return f;
   }
@@ -1753,6 +1794,21 @@
     return { rect, dpr: window.devicePixelRatio || 1, doc };
   }
 
+  // Which of our own things would be in a crop of `rect` (top-viewport px): "busy" for the panel or
+  // the comment box, "passive" for the rest (pins, the bar, a toast), null for nothing. A frame
+  // cannot see the top frame's overlay, so it always says "passive" and the worker hides everything.
+  function uiInWay(rect) {
+    if (!isTop) return "passive";
+    let way = null;
+    for (const n of shadow.querySelectorAll(".pin, .dock, .panel, .pop, .toast, .tip, .hl, .marquee")) {
+      const r = n.getBoundingClientRect();
+      if (!r.width || !r.height || r.right < rect.x || r.left > rect.x + rect.width || r.bottom < rect.y || r.top > rect.y + rect.height) continue;
+      if (n === ui.panel || n === ui.pop) return "busy";
+      way = "passive";
+    }
+    return way;
+  }
+
   // Our own overlay must not appear in the crop.
   let restoreTimer = 0;
   function hideOverlayForCapture() {
@@ -2107,6 +2163,7 @@
       if (fresh.length) {
         unread = true;
         doneCard(fresh[0], fresh.length > 1 ? ` (+${fresh.length - 1} more)` : "");
+        fresh.forEach(requestAfter);
       }
     }
     seenReplies = ids;
@@ -2163,9 +2220,15 @@
         const override = msg.region
           ? { x: r.left + window.scrollX + msg.region.dx, y: r.top + window.scrollY + msg.region.dy, width: msg.region.width, height: msg.region.height }
           : null;
+        const capture = await captureRect(el, override);
+        const inWay = capture ? uiInWay(capture.rect) : null;
         reply({
           found: true,
           url: location.href,
+          // Hide the overlay for the shot only when it is in the picture. When that is the panel or the
+          // comment box, you are using it: no fresh crop this time rather than a blink under your cursor.
+          hide: inWay === "passive",
+          busy: inWay === "busy",
           selectorStillMatches: safeQuery(msg.selector) === el,
           element: {
             tag: el.tagName.toLowerCase(),
@@ -2177,7 +2240,7 @@
             styles: computedStyles(el),
             fingerprint: fingerprint(el),
           },
-          capture: await captureRect(el, override),
+          capture: inWay === "busy" ? null : capture,
         });
       })();
       return true;

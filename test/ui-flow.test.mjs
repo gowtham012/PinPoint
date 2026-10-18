@@ -15,7 +15,7 @@ const { startDaemon } = await import("../bridge/daemon.js");
 
 let d, BASE;
 before(async () => {
-  d = await startDaemon({ port: 0, quiet: true, project: PROJECT });
+  d = await startDaemon({ port: 0, quiet: true, project: PROJECT, afterDelay: 0 });
   BASE = `http://127.0.0.1:${d.server.address().port}`;
 });
 after(async () => {

@@ -22,7 +22,8 @@ const CHROME = process.env.PINPOINT_CHROME || undefined;
 const PORT = Number(process.env.PINPOINT_TEST_PORT) || 7399, SITE = Number(process.env.PINPOINT_TEST_SITE) || 8081;
 const BASE = `http://127.0.0.1:${PORT}`;
 const HOME = fs.mkdtempSync(path.join(os.tmpdir(), "pp-e2e-"));
-const ENV = { ...process.env, PINPOINT_HOME: HOME };
+// PINPOINT_AFTER_DELAY=0: no after-crop recheck on resolve, which these tests predate.
+const ENV = { ...process.env, PINPOINT_HOME: HOME, PINPOINT_AFTER_DELAY: "0" };
 
 // ---------- static site (with a strict-CSP route) ----------
 const site = http.createServer((req, res) => {
@@ -2431,5 +2432,53 @@ test("W3: ten steps is the most; Esc throws the recording away, and a reload doe
   await page.waitForTimeout(800);
   assert.equal(await recording(page), false);
   assert.equal((await pending()).length, 0, "nothing was sent");
+  await page.close();
+});
+
+// ============ 0.7.0 lane UI: before / after ============
+test("X1: a finished note gets an after crop once its page is in front, and the panel shows Before and After", async () => {
+  await clearAll();
+  const page = await openPage("/");
+  await annotate(page, page.locator("h1"), "bigger headline");
+  const [a] = await pendingWithShots(1);
+  await disarm(page);
+  // The delay is off in this suite, so the bridge looks at nothing by itself: the page asks, when it
+  // shows the done card.
+  await resolveVia(a.id, "h1 is 48px now");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".toast .ok")?.offsetParent, null, { timeout: 8000 });
+  let got = null;
+  for (let i = 0; i < 80; i++) { got = (await (await fetch(`${BASE}/annotations/${a.id}`)).json()).annotation; if (got.after) break; await page.waitForTimeout(100); }
+  assert.ok(got.after?.screenshot?.base64, "stored at the bridge");
+  assert.ok(got.element.recheckedAt);
+  const listed = (await (await fetch(`${BASE}/annotations?status=resolved`)).json()).annotations.find((x) => x.id === a.id);
+  assert.equal(listed.after.screenshot.base64, undefined, "the list never carries the pixels");
+  await inShadow(page, () => __pinpointShadow.querySelector(".dock").classList.remove("mini"));
+  await tapShadow(page, ".dock .count");
+  await waitShadow(page, () => [...__pinpointShadow.querySelectorAll(".panel .item.done .ba img")].filter((i) => /^data:image\/png;base64,./.test(i.src)).length === 2, null, { timeout: 8000 });
+  assert.deepEqual(await inShadow(page, () => [...__pinpointShadow.querySelectorAll(".panel .item.done .ba figcaption")].map((f) => f.textContent)), ["Before", "After"]);
+  await page.close();
+});
+
+test("X2: a re-check never blinks the panel you are using: no fresh crop instead", async () => {
+  await clearAll();
+  const page = await openPage("/");
+  await annotate(page, page.locator("h1"), "bigger headline");
+  const [a] = await pendingWithShots(1);
+  await disarm(page);
+  await inShadow(page, () => __pinpointShadow.querySelector(".dock").classList.remove("mini"));
+  await tapShadow(page, ".dock .count");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".panel").style.display === "flex");
+  // the h1 spans the page, so the open panel is in front of part of it
+  const hidden = page.evaluate(() => new Promise((res) => {
+    const host = document.querySelector("pinpoint-root");
+    const mo = new MutationObserver(() => { if (host.style.display === "none") res(true); });
+    mo.observe(host, { attributes: true });
+    setTimeout(() => res(false), 4000);
+  }));
+  const r = await (await fetch(`${BASE}/annotations/${a.id}/recheck?timeout=5000`, { method: "POST" })).json();
+  assert.equal(r.result.status, "ok");
+  assert.equal(r.result.screenshot, null);
+  assert.match(r.result.screenshotSkipped, /panel/);
+  assert.equal(await hidden, false, "the overlay stayed up");
   await page.close();
 });

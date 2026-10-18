@@ -458,8 +458,10 @@ async function answerRecheck({ reqId, id, url }) {
     if (!found.found) return void (await send({ status: "ok", element: null, url: found.url }));
 
     let screenshot = null, screenshotSkipped = null;
+    // An older content script sends no `hide`: hide, as before.
+    const hide = found.hide !== false;
     if (found.capture) {
-      await api.tabs.sendMessage(tab.id, { type: "hideForCapture" }).catch(() => {});
+      if (hide) await api.tabs.sendMessage(tab.id, { type: "hideForCapture" }).catch(() => {});
       try {
         const shot = await queueCapture(async () => {
           const state = await waitUntilCapturable(tab, tab.url, 2000);
@@ -475,9 +477,9 @@ async function answerRecheck({ reqId, id, url }) {
       } catch (e) {
         screenshotSkipped = "the picture could not be taken";
       }
-      api.tabs.sendMessage(tab.id, { type: "captureDone" }).catch(() => {});
+      if (hide) api.tabs.sendMessage(tab.id, { type: "captureDone" }).catch(() => {});
     } else {
-      screenshotSkipped = "the element is not visible on screen";
+      screenshotSkipped = found.busy ? "Pinpoint's own panel was in front of it" : "the element is not visible on screen";
     }
     await send({ status: "ok", element: found.element, selectorStillMatches: found.selectorStillMatches, url: found.url, screenshot, screenshotSkipped });
   } catch (e) {
@@ -635,6 +637,13 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return bridgeFetch(`/annotations/${encodeURIComponent(msg.id)}/answer`, {
           method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: String(msg.text || "") }),
         });
+      }
+      // The panel: a done note's before/after pictures, and a request for an after it has not got.
+      case "get": {
+        return bridgeFetch(`/annotations/${encodeURIComponent(String(msg.id))}`);
+      }
+      case "after": {
+        return bridgeFetch(`/annotations/${encodeURIComponent(String(msg.id))}/after`, { method: "POST" });
       }
       case "accept": {
         return bridgeFetch(`/annotations/${encodeURIComponent(msg.id)}/accept`, { method: "POST" });

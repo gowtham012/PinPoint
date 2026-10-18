@@ -13,6 +13,8 @@ import { snapshot as iosSnapshot, toAnnotation as iosAnnotation } from "./ios.js
 import { DEFAULT_PORT, DATA_FILE, load, save, pending, pendingMarkdown, summaryLine, findAnnotation, pageKeyOf, bridgeToken } from "./store.js";
 
 const MAX_RESOLVED = Number(process.env.PINPOINT_MAX_RESOLVED) || 200;
+// After crops are the heavy part of a done note; only the newest ones keep their pixels.
+const AFTER_KEEP = 20;
 // Our own launch command, so the extension can tell you how to start us and the native host can
 // find us. process.argv[1] is wrong under the `bin` shim; this is the file that is actually here.
 const CLI_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "cli.js");
@@ -35,10 +37,14 @@ const size = (x) => (x ? { width: x.width, height: x.height } : null);
 function withoutPixels(a) {
   const out = { ...a, screenshot: size(a.screenshot) };
   if (Array.isArray(a.steps)) out.steps = a.steps.map((st) => ({ ...st, screenshot: size(st.screenshot) }));
+  if (a.after) out.after = { ...a.after, screenshot: size(a.after.screenshot) };
   return out;
 }
 
-export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOINT_PROJECT || null, print = false, quiet = false, restartable = false } = {}) {
+// `afterDelay`: how long after a resolve to look at the element again (the dev server needs a moment
+// to rebuild). 0 turns it off.
+export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOINT_PROJECT || null, print = false, quiet = false, restartable = false,
+                              afterDelay = Number(process.env.PINPOINT_AFTER_DELAY ?? 3000) } = {}) {
   let db = load();
   const token = bridgeToken();
   const events = new EventEmitter();
@@ -91,6 +97,9 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
   // Outstanding "is this element still there?" questions, keyed by request id. Bounded by their
   // own deadlines: a question nobody answers expires rather than accumulating.
   const rechecks = new Map();
+  const afterBusy = new Set();
+  // Only a page the browser can show, and only while the extension is around to look at it.
+  const canLook = (a) => /^(https?|file):/i.test(pageKeyOf(a)) && !!extensionSeenAt && Date.now() - Date.parse(extensionSeenAt) < 120000;
 
   const api = {
     async db() { return db; },
@@ -141,8 +150,11 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
       delete a.acceptedAt; // a new answer has not been accepted yet
       if (note) a.resolution = note;
       if (by) a.resolvedBy = by;
+      delete a.after; // a new answer gets its own after
       persist();
       log(`resolved: #${a.number} ${a.comment}${note ? "  — " + note : ""}`);
+      // unref: a pending look must never keep a process (the CLI, a test) alive.
+      if (afterDelay > 0 && canLook(a)) setTimeout(() => api.captureAfter(a.id).catch(() => {}), afterDelay).unref?.();
       return first ? "already" : true;
     },
     // The agent asks instead of resolving — the request is ambiguous, or it needs a decision. The
@@ -301,7 +313,31 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
     async recheck(id, timeoutMs = 10000) {
       const req = api.requestRecheck(id, timeoutMs);
       if (!req) return { status: "not_found" };
-      return api.waitForRecheck(req, timeoutMs);
+      const r = await api.waitForRecheck(req, timeoutMs);
+      // Someone looked: resolve_annotation stops warning that the element was never re-checked.
+      const a = find(req.id);
+      if (a && r?.status === "ok") { a.element.recheckedAt = new Date().toISOString(); save(db); }
+      return r;
+    },
+    // What the element looks like now that the note is done, next to the crop from when it was
+    // marked. Kept only if the note is still the same resolved answer when the picture comes back.
+    async captureAfter(id) {
+      const a = find(id);
+      if (!a || a.status !== "resolved" || !canLook(a) || afterBusy.has(a.id)) return false;
+      afterBusy.add(a.id);
+      try {
+        const at = a.resolvedAt;
+        const r = await api.recheck(a.id, 10000);
+        const now = find(a.id);
+        if (!now || now.status !== "resolved" || now.resolvedAt !== at || !r?.screenshot?.base64) return false;
+        now.after = { at: new Date().toISOString(), resolvedAt: at, screenshot: r.screenshot };
+        const kept = db.annotations.filter((x) => x.status === "resolved" && x.after?.screenshot)
+          .sort((x, y) => String(y.after.at).localeCompare(String(x.after.at)));
+        // The record stays without its pixels, so the panel does not keep asking for it.
+        for (const x of kept.slice(AFTER_KEEP)) delete x.after.screenshot;
+        persist();
+        return true;
+      } finally { afterBusy.delete(a.id); }
     },
     waitForRecheck(req, timeoutMs) {
       if (req.result) return Promise.resolve(req.result);
@@ -513,7 +549,7 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
         return json(res, 200, { annotation: full });
       }
 
-      const m = p.match(/^\/annotations\/([^/]+)(\/resolve|\/accept|\/reply|\/answer|\/screenshot|\/notified|\/element-state|\/recheck)?$/);
+      const m = p.match(/^\/annotations\/([^/]+)(\/resolve|\/after|\/accept|\/reply|\/answer|\/screenshot|\/notified|\/element-state|\/recheck)?$/);
       if (m) {
         const id = decodeURIComponent(m[1]);
         if (req.method === "DELETE") return json(res, 200, { ok: await api.remove(id) });
@@ -523,6 +559,14 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
           return json(res, 200, { ok: await api.resolve(id, body.note, body.by) });
         }
         if (req.method === "POST" && m[2] === "/accept") return json(res, 200, { ok: await api.accept(id) });
+        // The panel showing a done note that has no after yet (its tab was not in front at resolve
+        // time). Answers at once; the crop lands with the next version bump.
+        if (req.method === "POST" && m[2] === "/after") {
+          const a = find(id);
+          const ok = !!a && a.status === "resolved" && !a.after && canLook(a);
+          if (ok) api.captureAfter(a.id).catch(() => {});
+          return json(res, 200, { ok });
+        }
         if (req.method === "POST" && (m[2] === "/reply" || m[2] === "/answer")) {
           let body = {};
           try { body = (await readBody(req)) || {}; } catch {}

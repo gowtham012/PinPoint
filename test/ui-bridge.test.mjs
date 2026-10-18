@@ -14,7 +14,7 @@ const { toMarkdown } = await import("../bridge/store.js");
 
 let d, BASE;
 before(async () => {
-  d = await startDaemon({ port: 0, quiet: true });
+  d = await startDaemon({ port: 0, quiet: true, afterDelay: 0 });
   BASE = `http://127.0.0.1:${d.server.address().port}`;
 });
 after(async () => { d.server.closeAllConnections?.(); await d.close(); fs.rmSync(HOME, { recursive: true, force: true, maxRetries: 10 }); });

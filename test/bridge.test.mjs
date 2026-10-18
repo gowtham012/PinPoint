@@ -19,7 +19,8 @@ const PORT = Number(process.env.PINPOINT_TEST_PORT) || 7399;
 const BASE = `http://127.0.0.1:${PORT}`;
 const HOME = fs.mkdtempSync(path.join(os.tmpdir(), "pp-home-"));
 const PROJECT = fs.mkdtempSync(path.join(os.tmpdir(), "pp-proj-"));
-const ENV = { ...process.env, PINPOINT_HOME: HOME };
+// PINPOINT_AFTER_DELAY=0: no after-crop recheck on resolve, which these tests predate.
+const ENV = { ...process.env, PINPOINT_HOME: HOME, PINPOINT_AFTER_DELAY: "0" };
 
 let daemon;
 async function startDaemon(extra = []) {
@@ -820,7 +821,7 @@ test("POST /restart brings the bridge back with its annotations, flags and block
   const proj = fs.mkdtempSync(path.join(os.tmpdir(), "pp-restart-"));
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "pp-restart-home-"));
   const d = spawn("node", [CLI, "--port", String(PORT3), "--project", proj], {
-    env: { ...process.env, PINPOINT_HOME: home }, stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, PINPOINT_HOME: home, PINPOINT_AFTER_DELAY: "0" }, stdio: ["ignore", "pipe", "pipe"],
   });
   d.stdout.on("data", () => {}); d.stderr.on("data", () => {});
   for (let i = 0; i < 60; i++) { try { await fetch(B3 + "/health"); break; } catch { await sleep(100); } }
