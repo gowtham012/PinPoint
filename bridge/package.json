@@ -5,7 +5,7 @@
   "description": "Point at an element in your running app (browser or iOS Simulator), say what should change, and your coding agent gets it over MCP.",
   "type": "module",
   "bin": {
-    "pinpoint-bridge": "./cli.js"
+    "pinpoint-bridge": "cli.js"
   },
   "main": "./daemon.js",
   "scripts": {
