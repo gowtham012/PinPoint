@@ -206,6 +206,10 @@
       .pop .status.ok { color: var(--ok); }
       .pop .ghost { color: var(--paper-dim); font: 500 12px var(--sans); border-radius: 8px; padding: 7px 10px; }
       .pop .ghost:hover { background: var(--graphite-2); color: var(--paper); }
+      /* Dictation: only where the browser has a recognizer. Red while it listens. */
+      .pop .mic { display: none; align-items: center; padding: 6px 8px; }
+      .pop .mic.avail { display: inline-flex; }
+      .pop .mic[aria-pressed="true"] { color: var(--danger); background: var(--graphite-2); }
       .pop .send { background: var(--accent); color: var(--accent-ink); display: inline-flex; gap: 8px; align-items: center;
                    border-radius: 8px; padding: 7px 8px 7px 13px; font: 600 12.5px var(--sans); }
       .pop .send:hover { background: color-mix(in srgb, var(--accent) 88%, #fff); }
@@ -353,6 +357,7 @@
       <textarea rows="2" aria-label="What should change"></textarea>
       <div class="row2">
         <span class="status" role="status"></span>
+        <button class="ghost mic" aria-pressed="false" aria-label="Dictate" title="Dictate — your browser sends the audio to its speech service"><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1a7 7 0 0 0 6-6.9h-2Z"/></svg></button>
         <button class="ghost copy" title="Copy as a prompt, for any chat">Copy</button>
         <button class="ghost cancel" title="Close this and pick another element">Re-pick</button>
         <button class="ghost draft" title="Keep it on the page without sending it yet (Shift+Cmd/Ctrl+Enter)">Draft</button>
@@ -399,6 +404,7 @@
     send: shadow.querySelector(".pop .send"),
     sendKbd: shadow.querySelector(".pop .send kbd"),
     copy: shadow.querySelector(".pop .copy"),
+    mic: shadow.querySelector(".pop .mic"),
     cancel: shadow.querySelector(".pop .cancel"),
     status: shadow.querySelector(".pop .status"),
     who: shadow.querySelector(".who"),
@@ -1449,6 +1455,7 @@
     paintMeta(el, region);
     ui.text.value = "";
     ui.text.style.height = "";
+    micAvailable();
     delete ui.pop.dataset.saved;
     ui.status.textContent = "";
     ui.status.className = "status";
@@ -1520,6 +1527,7 @@
   }
 
   function hidePopover() {
+    stopDictation(true);
     selectedPage = false;
     const hadFocus = !!shadow.activeElement && ui.pop.contains(shadow.activeElement);
     if (hadFocus && returnFocus?.isConnected) { try { returnFocus.focus({ preventScroll: true }); } catch {} }
@@ -1568,6 +1576,65 @@
     if (!selected) return;
     const a = await buildAnnotation(selected, ui.text.value.trim());
     setStatus(...(await copyText(formatPrompt(a)) ? ["Copied prompt", "ok"] : ["This page does not allow copying", "err"]));
+  });
+
+  // ---------- dictation ----------
+  // Looked up each time the popover opens, not at load. Chrome and Safari send the audio to their
+  // own speech service (PRIVACY.md says so); Firefox's recognizer is not one we offer. Only a real
+  // click starts it, so nothing scripted can open the microphone.
+  let SR = null, rec = null;
+  function micAvailable() {
+    SR = !/Firefox\//.test(navigator.userAgent) && window.isSecureContext && typeof globalThis.webkitSpeechRecognition === "function"
+      ? globalThis.webkitSpeechRecognition : null;
+    ui.mic.classList.toggle("avail", !!SR);
+  }
+  // `now`: the popover is going away, so late results must not land in the next one.
+  function stopDictation(now = false) {
+    const r = rec;
+    if (!r) return;
+    if (now) { rec = null; ui.mic.setAttribute("aria-pressed", "false"); }
+    try { r.stop(); } catch {}
+  }
+  const MIC_ERRORS = {
+    "not-allowed": "Microphone blocked — allow it for this site from the address bar",
+    "service-not-allowed": "Microphone blocked — allow it for this site from the address bar",
+    "audio-capture": "No microphone found",
+    "network": "Dictation needs the browser's speech service, which can't be reached",
+    "no-speech": "Didn't hear anything",
+  };
+  ui.mic.addEventListener("click", (e) => {
+    if (!e.isTrusted) return;
+    if (rec) return stopDictation();
+    if (!SR) return;
+    const r = new SR();
+    r.continuous = true;
+    r.interimResults = true;
+    r.lang = navigator.language || "en-US";
+    const base = ui.text.value.replace(/\s+$/, "");
+    let finals = "";
+    r.onresult = (ev) => {
+      if (rec !== r) return;
+      let interim = "";
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        const t = ev.results[i][0]?.transcript || "";
+        if (ev.results[i].isFinal) finals += t; else interim += t;
+      }
+      ui.text.value = (base ? base + " " : "") + (finals + interim).trim();
+      delete ui.pop.dataset.saved;
+      fitText();
+    };
+    r.onerror = (ev) => { if (ev.error !== "aborted") setStatus(MIC_ERRORS[ev.error] || `Dictation stopped (${ev.error})`, "err"); };
+    r.onend = () => {
+      if (rec !== r) return;
+      rec = null;
+      ui.mic.setAttribute("aria-pressed", "false");
+      if (ui.status.textContent === "Listening…") setStatus("");
+    };
+    rec = r;
+    ui.mic.setAttribute("aria-pressed", "true");
+    try { r.start(); setStatus("Listening…"); }
+    catch { rec = null; ui.mic.setAttribute("aria-pressed", "false"); setStatus("Dictation could not start", "err"); }
+    ui.text.focus();
   });
 
   function resumePicking() {
@@ -1685,6 +1752,7 @@
       return;
     }
     const el = selected;
+    stopDictation(true);
     sending = true;
     setStatus("Sending…");
     ui.send.disabled = true;

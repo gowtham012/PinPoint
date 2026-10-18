@@ -2292,3 +2292,55 @@ test("V5: a page with nothing wrong sends no page context", async () => {
   assert.equal(a.context, undefined);
   await page.close();
 });
+
+// The real recognizer streams audio to the browser's speech service; these tests put a stand-in
+// on the content script's own global, which is where Pinpoint looks when the popover opens.
+const fakeRecognizer = (page) => inShadow(page, () => {
+  globalThis.__ppSR = null;
+  globalThis.webkitSpeechRecognition = class { constructor() { globalThis.__ppSR = this; this.started = 0; } start() { this.started++; } stop() { this.onend?.(); } };
+});
+const micStatus = async (page, error) => {
+  await tapShadow(page, ".pop .mic");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pop .mic").getAttribute("aria-pressed") === "true");
+  return inShadow(page, (err) => { __ppSR.onerror({ error: err }); __ppSR.onend(); return __pinpointShadow.querySelector(".pop .status").textContent; }, error);
+};
+
+test("V6: dictation starts only from a real click, types what it hears, and says why it stopped", async () => {
+  await clearAll();
+  const page = await openPage("/");
+  await fakeRecognizer(page);
+  await pickH1(page);
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pop .mic")?.offsetParent, null, { timeout: 4000 });
+  await typeComment(page, "headline:");
+  await inShadow(page, () => __pinpointShadow.querySelector(".pop .mic").click());
+  assert.equal(await inShadow(page, () => globalThis.__ppSR), null, "a synthetic click never opens the microphone");
+  await tapShadow(page, ".pop .mic");
+  await waitShadow(page, () => globalThis.__ppSR?.started === 1);
+  assert.equal(await inShadow(page, () => __pinpointShadow.querySelector(".pop .mic").getAttribute("aria-pressed")), "true");
+  await inShadow(page, () => {
+    __ppSR.onresult({ resultIndex: 0, results: [Object.assign([{ transcript: "make it" }], { isFinal: false })] });
+    __ppSR.onresult({ resultIndex: 0, results: [Object.assign([{ transcript: "make it blue" }], { isFinal: true })] });
+  });
+  assert.equal(await inShadow(page, () => __pinpointShadow.querySelector(".pop textarea").value), "headline: make it blue");
+  // a second click stops it
+  await tapShadow(page, ".pop .mic");
+  assert.equal(await inShadow(page, () => __pinpointShadow.querySelector(".pop .mic").getAttribute("aria-pressed")), "false");
+  assert.match(await micStatus(page, "not-allowed"), /Microphone blocked/);
+  assert.match(await micStatus(page, "audio-capture"), /No microphone/);
+  assert.match(await micStatus(page, "network"), /speech service/);
+  await page.keyboard.press(SEND);
+  const [a] = await pendingWithShots(1);
+  assert.equal(a.comment, "headline: make it blue");
+  await disarm(page);
+  await page.close();
+});
+
+test("V7: no mic button where the browser has no speech recognizer", async () => {
+  const page = await openPage("/");
+  await inShadow(page, () => { globalThis.webkitSpeechRecognition = undefined; });
+  await pickH1(page);
+  assert.equal(await inShadow(page, () => __pinpointShadow.querySelector(".pop .mic").offsetParent), null);
+  await page.keyboard.press("Escape");
+  await disarm(page);
+  await page.close();
+});
