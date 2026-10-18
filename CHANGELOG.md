@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-10-18
+
 ### Added
 - **Releases ship from CI.** `bash tools/release.sh x.y.z` sets the version everywhere, closes the
   changelog and pushes a tag; `.github/workflows/release.yml` then tests and publishes to npm (trusted
