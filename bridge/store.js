@@ -144,7 +144,9 @@ export function summaryLine(a) {
   const comp = a.source?.components?.[0] ? `<${a.source.components[0]}> ` : "";
   const file = a.source?.file ? ` (${a.source.file}${a.source.line ? ":" + a.source.line : ""})` : "";
   const stale = a.element?.state && a.element.state.state !== "ok" ? ` [${a.element.state.state === "gone" ? "element gone" : "selector stale"}]` : "";
-  return `#${a.number} [${a.id}] ${a.comment} — ${comp}${a.element.selector}${file}${stale}`;
+  // The selector is built from scraped strings (an Android or iOS label can hold a newline).
+  const sel = String(a.element.selector ?? "").replace(/\s+/g, " ");
+  return `#${a.number} [${a.id}] ${a.comment} — ${comp}${sel}${file}${stale}`;
 }
 
 export function toMarkdown(a, { heading = true, channel = "mcp" } = {}) {

@@ -101,9 +101,12 @@ export async function snapshot(serial = process.env.ANDROID_SERIAL) {
     }
     throw new Error("uiautomator could not read the screen — is it still animating? Try Refresh");
   };
+  // One after the other: the picture must be of the settled screen the dump finally read, and the
+  // rm must come after the last dump that could write the file.
   let xml, png;
   try {
-    [xml, { stdout: png }] = await Promise.all([dump(), sh(["exec-out", "screencap", "-p"], { encoding: "buffer" })]);
+    xml = await dump();
+    ({ stdout: png } = await sh(["exec-out", "screencap", "-p"], { encoding: "buffer" }));
   } finally {
     await sh(["shell", "rm", "-f", file]).catch(() => {});
   }
@@ -118,7 +121,9 @@ export async function snapshot(serial = process.env.ANDROID_SERIAL) {
 export function toAnnotation({ node, comment, device, viewport, id }) {
   const attrs = { "resource-id": node.id, "content-desc": node.label, text: node.text, class: node.class };
   const present = Object.fromEntries(Object.entries(attrs).filter(([, v]) => v));
-  const selector = node.id ? `[resource-id="${node.id}"]` : node.label ? `[content-desc="${node.label}"]` : node.text ? `[text="${node.text}"]` : node.class || "view";
+  // The values are the app's own strings: one line, quotes escaped, so the selector stays a selector.
+  const q = (v) => String(v).replace(/\s+/g, " ").replace(/["\\]/g, "\\$&");
+  const selector = node.id ? `[resource-id="${q(node.id)}"]` : node.label ? `[content-desc="${q(node.label)}"]` : node.text ? `[text="${q(node.text)}"]` : node.class || "view";
   const kind = device.emulator ? "Android emulator" : "Android device";
   return {
     id,
