@@ -1,0 +1,33 @@
+# Send an already-tagged release to the Chrome Web Store again, without cutting a new tag: for when
+# the release's store step failed for a reason fixed since (secrets, account, a review in the way).
+name: cws-publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to upload, e.g. v0.7.0"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      CWS_EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+      CWS_PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+      CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+      CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+      CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7          # main, for today's scripts
+      - uses: actions/checkout@v7          # the tag, for the extension that ships
+        with:
+          ref: ${{ inputs.tag }}
+          path: tagged
+      - name: Build the store zip from the tag
+        run: bash tagged/tools/make-cws-zip.sh
+      - name: Upload and submit for review
+        run: bash tools/cws-publish.sh tagged/dist/pinpoint-extension-cws.zip
