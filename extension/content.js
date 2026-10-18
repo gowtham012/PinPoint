@@ -307,6 +307,14 @@
       .toast.action { pointer-events: auto; cursor: pointer; }
       .toast.action::before { background: var(--agent); }
       .toast.action::after { content: " ›"; color: var(--paper-faint); }
+      /* A finished note: the agent's reply, and whether it is what you meant. */
+      .toast.card { pointer-events: auto; align-items: center; gap: 10px; border-radius: 14px; padding: 7px 7px 7px 14px; }
+      .toast.card::before { background: var(--agent); margin-right: 0; flex: none; }
+      .toast.card .tm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+      .toast.card button { flex: none; font: 600 11.5px var(--sans); border-radius: 8px; padding: 6px 10px; }
+      .toast.card .ok { background: var(--accent); color: var(--accent-ink); }
+      .toast.card .nq { color: var(--paper-dim); }
+      .toast.card .nq:hover { color: var(--paper); background: var(--graphite-2); }
 
       @media (prefers-reduced-motion: reduce) {
         *, *::before, *::after { animation: none !important; transition-duration: 1ms !important; }
@@ -926,14 +934,47 @@
     toast("Hidden on this site — the toolbar icon still works");
   });
 
-  let toastTimer = 0;
+  let toastTimer = 0, toastMs = 0;
+  const armToast = () => { clearTimeout(toastTimer); toastTimer = setTimeout(hideToast, toastMs); };
+  function hideToast() { clearTimeout(toastTimer); ui.toast.style.display = "none"; }
   function toast(msg, ms = 2200, onClick = null) {
+    ui.toast.className = "toast";
     ui.toast.textContent = msg;
     ui.toast.style.display = "block";
     ui.toast.classList.toggle("action", !!onClick);
-    ui.toast.onclick = onClick ? () => { ui.toast.style.display = "none"; onClick(); } : null;
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => (ui.toast.style.display = "none"), ms);
+    ui.toast.onclick = onClick ? () => { hideToast(); onClick(); } : null;
+    toastMs = ms;
+    armToast();
+  }
+  // Something you might be reading or reaching for does not vanish under the pointer.
+  ui.toast.addEventListener("mouseenter", () => clearTimeout(toastTimer));
+  ui.toast.addEventListener("mouseleave", () => { if (ui.toast.style.display !== "none") armToast(); });
+
+  // "#3 done": the agent's reply, and the two things you might say to it. Accept closes the loop;
+  // Not quite opens the reopen box on that note. Clicking the text opens the panel, as before.
+  function doneCard(a, more) {
+    toast("", 10000, () => togglePanel(true));
+    ui.toast.classList.replace("action", "card");
+    ui.toast.innerHTML = `<span class="tm"></span><button class="ok">Accept</button><button class="nq">Not quite</button>`;
+    ui.toast.querySelector(".tm").textContent = `#${a.number} done — ${clip(a.resolution || "marked done", 90)}${more}`;
+    ui.toast.querySelector(".ok").addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!e.isTrusted) return;
+      hideToast();
+      const r = await chrome.runtime.sendMessage({ type: "accept", id: a.id }).catch(() => null);
+      if (!r || r.error || r.ok === false) toast("Not accepted — the bridge isn't answering");
+    });
+    ui.toast.querySelector(".nq").addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (!e.isTrusted) return;
+      hideToast();
+      reopen(a.id);
+    });
+    ui.toast.style.display = "flex";
+  }
+  async function reopen(id) {
+    await togglePanel(true);
+    [...ui.panelList.querySelectorAll(".item.done")].find((li) => li.dataset.id === id)?.querySelector(".follow")?.click();
   }
 
   // ---------- notes panel ----------
@@ -946,7 +987,7 @@
     renderPanel();
     // Opening the panel is a request for the current state: an agent may have finished something
     // since the page loaded, and its reply is the whole point of looking.
-    loadReplies().then(() => { paintDock(); if (ui.panel.style.display === "flex") renderPanel(); });
+    return loadReplies().then(() => { paintDock(); if (ui.panel.style.display === "flex") renderPanel(); });
   }
   ui.panelClose.addEventListener("click", () => togglePanel(false));
 
@@ -1014,6 +1055,7 @@
     for (const a of replies) {
       const li = document.createElement("li");
       li.className = "item done";
+      li.dataset.id = a.id;
       li.innerHTML = `<span class="n"></span><div class="body"><div class="c"></div><div class="reply"><span class="who"></span><span class="what"></span></div></div><button class="x">&times;</button>`;
       const x = li.querySelector(".x");
       x.setAttribute("aria-label", `Remove done note ${a.number}`);
@@ -1027,7 +1069,7 @@
       });
       li.querySelector(".n").textContent = a.number;
       li.querySelector(".c").textContent = a.comment;
-      li.querySelector(".who").textContent = a.resolvedBy || "agent";
+      li.querySelector(".who").textContent = (a.resolvedBy || "agent") + (a.acceptedAt ? " · accepted" : "");
       const what = li.querySelector(".what");
       if (a.resolution) what.textContent = a.resolution;
       else {
@@ -1901,12 +1943,11 @@
     } catch { replies = []; }
     const ids = new Set(replies.map((a) => a.id));
     if (seenReplies && isTop) {
-      const fresh = replies.filter((a) => !seenReplies.has(a.id));
+      // Accepted somewhere else already (another tab): not news here either.
+      const fresh = replies.filter((a) => !a.acceptedAt && !seenReplies.has(a.id));
       if (fresh.length) {
         unread = true;
-        const a = fresh[0];
-        const more = fresh.length > 1 ? ` (+${fresh.length - 1} more)` : "";
-        toast(`#${a.number} done — ${clip(a.resolution || "marked done", 90)}${more}`, 6000, () => togglePanel(true));
+        doneCard(fresh[0], fresh.length > 1 ? ` (+${fresh.length - 1} more)` : "");
       }
     }
     seenReplies = ids;

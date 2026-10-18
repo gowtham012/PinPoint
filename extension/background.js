@@ -522,6 +522,9 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: String(msg.text || "") }),
         });
       }
+      case "accept": {
+        return bridgeFetch(`/annotations/${encodeURIComponent(msg.id)}/accept`, { method: "POST" });
+      }
       case "sendDrafts": {
         const r = await bridgeFetch("/annotations/send-drafts", {
           method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: msg.url || null }),

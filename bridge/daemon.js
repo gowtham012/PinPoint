@@ -127,6 +127,7 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
       const first = a.status === "resolved" ? a.resolvedBy || "another agent" : null;
       a.status = "resolved";
       a.resolvedAt = new Date().toISOString();
+      delete a.acceptedAt; // a new answer has not been accepted yet
       if (note) a.resolution = note;
       if (by) a.resolvedBy = by;
       persist();
@@ -155,6 +156,7 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
         a.thread.push({ by: "agent", name: a.resolvedBy || null, text: a.resolution || "marked it done", at: a.resolvedAt || null, kind: "resolution" });
         delete a.resolution; delete a.resolvedAt; delete a.resolvedBy;
       }
+      delete a.acceptedAt;
       a.thread.push({ by: "you", text: String(text), at: new Date().toISOString() });
       a.status = "pending";
       delete a.notifiedAt;
@@ -162,6 +164,16 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
       persist();
       events.emit("added", a);
       log(`answered: #${a.number} ${text}`);
+      return true;
+    },
+    // The developer looked at the finished change and is happy with it. Only a resolved note can be
+    // accepted; reopening it or resolving it again clears the mark.
+    async accept(id) {
+      const a = find(id);
+      if (!a || a.status !== "resolved") return false;
+      a.acceptedAt = new Date().toISOString();
+      persist();
+      log(`accepted: #${a.number} ${a.comment}`);
       return true;
     },
     // Drafts go out together, when the developer says so — for one page, or everywhere.
@@ -492,7 +504,7 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
         return json(res, 200, { annotation: full });
       }
 
-      const m = p.match(/^\/annotations\/([^/]+)(\/resolve|\/reply|\/answer|\/screenshot|\/notified|\/element-state|\/recheck)?$/);
+      const m = p.match(/^\/annotations\/([^/]+)(\/resolve|\/accept|\/reply|\/answer|\/screenshot|\/notified|\/element-state|\/recheck)?$/);
       if (m) {
         const id = decodeURIComponent(m[1]);
         if (req.method === "DELETE") return json(res, 200, { ok: await api.remove(id) });
@@ -501,6 +513,7 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
           try { body = (await readBody(req)) || {}; } catch {}
           return json(res, 200, { ok: await api.resolve(id, body.note, body.by) });
         }
+        if (req.method === "POST" && m[2] === "/accept") return json(res, 200, { ok: await api.accept(id) });
         if (req.method === "POST" && (m[2] === "/reply" || m[2] === "/answer")) {
           let body = {};
           try { body = (await readBody(req)) || {}; } catch {}

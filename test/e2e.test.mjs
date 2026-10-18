@@ -2193,3 +2193,64 @@ test("E4: a note about the whole page, cropped to the window", async () => {
   await disarm(page);
   await page.close();
 });
+
+// ============ 0.7.0 lane UI: Accept / Not quite, page context, dictation ============
+const resolveVia = (id, note) => fetch(`${BASE}/annotations/${id}/resolve`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ note, by: "claude-code" }) });
+
+test("V1: a done note offers Accept, which marks it accepted and closes the card", async () => {
+  await clearAll();
+  const page = await openPage("/");
+  await annotate(page, page.locator("h1"), "bigger headline");
+  const [a] = await pendingWithShots(1);
+  await disarm(page);
+  await resolveVia(a.id, "h1 is 48px now");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".toast .ok")?.offsetParent && /#1 done — h1 is 48px now/.test(__pinpointShadow.querySelector(".toast").textContent), null, { timeout: 8000 });
+  // a synthetic click from the page's side is not the developer
+  await inShadow(page, () => __pinpointShadow.querySelector(".toast .ok").click());
+  await page.waitForTimeout(300);
+  assert.equal((await (await fetch(`${BASE}/annotations/${a.id}`)).json()).annotation.acceptedAt, undefined);
+  await tapShadow(page, ".toast .ok");
+  let got = null;
+  for (let i = 0; i < 40; i++) { got = (await (await fetch(`${BASE}/annotations/${a.id}`)).json()).annotation; if (got.acceptedAt) break; await page.waitForTimeout(100); }
+  assert.ok(got.acceptedAt, "accepted at the bridge");
+  assert.equal(got.status, "resolved");
+  assert.equal(await inShadow(page, () => __pinpointShadow.querySelector(".toast").style.display), "none", "the card closes");
+  await page.close();
+});
+
+test("V2: Not quite opens the panel with the reopen box focused, and the note goes back to the agent", async () => {
+  await clearAll();
+  const page = await openPage("/");
+  await annotate(page, page.locator("h1"), "bigger headline");
+  const [a] = await pendingWithShots(1);
+  await disarm(page);
+  await resolveVia(a.id, "h1 is 48px now");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".toast .nq")?.offsetParent, null, { timeout: 8000 });
+  await tapShadow(page, ".toast .nq");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".panel").style.display === "flex");
+  await waitShadow(page, () => __pinpointShadow.activeElement?.tagName === "TEXTAREA" && __pinpointShadow.activeElement.closest(".item.done"), null, { timeout: 5000 });
+  await page.keyboard.type("Not quite, 56px");
+  await page.keyboard.press(SEND);
+  let got = null;
+  for (let i = 0; i < 40; i++) { got = (await (await fetch(`${BASE}/annotations/${a.id}`)).json()).annotation; if (got.status === "pending") break; await page.waitForTimeout(100); }
+  assert.equal(got.status, "pending");
+  assert.equal(got.thread.at(-1).text, "Not quite, 56px");
+  await page.close();
+});
+
+test("V3: the done card stays while the pointer is on it", async () => {
+  await clearAll();
+  const page = await openPage("/");
+  await annotate(page, page.locator("h1"), "bigger headline");
+  const [a] = await pendingWithShots(1);
+  await disarm(page);
+  await resolveVia(a.id, "done");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".toast .ok")?.offsetParent, null, { timeout: 8000 });
+  const b = await inShadow(page, () => { const r = __pinpointShadow.querySelector(".toast .tm").getBoundingClientRect(); return { x: r.x + 4, y: r.y + r.height / 2 }; });
+  await page.mouse.move(b.x, b.y);
+  await page.waitForTimeout(11000);
+  assert.equal(await inShadow(page, () => __pinpointShadow.querySelector(".toast").style.display), "flex", "hovering holds it open");
+  await page.mouse.move(5, 5);
+  await waitShadow(page, () => __pinpointShadow.querySelector(".toast").style.display === "none", null, { timeout: 12000 });
+  await page.close();
+});
