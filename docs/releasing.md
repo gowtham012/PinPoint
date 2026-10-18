@@ -50,17 +50,14 @@ namespace, so the workflow publishes `bridge/server.json` itself.
 2. **OAuth consent screen**: External, add yourself as a test user.
 3. **Credentials** → **Create credentials** → **OAuth client ID** → **Desktop app**. Note the client
    ID and secret.
-4. Get a refresh token once, on your machine:
+4. In the OAuth client, add `http://localhost:8765` as an authorised redirect URI if it asks for one
+   (Desktop clients accept localhost already).
+5. Run, on your machine, signed in to `gh` as `gowtham012`:
    ```bash
-   open "https://accounts.google.com/o/oauth2/auth?response_type=code&scope=https://www.googleapis.com/auth/chromewebstore&client_id=<CLIENT_ID>&redirect_uri=urn:ietf:wg:oauth:2.0:oob&access_type=offline&prompt=consent"
-   # approve, copy the code, then:
-   curl -s https://oauth2.googleapis.com/token -d client_id=<CLIENT_ID> -d client_secret=<CLIENT_SECRET> \
-     -d code=<CODE> -d grant_type=authorization_code -d redirect_uri=urn:ietf:wg:oauth:2.0:oob
+   node tools/cws-auth.mjs <CLIENT_ID> <CLIENT_SECRET> <EXTENSION_ID>
    ```
-   If Google refuses the `oob` redirect for your client, use `http://localhost` as the redirect URI
-   and copy the `code` from the address bar of the page it fails to load.
-5. GitHub → **Settings** → **Secrets and variables** → **Actions** → add
-   `CWS_EXTENSION_ID` (the 32-letter item id), `CWS_CLIENT_ID`, `CWS_CLIENT_SECRET`, `CWS_REFRESH_TOKEN`.
+   Approve in the browser. The script stores `CWS_CLIENT_ID`, `CWS_CLIENT_SECRET`,
+   `CWS_REFRESH_TOKEN` and `CWS_EXTENSION_ID` as repository secrets; nothing is printed.
 
 The job uploads to the existing listing and submits it for review; the listing text and screenshots
 stay what you set in the dashboard.
