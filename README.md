@@ -1,104 +1,150 @@
-# Pinpoint
+<div align="center">
+
+# 📍 Pinpoint
+
+**Point at your running app. Say what should change. Your coding agent gets it.**
 
 [![tests](https://github.com/gowtham012/pinpoint/actions/workflows/test.yml/badge.svg)](https://github.com/gowtham012/pinpoint/actions/workflows/test.yml)
-[![licence: MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](LICENSE)
-[![stars](https://img.shields.io/github/stars/gowtham012/pinpoint?style=flat)](https://github.com/gowtham012/pinpoint/stargazers)
 [![npm](https://img.shields.io/npm/v/pinpoint-bridge.svg)](https://www.npmjs.com/package/pinpoint-bridge)
+[![licence: MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](LICENSE)
 [![Glama score](https://glama.ai/mcp/servers/gowtham012/pinpoint/badges/score.svg)](https://glama.ai/mcp/servers/gowtham012/pinpoint)
 [![Mentioned in Awesome Claude Code](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
+[![stars](https://img.shields.io/github/stars/gowtham012/pinpoint?style=flat)](https://github.com/gowtham012/pinpoint/stargazers)
 
-Click an element on your local dev site, write what should change, and your coding agent gets it — with the selector, DOM path, computed styles, React/Vue component chain, source-file hint and a cropped screenshot. No screenshot files piling up in your Downloads folder, no describing "the third button on the left". Building a native app? The same works on the [iOS Simulator](#native-ios-apps-simulator).
+**English** ·
+[తెలుగు](docs/i18n/README.te.md) ·
+[हिन्दी](docs/i18n/README.hi.md) ·
+[தமிழ்](docs/i18n/README.ta.md) ·
+[简体中文](docs/i18n/README.zh-CN.md) ·
+[日本語](docs/i18n/README.ja.md) ·
+[한국어](docs/i18n/README.ko.md) ·
+[Español](docs/i18n/README.es.md) ·
+[Français](docs/i18n/README.fr.md) ·
+[Deutsch](docs/i18n/README.de.md) ·
+[Português](docs/i18n/README.pt-BR.md) ·
+[Русский](docs/i18n/README.ru.md) ·
+[العربية](docs/i18n/README.ar.md)
 
-It is not only for styling. Say what the thing should *do* — "disable this until the form is valid",
-"this should save the draft before closing", "show the error the API returned here" — and the agent
-is told to treat the element as where to start, then follow it into the handlers, state, API calls
-and backend behind it. [More below](#looks-or-behaviour).
+<img src="docs/demo.gif" alt="Picking an element on a local dev page, writing what should change, and the agent picking it up" width="760">
 
+<sub>Click an element, say what should change, your agent gets it. · <a href="docs/demo.mp4">full-speed video</a></sub>
+
+</div>
+
+---
+
+Click an element on your local dev site, type what should change, and your coding agent receives it
+with everything it needs to find the code: the **selector**, **DOM path**, **computed styles**, the
+**React/Vue component chain**, a **source-file hint** and a **cropped screenshot**. No screenshots
+piling up in Downloads, no describing "the third button on the left".
+
+It works for **behaviour**, not only looks. *"Disable this until the form is valid"* or *"save the
+draft before closing"* are fine notes: the agent treats the element as where to start, then follows it
+into the handlers, state, API calls and backend behind it.
+
+Building a native app? The same works on the **[iOS Simulator](#-native-ios-apps)**.
+
+```mermaid
+flowchart LR
+  subgraph you [" You point and type "]
+    direction TB
+    B["🌐 <b>Browser</b><br/>Pinpoint extension"]
+    S["📱 <b>iOS Simulator</b><br/>127.0.0.1:7331/ios"]
+  end
+  BR(["📍 <b>Pinpoint bridge</b><br/>127.0.0.1:7331"])
+  ST[("💾 ~/.pinpoint/<br/>annotations.json")]
+  F["📄 .pinpoint/pending.md<br/><i>in your repo, optional</i>"]
+  A["🤖 <b>Your coding agent</b><br/>Claude Code · Cursor · Codex"]
+
+  B -- "selector · styles · crop" --> BR
+  S -- "accessibility tree · crop" --> BR
+  BR -- "MCP / hooks" --> A
+  A -- "resolve + reply" --> BR
+  BR -. "live pins & replies" .-> B
+  BR --- ST
+  BR -.-> F
+
+  classDef bridge fill:#c6f432,stroke:#121212,stroke-width:2px,color:#121212
+  classDef agent fill:#121212,stroke:#c6f432,stroke-width:2px,color:#ffffff
+  class BR bridge
+  class A agent
+  style you fill:transparent,stroke:#888,stroke-dasharray:5 4
 ```
-Browser (extension) ──POST──▶ pinpoint bridge (127.0.0.1:7331) ──MCP / hooks──▶ Claude Code, Cursor, Codex…
-        pins ◀──live events───┘   ~/.pinpoint/annotations.json   └── <repo>/.pinpoint/pending.md (optional)
-iOS Simulator ─▶ 127.0.0.1:7331/ios ─┘  (screenshot + accessibility tree instead of the DOM)
-```
 
-![Pinpoint on a local dev page: picking an element, writing what should change, and the agent picking it up](docs/demo.gif)
+## Contents
 
-*Click an element, say what should change, your agent gets it. ([full-speed video](docs/demo.mp4))*
+- [Quick start](#-quick-start)
+- [Using it](#-using-it)
+- [Talking it through](#-talking-it-through)
+- [How your agent finds out](#-how-your-agent-finds-out)
+- [Native iOS apps](#-native-ios-apps)
+- [Connecting other agents](#-connecting-other-agents)
+- [Reference](#-reference): commands, MCP tools, what a note contains
+- [Troubleshooting](#-troubleshooting)
+- [Safety and privacy](#-safety-and-privacy)
 
-## It is not a browser-driving agent
+## How it compares
 
-The distinction matters, because the two get filed together and they are opposites:
+| | Who drives | What the agent gets |
+|---|---|---|
+| **Pinpoint** | **You** point and say what should change | Selector, styles, component chain, source hint, crop |
+| Playwright MCP, computer-use | The agent navigates and clicks | Whatever it finds by browsing |
+| A pasted screenshot | You | Pixels only, so it guesses which control you meant |
 
-- **Playwright MCP, agent-browser, computer-use** put the agent in the driver's seat — it navigates,
-  clicks and asserts. Good for testing and for browsing on your behalf.
-- **Pinpoint keeps you in it.** You click, you say what should change, and the agent gets structured
-  context to edit *code* with: a selector, the styles, the component chain, a source-file hint, a crop
-  of the element. It never touches the page itself.
-- **A pasted screenshot** carries none of that. The agent gets pixels and has to guess which control
-  you meant, what it is called, and where it lives in the tree.
+Pinpoint never touches the page itself, so it composes with browser automation instead of competing
+with it: point at the thing, let the agent change the code, let your tests drive the browser.
 
-So it composes with browser automation rather than competing: point at the thing, let the agent change
-it, let your tests drive the browser.
+## 🚀 Quick start
 
-## Quick start
+**You need** Node 18+ and a Chromium browser (Chrome, Edge, Brave, Arc, Opera, Vivaldi).
 
-**You need** Node 18+ and a Chromium browser (Chrome, Edge, Brave, Arc, Opera, Vivaldi). Prefer every
-step spelled out, copy-paste ready? See [docs/quick-install.md](docs/quick-install.md).
+**1. Install**
 
 ```bash
 git clone https://github.com/gowtham012/pinpoint
 node pinpoint/bridge/cli.js setup
 ```
 
-That is the install. `setup` installs its own dependencies first, then asks — every question has a
-default, so Enter all the way through is a working setup:
+`setup` asks a few questions. Every one has a default, so pressing Enter all the way through works.
+It wires up Claude Code, Cursor and Codex (whichever you have), installs the Claude Code hooks, and
+starts the bridge.
 
-- **which project's UI you want to annotate** — the repo whose files your agent will be editing
-- **whether it is a web app or a native iOS app** (or both) — web gets the browser extension; iOS
-  gets the [Simulator picker](#native-ios-apps-simulator), and setup checks for Xcode, Maestro and
-  Java and says how to get whichever is missing. It installs none of them for you.
-- **which agents to wire up** — it detects Claude Code, Cursor and Codex and writes the MCP entry for
-  each: `claude mcp add` for Claude Code, `<project>/.cursor/mcp.json` for Cursor,
-  `~/.codex/config.toml` for Codex. Existing entries are merged, never replaced, and the TOML file is
-  backed up before it is touched.
-- **whether to install the Claude Code hooks**, which carry pending notes in with your next message
-- **which browser** to load the extension into, listing the ones you actually have (web only)
+**2. Load the extension.** Chrome doesn't let a terminal load an extension into your profile, so setup
+opens the extensions page and copies the folder path for you: turn on **Developer mode**, click **Load
+unpacked**, paste. The terminal confirms **✓ Pinpoint is live in Chrome** by itself.
 
-Then it registers the launcher behind the popup's **Start bridge** button and starts the bridge.
-Non-interactive, for a scripted machine: `node pinpoint/bridge/cli.js setup ~/code/my-app --yes`
-(add `--for ios` or `--for both`; the default is `web`).
+**3. Restart Claude Code once**, so it reads the new MCP server and hooks.
 
-Building only a native iOS app? You can skip the clone: the iOS picker needs no extension.
+**Try it:** open your dev site (or [the demo page](#a-page-to-try-it-on)), press **⌥⇧A** /
+**Alt+Shift+A**, click an element, type what should change, then **⌘↩** / **Ctrl+Enter**. Type anything
+in Claude Code and your note comes along.
 
-```bash
-npx -y pinpoint-bridge                                      # the bridge, with the picker at /ios
-claude mcp add pinpoint -s user -- npx -y pinpoint-bridge mcp   # once, for Claude Code
-```
-
-Pinpoint is also listed in the [official MCP Registry](https://registry.modelcontextprotocol.io)
-(`io.github.gowtham012/pinpoint`), on [cursor.directory](https://cursor.directory/plugins/pinpoint)
-(one-click **Add to Cursor**) and on [Glama](https://glama.ai/mcp/servers/gowtham012/pinpoint). All
-of them install the MCP server only — for web pages you still need the extension and bridge from the
-clone above.
-
-**The one step that cannot be a command.** Chrome does not let a terminal load an unpacked extension
-into your own profile — only the Web Store or an enterprise policy can. So setup opens your browser's
-extensions page and puts the `extension/` folder on your clipboard: **Developer mode** on →
-**Load unpacked** → paste. The terminal confirms **✓ Pinpoint is live in Chrome** on its own, because
-the bridge can see the extension connect.
-
-**Restart Claude Code once** afterwards — it reads MCP servers and hooks when a session starts.
-
-**Then try it.** Open your dev site (or [the demo page](#a-page-to-try-it-on)), press **⌥⇧A** /
-**Alt+Shift+A**, click any element, type what should change, **⌘↩** / **Ctrl+Enter**. Type anything at
-all in Claude Code and your note arrives with it. If the bar never appears, see
-[Troubleshooting](#troubleshooting).
+> [!TIP]
+> Want every step spelled out? See [docs/quick-install.md](docs/quick-install.md).
+> Only building a native iOS app? Skip the clone:
+> `npx -y pinpoint-bridge`, then `claude mcp add pinpoint -s user -- npx -y pinpoint-bridge mcp`.
 
 <details>
-<summary>Doing it by hand instead, and the Windows / <code>file://</code> notes</summary>
+<summary><b>Setup in detail, doing it by hand, Windows and <code>file://</code></b></summary>
 
-`setup` writes config into your repo and your agent's files. If you would rather do that yourself,
-it is four steps — and the order matters: `$PWD` is baked into the MCP entry, so step 2 has to run
-from `pinpoint/bridge`, before the bridge takes over the terminal.
+`setup` asks:
+
+- **which project's UI you want to annotate**: the repo your agent will edit
+- **web app, native iOS app, or both**: web gets the browser extension; iOS gets the
+  [Simulator picker](#-native-ios-apps). Setup checks for Xcode, Maestro and Java and says how to get
+  whichever is missing (it installs none of them).
+- **which agents to wire up**: `claude mcp add` for Claude Code, `<project>/.cursor/mcp.json` for
+  Cursor, `~/.codex/config.toml` for Codex. Existing entries are merged, never replaced, and the TOML
+  file is backed up first.
+- **whether to install the Claude Code hooks**, which bring pending notes in with your next message
+- **which browser** to load the extension into (only the ones you have)
+
+Then it registers the launcher behind the popup's **Start bridge** button and starts the bridge.
+Non-interactive: `node pinpoint/bridge/cli.js setup ~/code/my-app --yes` (add `--for ios` or
+`--for both`; the default is `web`).
+
+**By hand.** The order matters: `$PWD` is baked into the MCP entry, so step 2 runs from
+`pinpoint/bridge` before the bridge takes over the terminal.
 
 ```bash
 # 1. get it
@@ -115,240 +161,204 @@ node cli.js install-native-host --project ~/code/my-app   # optional: the popup'
 node cli.js --project ~/code/my-app
 ```
 
-Restart Claude Code once after step 2. `--project` is optional: it keeps
-`<repo>/.pinpoint/pending.md` current for agents that read a file instead of MCP.
+`--project` is optional: it keeps `<repo>/.pinpoint/pending.md` current for agents that read a file
+instead of MCP.
 
-Annotating a page you opened as a `file://` URL? Chrome keeps that off by default. On
-`chrome://extensions`, open Pinpoint's **Details** and turn on **"Allow access to file URLs"**, then
-reload the page.
+**`file://` pages.** Chrome keeps them off by default: `chrome://extensions` → Pinpoint → **Details** →
+**Allow access to file URLs**, then reload.
 
-On Windows, `$PWD` works in PowerShell and Git Bash but not `cmd.exe` — run `node cli.js --help` and
-copy the ready-made `claude mcp add …` line it prints, which carries the full path already. The
-shortcuts are `Alt+Shift+A` and `Ctrl+Enter`, and the UI labels them that way. `install-native-host`
-is macOS and Linux only; on Windows, start the bridge in a terminal.
+**Windows.** `$PWD` works in PowerShell and Git Bash but not `cmd.exe`; run `node cli.js --help` and
+copy the `claude mcp add …` line it prints, which has the full path. `install-native-host` is macOS
+and Linux only; on Windows, start the bridge in a terminal.
+
+**Also listed on** the [official MCP Registry](https://registry.modelcontextprotocol.io)
+(`io.github.gowtham012/pinpoint`), [cursor.directory](https://cursor.directory/plugins/pinpoint)
+(one-click **Add to Cursor**) and [Glama](https://glama.ai/mcp/servers/gowtham012/pinpoint). Those
+install the MCP server only; web pages still need the extension and bridge.
 </details>
 
-## Which browsers
+## 🖱️ Using it
 
-**Chromium** — Chrome, Edge, Brave, Arc, Opera, Vivaldi. Load unpacked, as above; the test suite
-drives headless Chromium, so that is the one continuously verified.
-**Safari** — built rather than loaded: `bash tools/make-safari.sh` (needs Xcode). For the Mac App
-Store, `TEAM=<your team id> bash tools/make-safari.sh --release` archives and exports a signed build.
-**Firefox** — not yet.
-
-<details>
-<summary>What differs on Safari and what blocks Firefox</summary>
-
-Safari does not take unpacked extensions, so `tools/make-safari.sh` wraps it in a small macOS app —
-it converts, builds, and prints the four Safari settings to flip (the important one is
-**Develop ▸ Allow Unsigned Extensions**, which resets every time Safari quits). One capability is
-missing there: `"world": "MAIN"` content scripts are unsupported, so `inspector.js` cannot read React
-fibers or Vue instances, which costs you the **component chain and source-file hint**. Everything else
-— picking, regions, comments, pins, screenshots, the bridge, MCP — is unchanged. Safari has no native
-host to hand the extension its bridge token, so the popup asks for it once: run `node bridge/cli.js token`
-and paste the output.
-
-Firefox is closer than it was (every script prefers `browser` where it exists), but two manifest
-blockers remain: `background: { service_worker }` where Firefox MV3 wants `background: { scripts }`,
-and a missing `browser_specific_settings.gecko.id`. Both are fixable, but keeping them honest needs a
-Firefox job in CI rather than a claim in a README. Open an issue if you want it.
-</details>
-
-## Native iOS apps (Simulator)
-
-A native app has no DOM, so this path reads the **accessibility tree** instead. It works for SwiftUI,
-UIKit, React Native and Flutter apps, and needs nothing added to your app.
-
-**You need** Xcode with a booted Simulator and [Maestro](https://maestro.dev) (it reads the tree,
-and needs Java — a Homebrew `openjdk` is found even when it is not on your PATH). The bridge keeps one
-`maestro mcp` process running for it, so only the first load waits (~10s, while Maestro starts its
-on-device driver); every refresh after that takes about a second. Every Maestro on your Mac shares that
-one driver, so if another one (an agent's Maestro MCP server, a test run) restarts it, the bridge's next
-read fails, and the bridge then starts a fresh Maestro and tries once more. If the first load takes
-minutes, close the Claude Code sessions you are not using that have the Maestro MCP server.
-
-![The iOS Simulator picker: the Book this trip button highlighted in the Trailhead demo app, with a note being typed](docs/images/ios-comment.png)
-
-Setup asks whether your app is web or iOS, and for iOS opens this page for you. Otherwise, with the
-bridge running — `node cli.js` from the clone, or `npx -y pinpoint-bridge` with no clone at all — open
-**http://127.0.0.1:7331/ios**. It shows the Simulator's screen: hover to
-see each element, click one, type what should change, **⌘↩**. The note reaches your agent like any
-other, with the element's `accessibilityIdentifier` (your `testID`), its label, its path in the tree,
-its frame and a crop. Press **R** (or Refresh) after the app changes; resolved notes drop off.
-
-![After sending: a numbered pin on the button, and the next element hovered with its identifier](docs/images/ios-pin.png)
-
-**No app handy?** `bash demo/ios/run.sh` builds **Trailhead**, a one-screen SwiftUI demo in
-`demo/ios/`, with `swiftc` alone (no Xcode project) and launches it on the booted Simulator. Every
-element has an `accessibilityIdentifier`, so you can see exactly what an agent receives.
-
-What it cannot give you: a source-file hint or component chain (the tree has neither — give elements
-an identifier and the agent greps for it), styles, or `recheck_annotation`, which waits for a browser
-and times out here. Android is not wired up yet.
-
-## Where it runs
-
-Pinpoint is a tool for the app you are building, so it only loads itself on local development pages:
-`localhost`, `127.0.0.1`, `.local` / `.test` / `.localhost` hosts, and `file://` pages once you have
-granted file access. On any other site it is simply not there — no bar, no overlay, nothing injected.
-
-Anywhere else — a staging URL, or a LAN address like `192.168.1.5:3000` when you are testing from your
-phone — the toolbar popup turns it on for that one tab.
-
-## Using it
-
-While the bridge is running, a small bar sits in the **top-right** corner of every page. Click it (or
-press **⌥⇧A** / **Alt+Shift+A**) to start marking. Click an element, type what should change, press
-**⌘↩** / **Ctrl+Enter**, and you are immediately ready for the next one. **Esc** when you are done, or
-click **Stop** on the bar. The **×** hides the bar for that site; the popup brings it back. **Drag the
-bar by its grip** to put it anywhere on the page — it stays there on that site — or pick a corner in
-the popup.
+While the bridge runs, a small bar sits in the top-right corner of your page.
 
 | | | |
 |---|---|---|
 | ![The bar, idle](docs/images/bar-idle.png) | ![The bar resting as a dot](docs/images/bar-mini.png) | ![The bar while picking, with a Stop control](docs/images/bar-armed.png) |
-| It tells you the shortcut, and lights up when your agent is working. | After a few seconds it settles to a dot, out of your way. Hover to bring it back. | Picking. The bar is click-through so it can never block the element you are aiming at; **Stop** is the exception. |
+| Shows the shortcut, and lights up while your agent works. | Settles to a dot after a few seconds. Hover to bring it back. | Picking. The bar lets clicks through so it never blocks your target. |
 
-![The comment popover on a form field, showing the element it picked](docs/images/popover.png)
+1. Click the bar (or **⌥⇧A** / **Alt+Shift+A**) to start marking.
+2. Click an element, or **drag** a box around a group (*"make these cards two-up on mobile"*).
+3. Type what should change and press **⌘↩** / **Ctrl+Enter**. You're ready for the next one.
+4. **Esc** or **Stop** when you're done.
 
-The popover names exactly what you picked, so you can tell two near-identical buttons apart before you type.
+<table>
+<tr>
+<td width="50%"><img src="docs/images/popover.png" alt="The comment popover on a form field, naming the element it picked"></td>
+<td width="50%"><img src="docs/images/pin.png" alt="A numbered pin on the annotated field"></td>
+</tr>
+<tr>
+<td>The popover names exactly what you picked, so two near-identical buttons can't be confused.</td>
+<td>A numbered pin sticks to the element. It survives reloads, shows in every tab on that page, and disappears when the agent finishes.</td>
+</tr>
+</table>
 
-![A numbered pin on the annotated field](docs/images/pin.png)
+- **Move the bar** by dragging its grip anywhere on the page; it stays there on that site.
+- **The counter** on the bar lists everything marked on this page. Click a row to jump to it.
+- **The ×** hides the bar for that site; the toolbar popup brings it back.
+- **Pins follow their element** on apps that rebuild their DOM, and hide rather than sit on the wrong
+  element when theirs is gone.
+- **No bridge running?** **Send** copies a ready-to-paste prompt instead, so nothing is lost.
 
-A numbered pin sticks to the element — numbered per page, so each page counts from 1. Pins live in the
-bridge, not the page, so they survive reloads, appear in every tab showing that page, and vanish the
-moment your agent marks the change done. On apps that rebuild their DOM, each pin re-finds its own
-element by identity, and hides itself rather than sit on a different element that happens to match the
-old selector. The bar's counter opens the list of everything marked on this page; click a row to jump to it.
+**Where it runs.** Only on local development pages: `localhost`, `127.0.0.1`, `.local` / `.test` /
+`.localhost` hosts, and `file://` once allowed. Anywhere else (a staging URL, a LAN address for phone
+testing) the toolbar popup turns it on for one tab.
 
-### Talking it through
+## 💬 Talking it through
 
-A note is a conversation, not a one-way ticket:
+A note is a conversation, not a one-way ticket.
 
-- **The agent can ask back.** When a request is ambiguous it calls `reply_annotation` instead of
-  guessing. Its question appears on the pin (a **?**) and as a toast; answer in the notes panel and the
-  note goes back to the agent with the whole conversation.
-- **Not quite right?** Every finished note in the panel has **Reply…**. Say what is still wrong and the
-  note reopens, carrying what the agent said it did and your follow-up.
-- **Drafts.** **Draft** (or **⇧⌘↩**) marks something without sending it — an outlined pin. When you
-  are ready, **Send** on the bar hands every draft over at once.
-- **The whole page.** While picking, **Whole page** on the bar makes a note about the page itself
-  ("the spacing feels cramped everywhere"), with a screenshot of what is on screen.
-
-![Two notes on a panel that rebuilds itself: one re-finds its element, the other says it is not on this view](docs/stale-demo.gif)
-
-*The same two notes, twice. Switch tabs and the panel is rebuilt from scratch — note 1 re-finds its
-own element among nodes that did not exist a moment ago, while note 2 admits it is not on this view.
-An agent asking at that moment is told the same thing.*
-
-**When the page moves underneath a pin.** A pin that can no longer find its element does not just
-hide itself — the bridge is told, so the next thing your agent reads says the element may be stale
-rather than handing it a selector that has gone bad. And `recheck_annotation` asks your browser to
-look again right now: it re-finds the element, says whether it is gone, moved out from under its
-selector, or merely changed, and returns a fresh crop next to the one taken when you marked it. If no
-tab is open on that page it says it could not look — never that nothing changed.
-
-**Marking an area.** Some changes are about a group — *"make these cards two-up on mobile"*. **Drag**
-instead of clicking and you get a box, anchored to the deepest element that fully contains it. Your
-agent gets a real container to change, plus the list of what the box held and a screenshot cropped to it.
-
-**Reading the reply.** A finished note does not vanish. It stays in the panel with your agent's own
-reply underneath, so you can read what changed without going back to the terminal.
+- **The agent can ask back.** If a request is ambiguous it asks instead of guessing. The question shows
+  on the pin (a **?**) and as a toast; answer in the notes panel and the note goes back with the whole
+  conversation.
+- **You read the reply in the browser.** A finished note stays in the panel with the agent's own note
+  on what it changed. Agents must write one: "done" is not an answer.
+- **Not quite right?** Every finished note has **Reply…**. Say what's still wrong and it reopens.
+- **Drafts.** **Draft** (or **⇧⌘↩**) marks something without sending it. **Send** on the bar hands
+  every draft over at once.
+- **The whole page.** While picking, **Whole page** makes a note about the page itself (*"the spacing
+  feels cramped everywhere"*), with a screenshot.
 
 ![The notes panel: a pending note, and a finished one with the agent's reply beneath it](docs/images/agent-reply.png)
 
-That reply is the `note` your agent passes to `resolve_annotation`, which is **required** — the tool
-tells it that you read this in your browser, and that "done" is not an answer. While it works, the bar
-says what it is doing: the note it is looking at gets a ring, and a note it completes disappears in
-front of you.
+**When the page moves under a pin**, the agent is told the element may be stale instead of being handed
+a selector that has gone bad. `recheck_annotation` looks again right now and returns a fresh crop next
+to the original.
 
-Then just talk to Claude Code normally. With hooks installed you don't have to mention Pinpoint at all;
-without them, say *"apply my pinpoint annotations"*. If the bridge isn't running, **Send** copies a
-ready-to-paste prompt to your clipboard instead, so nothing is lost.
+![Two notes on a panel that rebuilds itself: one re-finds its element, the other says it is not on this view](docs/stale-demo.gif)
 
-<details>
-<summary>Starting and restarting the bridge from the browser</summary>
-
-A browser cannot start a process, so `install-native-host` registers a tiny launcher with Chrome (and
-Brave, Edge, Arc, Chromium, Vivaldi, Opera). After that the popup's **Start bridge** button works, and
-while the bridge is running that button and the **↻** in the on-page bar restart it — what you want
-after pulling a new build, without leaving the page.
-
-The launcher can do exactly one thing: run this repo's own `cli.js` on a port number, read from the
-popup's setting and never from the page. Restart is plain HTTP to the bridge itself, so it needs no
-launcher and works in Safari too. macOS and Linux only for now; on Windows, start the bridge in a terminal.
-</details>
+<sub>The same two notes, twice. The panel is rebuilt from scratch: note 1 re-finds its element among brand-new nodes, note 2 admits it isn't on this view.</sub>
 
 <details>
-<summary>When more than one agent is connected</summary>
+<summary><b>Starting the bridge from the browser, and several agents at once</b></summary>
 
-Agents introduce themselves in the MCP handshake, so the bar names the one that is working
-(`claude-code`, `cursor-vscode`, `codex`) instead of saying "your agent", and each reply in the panel is
-attributed to whoever wrote it. `wait_for_annotation` hands each new note to exactly **one** waiting
-agent, so two agents watching at once share the queue rather than both doing the same note — and if one
-resolves something another already finished, it is told so.
+**Start / restart from the browser.** `install-native-host` registers a tiny launcher with Chrome
+(and Brave, Edge, Arc, Chromium, Vivaldi, Opera). The popup's **Start bridge** then works, and the
+**↻** on the bar restarts the bridge after you pull a new build. The launcher can do one thing: run
+this repo's own `cli.js` on a port number from the popup's setting, never from the page.
+
+**Several agents.** Agents introduce themselves over MCP, so the bar names the one working
+(`claude-code`, `cursor-vscode`, `codex`) and each reply is attributed. `wait_for_annotation` hands each
+new note to exactly one waiting agent, so two agents share the queue instead of doing the same note.
 </details>
 
-## How your agent finds out
+## 🔔 How your agent finds out
 
-Three mechanisms, strongest first. They stack — using all three is fine.
+Three ways, strongest first. Using all three is fine.
 
-- **Hooks (automatic).** `node cli.js install-hooks <repo>` adds a `SessionStart` and a
-  `UserPromptSubmit` hook to `<repo>/.claude/settings.json`, both running `cli.js print --hook`. It
-  prints nothing when nothing is pending, so a normal session is unaffected. Mark something in the
-  browser, type anything in Claude Code, and it comes along. Your own settings in that file are
-  preserved, and re-running updates rather than duplicates. Restart Claude Code once afterwards.
-- **MCP (on request).** The `pinpoint` server's instructions tell the agent to check for annotations
-  whenever you talk about a UI or feature change, so "make that button bigger" usually triggers a
-  lookup on its own.
-- **A watch loop (hands-off).** Say *"watch pinpoint and apply each change as it comes in"*. The agent
-  parks on `wait_for_annotation`, which returns the instant you hit Send — screenshot included.
+| | How | Setup |
+|---|---|---|
+| **Hooks** (automatic) | Pending notes ride along with your next message. Prints nothing when nothing is pending. | `node cli.js install-hooks <repo>` (setup does it) |
+| **MCP** (on request) | The server tells the agent to check whenever you talk about a UI or feature change. | the MCP entry |
+| **Watch loop** (hands-off) | Say *"watch pinpoint and apply each change as it comes in"*; each note arrives the moment you hit Send. | nothing |
 
-## Looks or behaviour
+The comment is the instruction, and it can be about how something **looks** or what it **does**. The
+more you say about the outcome (*"should"*, *"instead of"*, *"when … then …"*), the less the agent
+guesses.
 
-The comment is the instruction, in your words, and it can be about anything the element is part of.
-Both of these are good notes:
+## 📱 Native iOS apps
 
-- *"Make this full-width on mobile and drop the shadow"* — a styling change, made where the element is.
-- *"Clicking this should save the draft first, and show a toast if the save fails"* — a behaviour
-  change. The button is just the way in: the agent is told to follow it from its component into the
-  handler, the state, the API call and, if that is where the fix belongs, the backend route.
+A native app has no DOM, so this path reads the **accessibility tree**. It works for SwiftUI, UIKit,
+React Native and Flutter apps, with nothing added to your app.
 
-Every channel — MCP, the hooks, `pending.md`, the copy-to-clipboard buttons — tells the agent that a
-note may be about either, so a behaviour request is not restyled and called done. The more you say
-about the outcome you want ("should", "instead of", "when … then …"), the less the agent has to guess.
+<table>
+<tr>
+<td width="50%"><img src="docs/images/ios-comment.png" alt="The iOS Simulator picker: the Book this trip button highlighted in the Trailhead demo app, with a note being typed"></td>
+<td width="50%"><img src="docs/images/ios-pin.png" alt="After sending: a numbered pin on the button, and the next element hovered with its identifier"></td>
+</tr>
+</table>
 
-## Connecting other agents
+**You need** Xcode with a booted Simulator and [Maestro](https://maestro.dev) (which needs Java; a
+Homebrew `openjdk` is found even off your PATH).
 
-The simplest entry runs the published package, so there is no path to get right:
-`npx -y pinpoint-bridge mcp`. It talks to whichever bridge is running, cloned or not. To pin the agent
-to your clone instead, use the absolute path to `cli.js` (from `pinpoint/bridge`, run `pwd` and add
-`/cli.js`, or copy the line `node cli.js --help` prints). Restart the editor afterwards; MCP servers are
-read at startup.
+With the bridge running, open **http://127.0.0.1:7331/ios** (setup opens it for you). Hover to see each
+element, click one, type, **⌘↩**. The agent gets the `accessibilityIdentifier` (your `testID`), label,
+tree path, frame and a crop. Press **R** after the app changes.
 
-**Cursor** — one click from [cursor.directory](https://cursor.directory/plugins/pinpoint), or
-`.cursor/mcp.json` (or `~/.cursor/mcp.json` for every project):
+**No app handy?** `bash demo/ios/run.sh` builds **Trailhead**, a one-screen SwiftUI demo, with `swiftc`
+alone and launches it on the booted Simulator.
+
+<details>
+<summary><b>Limits and timing</b></summary>
+
+There's no source-file hint or component chain (the tree has neither; give elements an identifier and
+the agent greps for it), no styles, and no `recheck_annotation`. The first load waits ~10 s while
+Maestro starts its on-device driver; after that each refresh takes about a second. Every Maestro on
+your Mac shares one driver, so if another one restarts it, the bridge starts a fresh Maestro and tries
+once more. If the first load takes minutes, close idle Claude Code sessions that have the Maestro MCP
+server.
+</details>
+
+## 🔌 Connecting other agents
+
+The simplest entry runs the published package: `npx -y pinpoint-bridge mcp`. It talks to whichever
+bridge is running. Restart the editor afterwards.
+
+<details>
+<summary><b>Cursor</b>: one click from <a href="https://cursor.directory/plugins/pinpoint">cursor.directory</a>, or <code>.cursor/mcp.json</code></summary>
+
 ```json
 { "mcpServers": { "pinpoint": { "command": "npx", "args": ["-y", "pinpoint-bridge", "mcp"] } } }
 ```
+</details>
 
-**Codex CLI** — `~/.codex/config.toml`:
+<details>
+<summary><b>Codex CLI</b>: <code>~/.codex/config.toml</code></summary>
+
 ```toml
 [mcp_servers.pinpoint]
 command = "npx"
 args = ["-y", "pinpoint-bridge", "mcp"]
 ```
+</details>
 
-**Any MCP client over HTTP** — `http://127.0.0.1:7331/mcp` (Streamable HTTP, stateless). Windsurf,
-Cline, Continue, Zed and Gemini CLI all take a URL.
+<details>
+<summary><b>Any MCP client over HTTP</b>, or <b>no MCP at all</b></summary>
 
-**No MCP at all** — run the bridge with `--project <repo>` and it keeps `<repo>/.pinpoint/pending.md`
-current (with its own `.gitignore`). Tell any agent "read .pinpoint/pending.md and apply it"; it
-finishes each one with `node cli.js resolve <id>`. Or use *Copy prompt* in the popover to paste into any chat.
+**HTTP:** `http://127.0.0.1:7331/mcp` (Streamable HTTP, stateless). Windsurf, Cline, Continue, Zed and
+Gemini CLI all take a URL.
 
-## Commands
+**No MCP:** run the bridge with `--project <repo>` and it keeps `<repo>/.pinpoint/pending.md` current.
+Tell any agent *"read .pinpoint/pending.md and apply it"*; it finishes each with
+`node cli.js resolve <id>`. Or use **Copy prompt** in the popover and paste into any chat.
 
-Run these from `pinpoint/bridge`.
+To pin an agent to your clone instead of npm, use the absolute path to `cli.js` (copy the line
+`node cli.js --help` prints).
+</details>
+
+## 🌐 Browsers
+
+| Browser | Status |
+|---|---|
+| **Chrome, Edge, Brave, Arc, Opera, Vivaldi** | ✅ Load unpacked. Verified in CI on headless Chromium. |
+| **Safari** | ✅ Built with `bash tools/make-safari.sh` (needs Xcode). No component chain or source hint. |
+| **Firefox** | ⏳ Not yet. |
+
+<details>
+<summary><b>What differs on Safari</b></summary>
+
+Safari doesn't take unpacked extensions, so `tools/make-safari.sh` wraps it in a small macOS app and
+prints the four Safari settings to flip (the key one, **Develop ▸ Allow Unsigned Extensions**, resets
+every time Safari quits). Safari doesn't support `"world": "MAIN"` content scripts, so `inspector.js`
+can't read React fibers or Vue instances: you lose the **component chain and source-file hint**.
+Everything else works. Safari has no native host to hand over the bridge token, so the popup asks for
+it once: run `node bridge/cli.js token` and paste the output. For the Mac App Store,
+`TEAM=<your team id> bash tools/make-safari.sh --release` exports a signed build.
+</details>
+
+## 📚 Reference
+
+<details>
+<summary><b>Commands</b> (run from <code>pinpoint/bridge</code>)</summary>
 
 ```
 node cli.js [start]            start the bridge (default command)
@@ -360,6 +370,7 @@ node cli.js resolve <id...> --note "what you changed"
 node cli.js install-hooks [dir]  wire up Claude Code
 node cli.js install-native-host   let the popup's "Start bridge" button start the bridge
                                (--uninstall removes it; --id <id> allows a second checkout)
+node cli.js token              print the extension token (Safari asks for it once)
 node cli.js clear              delete everything
 node cli.js --help
 
@@ -370,8 +381,10 @@ http://127.0.0.1:7331/ios      the iOS Simulator picker, served by the running b
 --print          echo each new annotation to stdout as it arrives
 $PINPOINT_HOME   where annotations are stored (default ~/.pinpoint)
 ```
+</details>
 
-## MCP tools
+<details>
+<summary><b>MCP tools</b></summary>
 
 | tool | purpose |
 |---|---|
@@ -385,8 +398,10 @@ $PINPOINT_HOME   where annotations are stored (default ~/.pinpoint)
 | `clear_annotations` | wipe everything |
 
 Resource: `pinpoint://pending` (markdown).
+</details>
 
-## What an annotation contains
+<details>
+<summary><b>What a note contains</b></summary>
 
 ```
 comment          "make this full-width on mobile"          ← the only instruction
@@ -401,130 +416,120 @@ source           framework (react/vue/svelte/angular/astro), component chain,
 screenshot       PNG of just the element (+8px), long edge ≤1200px
 ```
 
-From the [iOS Simulator](#native-ios-apps-simulator), `element` carries the accessibility identifier,
-label, text and value instead, the path through the accessibility tree, and the frame in points;
-`source` is `ios-native` with no file, and `page.url` is `ios-simulator://<device name>`.
+From the iOS Simulator, `element` carries the accessibility identifier, label, text, value, tree path
+and frame instead; `source` is `ios-native` and `page.url` is `ios-simulator://<device name>`.
 
 For exact `file:line` on React 19 or Next, add a dev-only inspector plugin
-(`vite-plugin-react-inspector`, `@react-dev-inspector`) — Pinpoint reads the `data-source` attributes
-they emit, as well as React's own `_debugSource`/`_debugStack` and Vue's `__file`.
+(`vite-plugin-react-inspector`, `@react-dev-inspector`). Pinpoint reads their `data-source`
+attributes, as well as React's `_debugSource`/`_debugStack` and Vue's `__file`.
+</details>
 
-## Troubleshooting
+## 🩺 Troubleshooting
 
 <details>
 <summary>No bar appears on the page</summary>
 
-The bar only shows while the bridge is running — that is how it tells you it is live. Check
-`node cli.js status` from `pinpoint/bridge`. If the bridge is up but the bar still isn't there, the page
-is probably not one Pinpoint injects into automatically (see *Where it runs*) — open the toolbar popup
-and turn it on for that tab.
+The bar only shows while the bridge runs. Check `node cli.js status` from `pinpoint/bridge`. If the
+bridge is up, the page probably isn't one Pinpoint injects into automatically (see *Where it runs*):
+open the toolbar popup and turn it on for that tab.
 </details>
 
 <details>
 <summary>Nothing at all on a <code>file://</code> page</summary>
 
-Chrome keeps file access off per extension. On `chrome://extensions` → Pinpoint → **Details** →
-**"Allow access to file URLs"**, then reload.
+`chrome://extensions` → Pinpoint → **Details** → **Allow access to file URLs**, then reload.
 </details>
 
 <details>
 <summary>The toolbar dot never turns green</summary>
 
-Either the bridge isn't running, or it is on a different port from the extension: the popup's **Port**
-field and the bridge's `--port` must match. If `node cli.js status` says *"port answers, but it is NOT
-the pinpoint bridge"*, something else owns that port — start the bridge with `--port 7332` and set 7332
-in the popup too.
+The bridge isn't running, or it's on a different port: the popup's **Port** and the bridge's `--port`
+must match. If `node cli.js status` says the port *answers, but it is NOT the pinpoint bridge*,
+something else owns it: start the bridge with `--port 7332` and set 7332 in the popup.
 </details>
 
 <details>
 <summary><code>port 7331 is already in use</code></summary>
 
-Usually the bridge is already running from another terminal, in which case you're done. Otherwise pick a
-free port as above. Don't run two bridges at once: they share one store file and the last writer wins.
+Usually the bridge is already running in another terminal, so you're done. Otherwise pick a free port
+as above. Don't run two bridges at once: they share one store file.
 </details>
 
 <details>
-<summary>An annotation has no screenshot</summary>
+<summary>A note has no screenshot</summary>
 
 The picture is taken just after your comment is stored, so the comment is never lost. If the page
-navigated or the tab was closed in that moment, the annotation records why instead of attaching a picture
-of the wrong page. The comment, selector and styles are all still there.
+navigated or the tab closed in that moment, the note records why. The comment, selector and styles are
+all still there.
 </details>
 
 <details>
 <summary>Claude Code doesn't mention my notes</summary>
 
-Hooks are read when a session starts — restart it once after `install-hooks`. Check that
-`<your repo>/.claude/settings.json` has two entries containing `print --hook`, and that the path in them
-still exists (moving your Pinpoint clone breaks it — re-run `install-hooks`). You can always just say
-*"apply my pinpoint annotations"*.
+Hooks are read when a session starts: restart once after `install-hooks`. Check that
+`<your repo>/.claude/settings.json` has two entries containing `print --hook` and that their path still
+exists (moving your clone breaks it; re-run `install-hooks`). You can always say *"apply my pinpoint
+annotations"*.
 </details>
 
 <details>
-<summary>"Start bridge" says one-time setup is needed, or can't find Node</summary>
+<summary>"Start bridge" says setup is needed, or can't find Node</summary>
 
-Run `node cli.js install-native-host` once, then press it again. If you have already run it, run it again
-— moving the repo, or reloading a build without the manifest `key`, changes the extension's id, and Chrome
-reports a rejected id the same way as a missing launcher. Quit and reopen the browser afterwards. The
-launcher also bakes in an absolute path to node, because a browser-started process does not get your
-shell's `PATH`; if node moved (a new nvm version, a Homebrew upgrade), re-run it.
+Run `node cli.js install-native-host` once (again, if you moved the repo), then quit and reopen the
+browser. The launcher bakes in an absolute path to node; if node moved (new nvm version, Homebrew
+upgrade), re-run it.
 </details>
 
 <details>
 <summary>You want a clean slate</summary>
 
-`node cli.js clear` empties the store; `~/.pinpoint/annotations.json` is the only state outside your repo.
+`node cli.js clear`. `~/.pinpoint/annotations.json` is the only state outside your repo.
 </details>
+
+## 🔒 Safety and privacy
+
+- The bridge listens on `127.0.0.1` only and refuses requests carrying a web page's `Origin`.
+- The extension must present the token in `~/.pinpoint/token`.
+- Everything scraped from a page is labelled **untrusted** where it reaches your agent; only your typed
+  comment is presented as an instruction.
+- Screenshots live inside `~/.pinpoint/annotations.json`, not as loose files.
+
+[SECURITY.md](SECURITY.md) has the full trust-boundary notes (including why `<all_urls>` is needed) and
+[PRIVACY.md](PRIVACY.md) says exactly what is collected, where it's stored, and the one place it goes:
+the coding agent you connect.
 
 ## A page to try it on
 
-`demo/index.html` is a self-contained demo site — no build, no network — with the shapes that make
-Pinpoint worth using: a card grid and pricing tiers for region drags, near-identical sibling buttons, a
-tab panel that rebuilds itself, a dense table, and a form.
+`demo/index.html` is a self-contained demo site (no build, no network) with card grids for region
+drags, near-identical buttons, a tab panel that rebuilds itself, a dense table and a form.
 
 ```bash
 cd demo && python3 -m http.server 8080     # then open http://localhost:8080
 ```
 
-## Testing
+## 🧪 Testing
 
 ```bash
 cd test && npm install && npx playwright install chromium && npm test
 ```
 
-152 tests. `bridge.test.mjs` covers the daemon, CLI, hooks, the iOS picker's tree-to-annotation path
-and every MCP tool over both stdio and Streamable HTTP; `e2e.test.mjs` loads the unpacked extension into headless Chromium and drives real pages
-— React, Vue, shadow DOM, an iframe, a strict-CSP page, a 3,600-node stress page, DPR 2, cross-tab sync,
-and a form that rebuilds its whole DOM. See [CONTRIBUTING.md](CONTRIBUTING.md) for what each suite is for.
-
-## Safety and storage
-
-The bridge binds to `127.0.0.1`, refuses any request carrying a web page's `Origin` (the one exception
-is its own, for the `/ios` page it serves, which also refuses to be framed), accepts an extension only
-with the token in `~/.pinpoint/token`, and identifies
-itself with a `service` marker; everything scraped from the page is labelled untrusted where it reaches
-your agent, and only your typed comment is presented as an instruction. Screenshots live base64-encoded
-inside `~/.pinpoint/annotations.json` rather than as loose files. [SECURITY.md](SECURITY.md) has the full
-trust-boundary notes, including why the `<all_urls>` permission is needed, and [PRIVACY.md](PRIVACY.md)
-says exactly what is collected, where it is stored, and the one place it leaves — the coding agent you
-connect it to.
+152 tests. `bridge.test.mjs` covers the daemon, CLI, hooks, the iOS picker and every MCP tool over
+stdio and Streamable HTTP. `e2e.test.mjs` loads the extension into headless Chromium and drives real
+pages: React, Vue, shadow DOM, iframes, strict CSP, a 3,600-node stress page, DPR 2, cross-tab sync and
+a form that rebuilds its whole DOM. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Roadmap
 
-- Android emulator: `maestro hierarchy` already reads the tree there; it needs `adb` for the screenshot.
-- Native source hints: React Native's `_debugSource` and Flutter's widget creation locations, via an
-  optional dev-only package in the app.
-- CSS source mapping via `chrome.debugger` (which rule set this colour, and where).
-- Page-level annotations — a note about the whole page rather than an element or an area.
-- Firefox: the manifest needs a `scripts` background and a `gecko.id`.
-- Agent replies on the pin itself, not only in the notes panel.
+- Android emulator support
+- Firefox
+- Native source hints for React Native and Flutter, via an optional dev-only package
+- CSS source mapping via `chrome.debugger` (which rule set this colour, and where)
 
 ## Contributing
 
-Issues and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). There is no build step:
-clone it, `npm install` in `bridge/`, load `extension/` unpacked, and you are developing. Every behaviour
-change should come with a test.
+Issues and pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). There's no build step:
+clone, `npm install` in `bridge/`, load `extension/` unpacked. Every behaviour change comes with a test.
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE). Release notes live in [CHANGELOG.md](CHANGELOG.md).
+MIT, see [LICENSE](LICENSE). Release notes are in [CHANGELOG.md](CHANGELOG.md).
