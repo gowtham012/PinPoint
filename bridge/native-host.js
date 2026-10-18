@@ -1,5 +1,5 @@
-// Registers bridge/host.js as a Chrome native messaging host, so the extension's "Start bridge"
-// button can actually start the bridge. Same shape as hooks.js: a plain module that throws
+// Registers bridge/host.js as a Chrome and Firefox native messaging host, so the extension's
+// "Start bridge" button can actually start the bridge. Same shape as hooks.js: a plain module that throws
 // readable sentences, is idempotent, and is testable against a fake root directory.
 import fs from "node:fs";
 import os from "node:os";
@@ -11,6 +11,9 @@ import { DATA_DIR } from "./store.js";
 export const HOST_NAME = "com.pinpoint.bridge";
 // Pinpoint's id on the Chrome Web Store.
 export const STORE_ID = "mkjegdlcpijniabibingcbmjfedcepgp";
+// Pinpoint's id on addons.mozilla.org: the gecko id in tools/make-firefox-zip.sh, fixed by us rather
+// than derived, so it is the same for the signed build and a temporary about:debugging load.
+export const FIREFOX_ID = "pinpoint@gowtham012.github.io";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 // Chrome derives an extension's id from its manifest "key": sha256 of the DER public key, first
@@ -23,7 +26,8 @@ export function extensionId(key) {
 
 // Browser profile roots. Detection is "the browser's own directory exists" — we create only the
 // NativeMessagingHosts leaf inside it, never the browser directory, because its absence is the
-// only signal that the browser is not installed.
+// only signal that the browser is not installed. Firefox keeps its hosts outside its profile
+// directory, so it is [where to look for the browser, where its hosts go].
 const BROWSERS = {
   darwin: {
     base: path.join(os.homedir(), "Library", "Application Support"),
@@ -32,13 +36,15 @@ const BROWSERS = {
       Chromium: "Chromium", Brave: "BraveSoftware/Brave-Browser", Edge: "Microsoft Edge",
       Arc: "Arc/User Data", Vivaldi: "Vivaldi", Opera: "com.operasoftware.Opera",
     },
+    firefox: ["Firefox", "Mozilla/NativeMessagingHosts"],
   },
   linux: {
-    base: path.join(os.homedir(), ".config"),
+    base: os.homedir(),
     dirs: {
-      Chrome: "google-chrome", "Chrome Beta": "google-chrome-beta", Chromium: "chromium",
-      Brave: "BraveSoftware/Brave-Browser", Edge: "microsoft-edge", Vivaldi: "vivaldi",
+      Chrome: ".config/google-chrome", "Chrome Beta": ".config/google-chrome-beta", Chromium: ".config/chromium",
+      Brave: ".config/BraveSoftware/Brave-Browser", Edge: ".config/microsoft-edge", Vivaldi: ".config/vivaldi",
     },
+    firefox: [".mozilla/firefox", ".mozilla/native-messaging-hosts"],
   },
 };
 
@@ -64,9 +70,12 @@ function targets(root, platform) {
   const table = BROWSERS[platform];
   if (!table) return null;
   const base = root || table.base;
-  return Object.entries(table.dirs)
+  const found = Object.entries(table.dirs)
     .filter(([, rel]) => fs.existsSync(path.join(base, rel)))
     .map(([name, rel]) => ({ name, file: path.join(base, rel, "NativeMessagingHosts", `${HOST_NAME}.json`) }));
+  const [ffDir, ffHosts] = table.firefox;
+  if (fs.existsSync(path.join(base, ffDir))) found.push({ name: "Firefox", firefox: true, file: path.join(base, ffHosts, `${HOST_NAME}.json`) });
+  return found;
 }
 
 // How to reach each browser from a terminal: its macOS app name, its Linux binaries, and the page
@@ -85,9 +94,10 @@ export const BROWSER_UI = {
 
 // Which Chromium browsers are actually installed. Same detection as the native host install — a
 // browser is present if its profile directory is — so setup offers exactly the browsers that can
-// take the extension, and an empty list is an answer rather than a crash.
+// take the extension, and an empty list is an answer rather than a crash. Not Firefox: setup's
+// "Load unpacked" steps are Chromium's, and Firefox installs the signed build from AMO.
 export function detectBrowsers({ platform = process.platform, root = null } = {}) {
-  return (targets(root, platform) || []).map((t) => ({ name: t.name, ...(BROWSER_UI[t.name] || {}) }));
+  return (targets(root, platform) || []).filter((t) => !t.firefox).map((t) => ({ name: t.name, ...(BROWSER_UI[t.name] || {}) }));
 }
 
 export function installNativeHost({
@@ -107,7 +117,7 @@ export function installNativeHost({
   }
   const found = targets(root, platform);
   if (!found.length) {
-    throw new Error(`no Chromium-based browser profile found under ${root || BROWSERS[platform].base} — is Chrome installed and has it been run once?`);
+    throw new Error(`no Chromium-based browser or Firefox profile found under ${root || BROWSERS[platform].base} — is Chrome installed and has it been run once?`);
   }
 
   if (uninstall) {
@@ -132,10 +142,12 @@ export function installNativeHost({
   const files = [];
   for (const t of found) {
     // Union rather than replace: a second checkout registering itself must not evict the first.
-    let origins = wanted.map((id) => `chrome-extension://${id}/`);
+    // Firefox names add-ons by gecko id under allowed_extensions; Chromium by origin.
+    const key = t.firefox ? "allowed_extensions" : "allowed_origins";
+    let allowed = t.firefox ? [FIREFOX_ID] : wanted.map((id) => `chrome-extension://${id}/`);
     try {
       const prev = JSON.parse(fs.readFileSync(t.file, "utf8"));
-      if (Array.isArray(prev.allowed_origins)) origins = [...new Set([...prev.allowed_origins, ...origins])];
+      if (Array.isArray(prev[key])) allowed = [...new Set([...prev[key], ...allowed])];
     } catch {}
     fs.mkdirSync(path.dirname(t.file), { recursive: true });
     fs.writeFileSync(t.file, JSON.stringify({
@@ -143,7 +155,7 @@ export function installNativeHost({
       description: "Starts the Pinpoint bridge for the Pinpoint browser extension",
       path: wrapperPath,
       type: "stdio",
-      allowed_origins: [...origins].sort(),
+      [key]: [...allowed].sort(),
     }, null, 2) + "\n");
     files.push(t.file);
   }

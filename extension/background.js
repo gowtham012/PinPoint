@@ -41,9 +41,11 @@ async function whyNot(url) {
   }
   // Chrome keeps file:// access off per-extension, and off is the default. Without it we are never
   // injected into a file:// page at all — so name the switch instead of claiming the page is fine.
-  // api.extension.isAllowedFileSchemeAccess is Chrome-only — Safari has no api.extension
-  // and Firefox no equivalent, so ask only where the question can be answered.
-  const fileAccess = api.extension?.isAllowedFileSchemeAccess;
+  // api.extension.isAllowedFileSchemeAccess is Chrome's switch — Safari has no api.extension, and
+  // Firefox has the function but no such per-extension switch to point at, so ask only where the
+  // answer can be acted on.
+  const firefox = api.runtime.getURL("").startsWith("moz-extension:");
+  const fileAccess = firefox ? null : api.extension?.isAllowedFileSchemeAccess;
   if (url.startsWith("file:") && fileAccess && !(await fileAccess.call(api.extension))) {
     return 'Turn on "Allow access to file URLs" for Pinpoint on chrome://extensions, then reload this page.';
   }

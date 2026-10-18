@@ -19,6 +19,14 @@ const CLI = path.join(HERE, "cli.js");
 const say = (s = "") => console.error(s ? `[pinpoint] ${s}` : "");
 const expand = (p) => (p.startsWith("~") ? path.join(os.homedir(), p.slice(1)) : p);
 const has = (cmd) => spawnSync(process.platform === "win32" ? "where" : "which", [cmd], { stdio: "ignore" }).status === 0;
+// On Windows `claude` and `npm` are .cmd shims that only a shell can run, and handing shell: true an
+// args array is deprecated (DEP0190) because nothing escapes them. So there it is one command line,
+// with every argument cmd.exe would split or act on quoted.
+export const cmdLine = (cmd, args) =>
+  [cmd, ...args].map((a) => (a && !/[\s"&|<>^%()]/.test(a) ? a : `"${a.replace(/"/g, '""')}"`)).join(" ");
+const run = (cmd, args, opts = {}) => process.platform === "win32"
+  ? spawnSync(cmdLine(cmd, args), { ...opts, shell: true })
+  : spawnSync(cmd, args, opts);
 
 async function bridgeHealth(port) {
   try {
@@ -45,7 +53,7 @@ async function confirm(rl, question, def = true) {
 function installDeps() {
   if (fs.existsSync(path.join(HERE, "node_modules", "@modelcontextprotocol"))) return false;
   say("installing the bridge's dependencies…");
-  const r = spawnSync("npm", ["install", "--no-audit", "--no-fund"], { cwd: HERE, stdio: "inherit", shell: process.platform === "win32" });
+  const r = run("npm", ["install", "--no-audit", "--no-fund"], { cwd: HERE, stdio: "inherit" });
   if (r.status !== 0) throw new Error("npm install failed — run it yourself in bridge/ and try again");
   return true;
 }
@@ -57,10 +65,10 @@ function claudeMcp(port) {
     return false;
   }
   // Remove first so re-running updates a stale path instead of failing on "already exists".
-  spawnSync("claude", ["mcp", "remove", "pinpoint", "-s", "user"], { stdio: "ignore" });
+  run("claude", ["mcp", "remove", "pinpoint", "-s", "user"], { stdio: "ignore" });
   const args = ["mcp", "add", "pinpoint", "-s", "user", "--", "node", CLI, "mcp"];
   if (Number(port) !== 7331) args.push("--port", String(port));
-  const r = spawnSync("claude", args, { stdio: "ignore" });
+  const r = run("claude", args, { stdio: "ignore" });
   if (r.status !== 0) { say("`claude mcp add` failed — run it yourself, the line is in the README"); return false; }
   say("Claude Code: MCP server registered");
   return true;

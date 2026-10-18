@@ -7,6 +7,10 @@ const api = globalThis.browser ?? globalThis.chrome;
 const $ = (s) => document.querySelector(s);
 const send = (msg) => api.runtime.sendMessage(msg);
 const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+// The pages our content scripts run on, minus file:// (Chrome has its own switch for that, and
+// Firefox will not grant it from a prompt). Firefox lets people withhold host permissions at
+// install — then nothing runs on their dev site and the bridge is unreachable — so the popup asks.
+const LOCAL = (api.runtime.getManifest().content_scripts?.[0]?.matches || []).filter((m) => !m.startsWith("file:"));
 
 async function activeTab() {
   const [tab] = await api.tabs.query({ active: true, currentWindow: true });
@@ -30,6 +34,7 @@ async function refresh({ keepHint = false } = {}) {
     $("#where").textContent = where.reason;
     $("#where").style.display = "block";
     // file:// with file access off: the one switch that fixes it is a click away, not five.
+    // Chrome only: Firefox has no such switch, so its background never sends file_access.
     if (where.code === "file_access") {
       const b = document.createElement("button");
       b.textContent = "Open Pinpoint's settings";
@@ -45,6 +50,8 @@ async function refresh({ keepHint = false } = {}) {
     pick.querySelector(".pl").textContent = "Annotate an element";
   }
 
+  // Chrome grants these at install, so there the button never shows; Safari may have no API.
+  api.permissions?.contains({ origins: LOCAL }).then((ok) => { $("#grant").hidden = ok; }, () => {});
   const h = await send({ type: "health" });
   const needsToken = h.code === "token";
   $("#dot").className = "dot " + (h.ok ? "on" : "off");
@@ -163,6 +170,17 @@ $("#bridge").onclick = async () => {
     : r?.code === "unsupported" ? esc(r.error)
     : `<span style="white-space:pre-wrap">${esc(r?.error || "the bridge did not start")}</span>`;
   refresh({ keepHint: true });
+};
+
+// permissions.request must be the first thing the click does: Firefox refuses it once the user
+// gesture is spent on an await.
+$("#grant").onclick = () => {
+  api.permissions.request({ origins: LOCAL }).then((ok) => {
+    if (!ok) return;
+    $("#grant").hidden = true;
+    $("#hint").textContent = "Thanks — reload your dev site's tab to start annotating.";
+    refresh({ keepHint: true });
+  }, (e) => { $("#hint").textContent = String(e?.message || e); });
 };
 
 $("#tokenSave").onclick = async () => {

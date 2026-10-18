@@ -5,13 +5,40 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
-  # The release workflow runs the same suite before it publishes anything.
+    inputs:
+      windows-blocking:
+        description: Fail the run when Windows fails
+        type: boolean
+        default: false
+      macos-blocking:
+        description: Fail the run when macOS fails
+        type: boolean
+        default: false
+  # The release workflow runs the same suite before it publishes anything. Its gate is ubuntu:
+  # macOS and Windows run and report, but block only once macos-blocking / windows-blocking is true.
+  # ponytail: macOS stays advisory until its browser suite stops flaking; then default it to true.
   workflow_call:
+    inputs:
+      windows-blocking:
+        type: boolean
+        default: false
+      macos-blocking:
+        type: boolean
+        default: false
 
 jobs:
   test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    continue-on-error: ${{ (matrix.os == 'windows-latest' && !inputs.windows-blocking) || (matrix.os == 'macos-latest' && !inputs.macos-blocking) }}
+    # bash on Windows too (Git Bash), so the glob quoting and the scripts are the same everywhere.
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v7
 
@@ -31,12 +58,21 @@ jobs:
         working-directory: test
         run: npx playwright install --with-deps chromium
 
-      # The bridge, the CLI, the hooks and every MCP tool over both transports.
+      # The bridge, the CLI, the hooks, every MCP tool over both transports, and every other
+      # non-browser test file (any *.test.mjs not starting with e2e).
       - name: Bridge and MCP tests
         working-directory: test
-        run: node --test --test-reporter=spec bridge.test.mjs
+        run: node --test --test-reporter=spec --test-concurrency=1 '!(e2e*).test.mjs'
 
       # Loads the unpacked extension into a real headless Chromium and drives real pages.
       - name: Browser tests
         working-directory: test
-        run: node --test --test-reporter=spec e2e.test.mjs
+        run: node --test --test-reporter=spec --test-concurrency=1 'e2e*.test.mjs'
+
+      # The Firefox package AMO will review. Once is enough, and it needs zip/unzip.
+      - name: Firefox package lint
+        if: runner.os == 'Linux'
+        run: |
+          bash tools/make-firefox-zip.sh
+          mkdir -p dist/firefox && unzip -q dist/pinpoint-extension-firefox.zip -d dist/firefox
+          npx --yes web-ext@10 lint --source-dir dist/firefox
