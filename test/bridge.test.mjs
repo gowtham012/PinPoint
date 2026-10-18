@@ -13,7 +13,9 @@ import { StdioClientTransport } from "../bridge/node_modules/@modelcontextprotoc
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, "../bridge/cli.js");
-const PORT = 7399;
+// PINPOINT_TEST_PORT moves every port this file opens, so two checkouts can run side by side.
+// Not PINPOINT_PORT: the bridge itself reads that one.
+const PORT = Number(process.env.PINPOINT_TEST_PORT) || 7399;
 const BASE = `http://127.0.0.1:${PORT}`;
 const HOME = fs.mkdtempSync(path.join(os.tmpdir(), "pp-home-"));
 const PROJECT = fs.mkdtempSync(path.join(os.tmpdir(), "pp-proj-"));
@@ -54,7 +56,7 @@ const W = { headers: { "x-pinpoint": "1" } };
 const getW = async (p) => (await fetch(BASE + p, W)).json();
 
 before(() => startDaemon());
-after(async () => { await stopDaemon(); fs.rmSync(HOME, { recursive: true, force: true }); fs.rmSync(PROJECT, { recursive: true, force: true }); });
+after(async () => { await stopDaemon(); fs.rmSync(HOME, { recursive: true, force: true, maxRetries: 10 }); fs.rmSync(PROJECT, { recursive: true, force: true, maxRetries: 10 }); });
 
 test("health reports port, project, pending count, data file", async () => {
   const h = await get("/health");
@@ -549,7 +551,7 @@ test("install-hooks writes Claude Code settings, is idempotent and preserves oth
 
   fs.writeFileSync(settingsFile, "{ broken");
   assert.throws(() => installHooks(proj, CLI, {}), /not valid JSON/);
-  fs.rmSync(proj, { recursive: true, force: true });
+  fs.rmSync(proj, { recursive: true, force: true, maxRetries: 10 });
 });
 
 test("oversized payload is rejected rather than eating memory", async () => {
@@ -570,9 +572,9 @@ test("CLI: a flag before the subcommand runs that subcommand, not the daemon", a
     const t = setTimeout(() => { p.kill(); res({ out, err, code: "HUNG" }); }, 6000);
     p.once("exit", (c) => { clearTimeout(t); res({ out, err, code: c }); });
   });
-  const r = await run(["--port", "7332", "status"]);
+  const r = await run(["--port", String(PORT + 3), "status"]);
   assert.notEqual(r.code, "HUNG", "flag-first status must not start a daemon");
-  assert.match(r.out, /bridge NOT running on :7332/);
+  assert.match(r.out, new RegExp(`bridge NOT running on :${PORT + 3}`));
 });
 
 test("hooks: a path with a space stays quoted, and unrelated hooks survive", async () => {
@@ -679,8 +681,8 @@ test("install-native-host: writes one manifest per detected browser, unions, uni
   const empty = fs.mkdtempSync(path.join(os.tmpdir(), "pp-nmh-empty-"));
   assert.throws(() => installNativeHost({ ...opts, root: empty }), /no Chromium-based browser/);
   assert.throws(() => installNativeHost({ ...opts, platform: "win32" }), /Windows/);
-  fs.rmSync(root, { recursive: true, force: true });
-  fs.rmSync(empty, { recursive: true, force: true });
+  fs.rmSync(root, { recursive: true, force: true, maxRetries: 10 });
+  fs.rmSync(empty, { recursive: true, force: true, maxRetries: 10 });
 });
 
 // The browser→host hop itself is not testable here (Playwright's Chromium reads the real
@@ -747,7 +749,7 @@ test("native host: one integer crosses the boundary, and nothing else", async ()
 });
 
 test("native host: start detaches a real bridge, is idempotent, and reports a busy port", async () => {
-  const PORT2 = 7395;
+  const PORT2 = PORT - 4;
   const first = await askHost({ cmd: "start", port: PORT2 });
   assert.equal(first.reply.ok, true, JSON.stringify(first.reply));
   assert.ok(first.reply.pid > 0);
@@ -771,7 +773,7 @@ test("native host: start detaches a real bridge, is idempotent, and reports a bu
   assert.equal(busy.reply.code, "port_busy");
   assert.match(busy.reply.error, /in use/);
   await new Promise((r) => squatter.close(r));
-  fs.rmSync(NMH_ROOT, { recursive: true, force: true });
+  fs.rmSync(NMH_ROOT, { recursive: true, force: true, maxRetries: 10 });
 });
 
 test("two watching agents are handed different notes, not the same one twice", async () => {
@@ -813,7 +815,7 @@ test("/events answers a client from a previous life at once instead of stalling 
 });
 
 test("POST /restart brings the bridge back with its annotations, flags and blocked callers", async () => {
-  const PORT3 = 7394;
+  const PORT3 = PORT - 5;
   const B3 = `http://127.0.0.1:${PORT3}`;
   const proj = fs.mkdtempSync(path.join(os.tmpdir(), "pp-restart-"));
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "pp-restart-home-"));
@@ -849,8 +851,8 @@ test("POST /restart brings the bridge back with its annotations, flags and block
   try { process.kill(back.pid); } catch {}
   try { d.kill(); } catch {}
   await sleep(200);
-  fs.rmSync(proj, { recursive: true, force: true });
-  fs.rmSync(home, { recursive: true, force: true });
+  fs.rmSync(proj, { recursive: true, force: true, maxRetries: 10 });
+  fs.rmSync(home, { recursive: true, force: true, maxRetries: 10 });
 });
 
 // ---------- setup: the two-command install ----------
@@ -878,7 +880,7 @@ test("writeCursorMcp creates the file, keeps other servers and is idempotent", a
 
   fs.writeFileSync(file, "{ broken");
   assert.throws(() => writeCursorMcp(proj, CLI, {}), /not valid JSON/);
-  fs.rmSync(proj, { recursive: true, force: true });
+  fs.rmSync(proj, { recursive: true, force: true, maxRetries: 10 });
 });
 
 test("writeCodexMcp appends once, backs the file up and never doubles the block", async () => {
@@ -898,7 +900,7 @@ test("writeCodexMcp appends once, backs the file up and never doubles the block"
   const r2 = writeCodexMcp(CLI, { file });
   assert.equal(r2.already, true);
   assert.equal(fs.readFileSync(file, "utf8").match(/\[mcp_servers\.pinpoint\]/g).length, 1);
-  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10 });
 });
 
 test("detectBrowsers lists only the browsers that are actually installed", async () => {
@@ -911,7 +913,7 @@ test("detectBrowsers lists only the browsers that are actually installed", async
   assert.deepEqual(found.map((b) => b.name), ["Brave"]);
   assert.equal(found[0].url, "brave://extensions", "setup needs the page where Load unpacked lives");
   assert.equal(detectBrowsers({ platform: "sunos", root }).length, 0);
-  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(root, { recursive: true, force: true, maxRetries: 10 });
 });
 
 test("/health reports when the extension last talked to us, so setup can confirm it is loaded", async () => {
@@ -937,11 +939,11 @@ test("setup wires a project up in one non-interactive run, twice over", async ()
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), "pp-setup-bin-"));
   fs.writeFileSync(path.join(bin, "claude"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
   // Maestro 2.9 prints its version and then never exits. setup's iOS check must not hang on it.
-  fs.mkdirSync(path.join(HOME, ".maestro/bin"), { recursive: true });
-  fs.writeFileSync(path.join(HOME, ".maestro/bin/maestro"), "#!/bin/sh\necho 2.9.0\nexec sleep 600\n", { mode: 0o755 });
-  const env = { ...process.env, HOME, USERPROFILE: home, PINPOINT_HOME: path.join(home, ".pinpoint"), PATH: bin + path.delimiter + process.env.PATH };
+  fs.mkdirSync(path.join(home, ".maestro/bin"), { recursive: true });
+  fs.writeFileSync(path.join(home, ".maestro/bin/maestro"), "#!/bin/sh\necho 2.9.0\nexec sleep 600\n", { mode: 0o755 });
+  const env = { ...process.env, HOME: home, USERPROFILE: home, PINPOINT_HOME: path.join(home, ".pinpoint"), PATH: bin + path.delimiter + process.env.PATH };
   const run = (args, cwd = undefined) => new Promise((res) => {
-    const p = spawn("node", [CLI, "setup", "--yes", "--no-start", "--port", "7401", ...args], { env, cwd, stdio: ["ignore", "pipe", "pipe"] });
+    const p = spawn("node", [CLI, "setup", "--yes", "--no-start", "--port", String(PORT + 2), ...args], { env, cwd, stdio: ["ignore", "pipe", "pipe"] });
     let out = "", err = "";
     p.stdout.on("data", (d) => (out += d));
     p.stderr.on("data", (d) => (err += d));
@@ -980,8 +982,8 @@ test("setup wires a project up in one non-interactive run, twice over", async ()
   assert.equal(nothing.code, 1);
   assert.match(nothing.err, /no project given/);
 
-  fs.rmSync(home, { recursive: true, force: true });
-  fs.rmSync(proj, { recursive: true, force: true });
+  fs.rmSync(home, { recursive: true, force: true, maxRetries: 10 });
+  fs.rmSync(proj, { recursive: true, force: true, maxRetries: 10 });
 });
 
 // ---------- staleness: telling the agent the page moved under a pin ----------
@@ -1172,7 +1174,7 @@ test("R-b3: re-running Codex setup with a new port rewrites the Pinpoint block i
   assert.match(t, /\[other\]\nkey = 1/);
   assert.match(t, /\[after\]\nz = 2/, "tables after ours survive");
   assert.equal(writeCodexMcp(CLI, { file, port: 7444 }).already, true);
-  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10 });
 });
 
 test("R-b4: PINPOINT_PORT in the environment does not drop --port from a written config", async () => {
@@ -1257,7 +1259,7 @@ test("R-b9: the native host hands over the bridge token, and nothing else", asyn
   WRAPPER = path.join(root, "pinpoint-host.sh");
   installNativeHost({ root, platform: "darwin", wrapperPath: WRAPPER, home: HOME });
   const { reply } = await askHost({ cmd: "token" });
-  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(root, { recursive: true, force: true, maxRetries: 10 });
   assert.equal(reply.ok, true);
   assert.equal(reply.token, TOKEN(), "the same token the bridge checks, read from PINPOINT_HOME");
   assert.deepEqual(Object.keys(reply).sort(), ["cmd", "ok", "token"]);

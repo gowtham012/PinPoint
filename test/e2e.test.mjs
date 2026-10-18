@@ -17,8 +17,9 @@ const CLI = path.resolve(here, "../bridge/cli.js");
 // Use whatever Chromium Playwright installed, unless a specific binary is pointed at.
 const CHROME = process.env.PINPOINT_CHROME || undefined;
 // Shares 7399 with bridge.test.mjs, which is safe because `npm test` runs the files sequentially
-// (--test-concurrency=1). 7397 and 7398 are taken by fixtures in here that must NOT answer.
-const PORT = 7399, SITE = 8081;
+// (--test-concurrency=1). PORT-1 and PORT-2 are fixtures in here that must NOT answer.
+// PINPOINT_TEST_PORT / PINPOINT_TEST_SITE move them, so two checkouts can run side by side.
+const PORT = Number(process.env.PINPOINT_TEST_PORT) || 7399, SITE = Number(process.env.PINPOINT_TEST_SITE) || 8081;
 const BASE = `http://127.0.0.1:${PORT}`;
 const HOME = fs.mkdtempSync(path.join(os.tmpdir(), "pp-e2e-"));
 const ENV = { ...process.env, PINPOINT_HOME: HOME };
@@ -184,7 +185,7 @@ before(async () => {
   await startDaemon();
   ({ c: ctx, id: extId } = await launch());
 });
-after(async () => { await ctx?.close(); await stopDaemon(); site.close(); fs.rmSync(HOME, { recursive: true, force: true }); });
+after(async () => { await ctx?.close(); await stopDaemon(); site.close(); fs.rmSync(HOME, { recursive: true, force: true, maxRetries: 10 }); });
 
 test("Esc cancels picking; highlight hidden; Esc/Cancel close popover without sending", async () => {
   await clearAll();
@@ -351,7 +352,7 @@ test("popup page: shows bridge status and list, clear empties bridge, copy-all w
   await popup.waitForFunction(() => document.querySelectorAll("#list li").length === 0);
   assert.equal((await pending()).length, 0);
   // port change persists
-  await popup.locator("#port").fill("7398"); await popup.locator("#port").dispatchEvent("change");
+  await popup.locator("#port").fill(String(PORT - 1)); await popup.locator("#port").dispatchEvent("change");
   await popup.waitForFunction(() => /offline/.test(document.querySelector("#status").textContent));
   await popup.locator("#port").fill(String(PORT)); await popup.locator("#port").dispatchEvent("change");
   await popup.waitForFunction(() => /bridge on/.test(document.querySelector("#status").textContent));
@@ -635,10 +636,10 @@ test("popup shows which page each annotation belongs to and confirms before clea
 
 test("popup refuses to show green for a foreign server on the bridge port (Bug 5)", async () => {
   const foreign = http.createServer((_q, r) => { r.writeHead(200, { "content-type": "application/json" }); r.end('{"ok":true}'); });
-  await new Promise((r) => foreign.listen(7397, "127.0.0.1", r));
+  await new Promise((r) => foreign.listen(PORT - 2, "127.0.0.1", r));
   const popup = await ctx.newPage();
   await popup.goto(`chrome-extension://${extId}/popup.html`);
-  await popup.locator("#port").fill("7397");
+  await popup.locator("#port").fill(String(PORT - 2));
   await popup.locator("#port").dispatchEvent("change");
   await popup.waitForFunction(() => /offline/.test(document.querySelector("#status").textContent), null, { timeout: 5000 });
   assert.equal(await popup.locator("#dot").getAttribute("class"), "dot off");
@@ -2043,7 +2044,9 @@ test("U5: a popup row takes you to its note's tab", async () => {
   await page.close();
 });
 
-test("U6: a bridge on a neighbouring port is found when the saved one does not answer", async () => {
+// Needs the real 7331-7340 range, so it is off when PINPOINT_TEST_PORT moves the suite elsewhere
+// (another checkout may be using that range); PINPOINT_TEST_SCAN=1 turns it back on.
+test("U6: a bridge on a neighbouring port is found when the saved one does not answer", { skip: process.env.PINPOINT_TEST_PORT && !process.env.PINPOINT_TEST_SCAN }, async () => {
   const taken = [];
   for (let p = 7331; p <= 7340; p++) { try { const h = await (await fetch(`http://127.0.0.1:${p}/health`)).json(); if (h.service === "pinpoint-bridge") taken.push(p); } catch {} }
   if (taken.length) return void console.log(`  skipped: a real bridge is already on ${taken.join(", ")}`);
@@ -2067,7 +2070,7 @@ test("U7: the bar can be dragged anywhere, stays there after a reload, and a dra
   const page = await openPage("/");
   await waitShadow(page, () => __pinpointShadow.querySelector(".dock").style.display === "flex", null, { timeout: 8000 });
   const sw = ctx.serviceWorkers()[0];
-  await sw.evaluate(() => chrome.storage.local.remove(`dockXY:${"http://localhost:8081"}`));
+  await sw.evaluate((o) => chrome.storage.local.remove(`dockXY:${o}`), `http://localhost:${SITE}`);
   // Hovering expands a bar that has shrunk to its mark, which shows the grip.
   const d = await inShadow(page, () => { const r = __pinpointShadow.querySelector(".dock").getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
   await page.mouse.move(d.x, d.y);
@@ -2093,7 +2096,7 @@ test("U7: the bar can be dragged anywhere, stays there after a reload, and a dra
   await page.mouse.click(t.x, t.y);
   await page.waitForFunction(() => document.documentElement.classList.contains("pinpoint-picking"));
   await page.keyboard.press("Escape");
-  await sw.evaluate(() => chrome.storage.local.remove(`dockXY:${"http://localhost:8081"}`));
+  await sw.evaluate((o) => chrome.storage.local.remove(`dockXY:${o}`), `http://localhost:${SITE}`);
   await page.close();
 });
 
