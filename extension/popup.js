@@ -229,6 +229,8 @@ api.storage.sync.get({ port: 7331, dockPos: "tr" }).then(({ port, dockPos }) => 
 $("#dockPos").onchange = async (e) => {
   await api.storage.sync.set({ dockPos: e.target.value });
   const tab = await activeTab();
+  // Choosing a corner is also how a bar that was dragged somewhere goes back to one.
+  try { if (tab?.url) await api.storage.local.remove("dockXY:" + new URL(tab.url).origin); } catch {}
   if (tab?.id) api.tabs.sendMessage(tab.id, { type: "showDock" }).catch(() => {});
 };
 $("#port").onchange = async (e) => {

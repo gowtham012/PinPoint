@@ -31,23 +31,24 @@
   shadow.innerHTML = `
     <style>
       /* Pinpoint is a layer over somebody else's app, so it keeps one look of its own in every theme:
-         violet-tinted graphite, like an instrument laid on the page, with the brand violet as the
-         only accent and the agent's orange for anything the agent did. The one flourish is the
-         highlight — print crop marks, not a filled box — and the pins, which are numbered drops. */
+         ink panels and a lime accent that stands out on any page, with sky blue for anything the
+         agent did. Lime on a white page is faint, so the marks and pins carry a thin ink edge. The
+         one flourish is the highlight — print crop marks, not a filled box — and the numbered drops. */
       :host {
-        --graphite: #1e1c26;        /* surfaces */
-        --graphite-2: #2a2735;      /* wells, hovers */
-        --graphite-3: #37334a;      /* pressed, rules */
-        --paper: #f4f2fb;           /* text on graphite: 15.6:1 */
-        --paper-dim: #b3aec6;       /* secondary text: 8.4:1 */
-        --paper-faint: #8a849f;     /* hints: 5.0:1 */
-        --accent: #7c66f2;          /* the brand violet, lifted a step for graphite */
-        --accent-hi: #a594ff;       /* violet as text on graphite: 6.7:1 */
-        --accent-ink: #ffffff;
-        --agent: #f29a63;           /* the agent */
+        --graphite: #121212;        /* ink surfaces */
+        --graphite-2: #1f1f1f;      /* wells, hovers */
+        --graphite-3: #2d2d2d;      /* pressed, rules */
+        --paper: #f5f5f5;           /* text on ink: 17.8:1 */
+        --paper-dim: #a8a8a8;       /* secondary text: 8.5:1 */
+        --paper-faint: #8c8c8c;     /* hints: 5.9:1 */
+        --accent: #c6f432;          /* lime */
+        --accent-hi: #c6f432;       /* lime as text on ink: 15.5:1 */
+        --accent-ink: #121212;      /* text on lime */
+        --edge: #121212;            /* the ink edge that keeps lime readable on a white page */
+        --agent: #5cc8ff;           /* the agent */
         --ok: #5fd39a; --danger: #ff7a7f; --warn: #f2c14e;
         --line: rgba(255,255,255,.09);
-        --shadow: 0 1px 0 rgba(255,255,255,.06) inset, 0 10px 30px -6px rgba(10,6,30,.45), 0 2px 6px rgba(10,6,30,.25);
+        --shadow: 0 1px 0 rgba(255,255,255,.06) inset, 0 10px 30px -6px rgba(0,0,0,.45), 0 2px 6px rgba(0,0,0,.25);
         --mark-src: url("data:image/png;base64,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");
         --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
         --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -64,8 +65,9 @@
 
       /* ---------- the highlight: crop marks ---------- */
       .hl { position: fixed; pointer-events: none; display: none; transition: none;
-            outline: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 2px; }
-      .hl .c { position: absolute; width: 14px; height: 14px; border: 0 solid var(--accent); }
+            outline: 1px solid var(--edge); outline-offset: 2px; box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 45%, transparent); }
+      .hl .c { position: absolute; width: 14px; height: 14px; border: 0 solid var(--accent);
+               filter: drop-shadow(0 0 .6px var(--edge)) drop-shadow(0 0 .6px var(--edge)); }
       .hl .c.tl { left: -6px; top: -6px; border-left-width: 3px; border-top-width: 3px; }
       .hl .c.tr { right: -6px; top: -6px; border-right-width: 3px; border-top-width: 3px; }
       .hl .c.bl { left: -6px; bottom: -6px; border-left-width: 3px; border-bottom-width: 3px; }
@@ -79,8 +81,7 @@
       .hl .tag.below { top: auto; bottom: -34px; }
       .hl .tag b { font-weight: 600; color: var(--accent-hi); }
       /* Held, not hovered: the marks go solid ink-violet and the box gets a faint wash. */
-      .hl.selected { outline-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
-      .hl.selected .c { border-color: var(--accent-hi); }
+      .hl.selected { background: color-mix(in srgb, var(--accent) 10%, transparent); box-shadow: 0 0 0 4px var(--accent); }
       .hl.flash { animation: flash 1s var(--ease); }
       @keyframes flash { 30% { background: color-mix(in srgb, var(--accent) 22%, transparent) } }
 
@@ -94,6 +95,13 @@
       .dock.pos-br { left: auto; right: 16px; }
       .dock.pos-tl { bottom: auto; top: 16px; }
       .dock.pos-tr { bottom: auto; top: 16px; left: auto; right: 16px; }
+      /* Dragged somewhere: left/top come from the drag, the corner classes stop applying. */
+      .dock.free { right: auto !important; bottom: auto !important; }
+      .dock .grip { width: 14px; height: 28px; display: inline-grid; place-items: center; color: var(--paper-faint); cursor: grab; flex: none; }
+      .dock .grip::before { content: ""; width: 6px; height: 12px; background: radial-gradient(currentColor 1px, transparent 1.4px) 0 0 / 3px 4px; }
+      .dock.dragging, .dock.dragging * { cursor: grabbing !important; }
+      .dock.dragging { box-shadow: var(--shadow), 0 0 0 2px var(--accent); }
+      .dock.mini .grip, .dock.armed .grip { display: none; }
       .dock button { display: inline-flex; align-items: center; gap: 7px; border-radius: 999px; height: 28px; padding: 0 11px; line-height: 1; }
       .dock button:hover { background: var(--graphite-2); }
       .dock .toggle { font-weight: 600; letter-spacing: -.005em; }
@@ -130,17 +138,17 @@
          only Stop and the counter take clicks. */
       .dock.armed { pointer-events: none; background: var(--accent); color: var(--accent-ink); }
       .dock.armed .toggle:hover { background: transparent; }
-      .dock.armed .mark { filter: brightness(0) invert(1); animation: pulse 1.6s ease-in-out infinite; }
+      .dock.armed .mark { filter: brightness(0); animation: pulse 1.6s ease-in-out infinite; }
       @keyframes pulse { 50% { opacity: .5 } }
-      .dock.armed .hint { color: rgba(255,255,255,.85); }
+      .dock.armed .hint { color: color-mix(in srgb, var(--accent-ink) 80%, transparent); }
       .dock.armed .label, .dock.armed .sep, .dock.armed .close, .dock.armed .restart { display: none; }
       .dock .stop { display: none; }
       .dock.armed .stop { display: inline-flex; pointer-events: auto; background: var(--graphite); color: var(--paper); font-weight: 600; }
       .dock.armed .stop:hover { background: var(--graphite-2); }
       .dock.armed .stop kbd { background: var(--graphite-2); }
-      .dock.armed .count { pointer-events: auto; color: rgba(255,255,255,.8); }
-      .dock.armed .count b { color: #fff; }
-      .dock.armed .count:hover { background: rgba(255,255,255,.14); }
+      .dock.armed .count { pointer-events: auto; color: color-mix(in srgb, var(--accent-ink) 75%, transparent); }
+      .dock.armed .count b { color: var(--accent-ink); }
+      .dock.armed .count:hover { background: rgba(0,0,0,.1); }
       /* Bridge down: a small pill whose only job is to bring it back. */
       .dock .start { display: none; color: var(--paper-dim); font-weight: 500; }
       .dock.offline .start { display: inline-flex; }
@@ -152,7 +160,8 @@
 
       /* ---------- region marquee ---------- */
       .marquee { position: fixed; display: none; pointer-events: none; z-index: 3;
-                 border: 1px dashed var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
+                 border: 2px dashed var(--edge); outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+                 background: color-mix(in srgb, var(--accent) 12%, transparent); }
       .marquee .size { position: absolute; right: 0; bottom: -26px; font: 500 10.5px/1 var(--mono); background: var(--graphite);
                        color: var(--paper-dim); padding: 5px 7px; border-radius: 5px; white-space: nowrap; box-shadow: var(--shadow); }
 
@@ -191,18 +200,18 @@
       .pop .send { background: var(--accent); color: var(--accent-ink); display: inline-flex; gap: 8px; align-items: center;
                    border-radius: 8px; padding: 7px 8px 7px 13px; font: 600 12.5px var(--sans); }
       .pop .send:hover { background: color-mix(in srgb, var(--accent) 88%, #fff); }
-      .pop .send kbd { background: rgba(0,0,0,.2); color: #fff; box-shadow: none; }
+      .pop .send kbd { background: rgba(0,0,0,.14); color: var(--accent-ink); box-shadow: none; }
 
       /* ---------- pins: numbered drops, pointing at the corner they mark ---------- */
       .pin {
         position: fixed; z-index: 2; min-width: 22px; height: 22px; padding: 0 6px; pointer-events: auto; cursor: pointer;
         border-radius: 11px 11px 11px 3px; background: var(--accent); color: var(--accent-ink);
         font: 700 11px/22px var(--sans); text-align: center; font-variant-numeric: tabular-nums;
-        box-shadow: 0 0 0 2px #fff, 0 4px 12px rgba(30,20,90,.35);
+        box-shadow: 0 0 0 2px var(--edge), 0 4px 12px rgba(0,0,0,.3);
         transform: translate(-50%, -50%); transition: transform 120ms var(--ease);
       }
       .pin:hover { transform: translate(-50%, -50%) scale(1.12); }
-      .pin.watched { box-shadow: 0 0 0 2px #fff, 0 0 0 6px color-mix(in srgb, var(--agent) 55%, transparent), 0 4px 12px rgba(30,20,90,.35); }
+      .pin.watched { box-shadow: 0 0 0 2px var(--edge), 0 0 0 6px color-mix(in srgb, var(--agent) 60%, transparent), 0 4px 12px rgba(0,0,0,.3); }
       .pin.new { animation: drop 260ms var(--ease); }
       @keyframes drop { from { transform: translate(-50%, -90%) scale(.6); opacity: 0 } }
       .tip {
@@ -261,7 +270,7 @@
         font-size: 12.5px; box-shadow: var(--shadow); max-width: min(560px, calc(100vw - 32px));
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis; animation: rise 180ms var(--ease);
       }
-      .toast::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent-hi); margin-right: 9px; vertical-align: 1px; }
+      .toast::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); margin-right: 9px; vertical-align: 1px; }
       .toast.action { pointer-events: auto; cursor: pointer; }
       .toast.action::before { background: var(--agent); }
       .toast.action::after { content: " ›"; color: var(--paper-faint); }
@@ -275,6 +284,7 @@
     <div class="marquee"><span class="size"></span></div>
 
     <div class="dock">
+      <span class="grip" title="Drag to move the bar anywhere" aria-hidden="true"></span>
       <button class="toggle" aria-label="Pinpoint: pick an element" aria-pressed="false"><span class="mark" aria-hidden="true"></span><span class="label">Pinpoint</span><span class="hint"></span></button>
       <button class="stop" title="Stop picking">Stop&nbsp;<kbd>Esc</kbd></button>
       <button class="start" title="Start the Pinpoint bridge"><span class="led" aria-hidden="true"></span><span class="st">Bridge off · Start</span></button>
@@ -666,11 +676,71 @@
     if (!r.width) return;
     const vw = window.innerWidth, vh = window.innerHeight, M = 16;
     const pos = ui.dock.className;
-    const wantLeft = /pos-br|pos-tr/.test(pos) ? vw - M - r.width : M;
-    const wantTop = /pos-tl|pos-tr/.test(pos) ? M : vh - M - r.height;
+    let wantLeft = /pos-br|pos-tr/.test(pos) ? vw - M - r.width : M;
+    let wantTop = /pos-tl|pos-tr/.test(pos) ? M : vh - M - r.height;
+    // Dragged somewhere: the same fraction of the free space, so a resize keeps it in proportion and
+    // never off-screen.
+    if (freePos) {
+      wantLeft = 8 + freePos.fx * Math.max(0, vw - r.width - 16);
+      wantTop = 8 + freePos.fy * Math.max(0, vh - r.height - 16);
+    }
     const dx = Math.round(wantLeft - r.left), dy = Math.round(wantTop - r.top);
     if (Math.abs(dx) > 1 || Math.abs(dy) > 1) ui.dock.style.transform = `translate(${dx}px, ${dy}px)`;
   }
+
+  // ---------- moving the bar ----------
+  // Drag it anywhere on the page and it stays there on this site. Stored as a fraction of the free
+  // space rather than pixels, so a narrower window keeps it on screen and in proportion. The popup's
+  // corner setting puts it back in a corner.
+  const POS_KEY = "dockXY:" + location.origin;
+  let freePos = null;
+  function applyFree() { ui.dock.classList.add("free"); ui.dock.style.left = "0px"; ui.dock.style.top = "0px"; }
+  function clearFree() { freePos = null; ui.dock.classList.remove("free"); ui.dock.style.left = ""; ui.dock.style.top = ""; }
+  let drag = null, dragJustEnded = false;
+  // Move and up are watched on the window for the length of the press: a quick drag leaves the bar
+  // within a few pixels, and the bar would never hear about it. Capture only starts once it really
+  // is a drag — capturing on press would retarget the click and the toggle would never get it.
+  function onDragMove(e) {
+    if (!drag || e.pointerId !== drag.id) return;
+    const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+    if (!drag.moved) {
+      if (Math.hypot(dx, dy) < 5) return;   // a click that wobbled, not a drag
+      drag.moved = true;
+      try { ui.dock.setPointerCapture(drag.id); } catch {}
+      ui.dock.classList.add("dragging");
+      clearTimeout(miniTimer);
+      ui.dock.classList.remove("mini");
+    }
+    e.preventDefault();
+    const M = 8, vw = window.innerWidth, vh = window.innerHeight, w = drag.r.width, h = drag.r.height;
+    const x = Math.min(Math.max(M, drag.r.left + dx), vw - w - M);
+    const y = Math.min(Math.max(M, drag.r.top + dy), vh - h - M);
+    freePos = { fx: (x - M) / Math.max(1, vw - w - 2 * M), fy: (y - M) / Math.max(1, vh - h - 2 * M) };
+    applyFree();
+    keepDockOnScreen();
+  }
+  async function onDragEnd(e) {
+    if (!drag || e.pointerId !== drag.id) return;
+    const moved = drag.moved;
+    drag = null;
+    window.removeEventListener("pointermove", onDragMove, true);
+    window.removeEventListener("pointerup", onDragEnd, true);
+    window.removeEventListener("pointercancel", onDragEnd, true);
+    if (!moved) return;
+    ui.dock.classList.remove("dragging");
+    dragJustEnded = true;
+    setTimeout(() => (dragJustEnded = false), 0);
+    try { await chrome.storage.local.set({ [POS_KEY]: freePos }); } catch {}
+  }
+  ui.dock.addEventListener("pointerdown", (e) => {
+    if (!e.isTrusted || e.button !== 0 || picking) return;
+    drag = { id: e.pointerId, sx: e.clientX, sy: e.clientY, r: ui.dock.getBoundingClientRect(), moved: false };
+    window.addEventListener("pointermove", onDragMove, true);
+    window.addEventListener("pointerup", onDragEnd, true);
+    window.addEventListener("pointercancel", onDragEnd, true);
+  });
+  // Letting go fires a click on whatever is under the pointer; that is the end of a drag, not a press.
+  ui.dock.addEventListener("click", (e) => { if (dragJustEnded) { e.stopImmediatePropagation(); e.preventDefault(); } }, true);
 
   // ---------- agent presence ----------
   // The bridge reports what the coding agent last did; the bar shows it the way a shared document
@@ -749,8 +819,11 @@
       else usedRecently = bridgeCode === "token" || Date.now() - ((await chrome.storage.local.get({ lastBridgeAt: 0 })).lastBridgeAt || 0) < RECENT_MS;
     } catch {}
     try {
-      const v = await chrome.storage.local.get(HIDE_KEY);
+      const v = await chrome.storage.local.get([HIDE_KEY, POS_KEY]);
       dockHidden = !!v[HIDE_KEY];
+      const fp = v[POS_KEY];
+      if (fp && Number.isFinite(fp.fx) && Number.isFinite(fp.fy)) { freePos = fp; applyFree(); }
+      else if (!drag) clearFree();
     } catch {}
     try {
       const { dockPos } = await chrome.storage.sync.get({ dockPos: "tr" });

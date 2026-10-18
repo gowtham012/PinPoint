@@ -148,8 +148,8 @@ async function health() {
 async function updateBadge(count) {
   try {
     await api.action.setBadgeText({ text: count > 0 ? String(count) : "" });
-    await api.action.setBadgeBackgroundColor({ color: "#6d5ae6" });
-    await api.action.setBadgeTextColor?.({ color: "#ffffff" });
+    await api.action.setBadgeBackgroundColor({ color: "#c6f432" });
+    await api.action.setBadgeTextColor?.({ color: "#121212" });
   } catch {}
 }
 

@@ -2062,3 +2062,37 @@ test("U6: a bridge on a neighbouring port is found when the saved one does not a
     await ctx.serviceWorkers()[0].evaluate((port) => chrome.storage.sync.set({ port }), PORT);
   }
 });
+
+test("U7: the bar can be dragged anywhere, stays there after a reload, and a drag is not a click", async () => {
+  const page = await openPage("/");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".dock").style.display === "flex", null, { timeout: 8000 });
+  const sw = ctx.serviceWorkers()[0];
+  await sw.evaluate(() => chrome.storage.local.remove(`dockXY:${"http://localhost:8081"}`));
+  // Hovering expands a bar that has shrunk to its mark, which shows the grip.
+  const d = await inShadow(page, () => { const r = __pinpointShadow.querySelector(".dock").getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+  await page.mouse.move(d.x, d.y);
+  await waitShadow(page, () => __pinpointShadow.querySelector(".dock .grip").getBoundingClientRect().width > 0);
+  const g = await inShadow(page, () => { const r = __pinpointShadow.querySelector(".dock .grip").getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+  await page.mouse.move(g.x, g.y);
+  await page.mouse.down();
+  await page.mouse.move(g.x - 200, g.y + 150, { steps: 6 });
+  await page.mouse.move(400, 420, { steps: 8 });
+  await page.mouse.up();
+  const at = () => inShadow(page, () => { const r = __pinpointShadow.querySelector(".dock").getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y) }; });
+  const dropped = await at();
+  assert.ok(Math.abs(dropped.y - 420) < 40 && dropped.x < 420 && dropped.x > 300, `the bar went where it was dropped: ${JSON.stringify(dropped)}`);
+  assert.equal((await S(page)).picking, false, "letting go of a drag is not a press of the toggle");
+  await page.waitForTimeout(300);
+  await page.reload();
+  await waitShadow(page, () => __pinpointShadow.querySelector(".dock").classList.contains("free") && __pinpointShadow.querySelector(".dock").style.display === "flex", null, { timeout: 8000 });
+  await page.waitForTimeout(200);
+  const again = await at();
+  assert.ok(Math.abs(again.x - dropped.x) <= 3 && Math.abs(again.y - dropped.y) <= 3, `remembered on this site: ${JSON.stringify(again)} vs ${JSON.stringify(dropped)}`);
+  // a plain click on the moved bar still turns picking on
+  const t = await inShadow(page, () => { const r = __pinpointShadow.querySelector(".dock .toggle").getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+  await page.mouse.click(t.x, t.y);
+  await page.waitForFunction(() => document.documentElement.classList.contains("pinpoint-picking"));
+  await page.keyboard.press("Escape");
+  await sw.evaluate(() => chrome.storage.local.remove(`dockXY:${"http://localhost:8081"}`));
+  await page.close();
+});
