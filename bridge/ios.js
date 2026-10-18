@@ -90,14 +90,14 @@ export async function bootedDevice() {
   return { udid: d.udid, name: d.name };
 }
 
-// "[x1,y1][x2,y2]" → {x, y, width, height}, in points.
-function parseBounds(s) {
+// "[x1,y1][x2,y2]" → {x, y, width, height}, in points. uiautomator writes bounds the same way.
+export function parseBounds(s) {
   const m = /\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]/.exec(s || "");
   return m ? { x: +m[1], y: +m[2], width: m[3] - m[1], height: m[4] - m[2] } : null;
 }
 
 // What a person would call this node: identifier first (it is what greps), then the visible words.
-function describe(n) {
+export function describe(n) {
   if (n.id) return `#${n.id}`;
   const words = n.label || n.text || n.value;
   return words ? `"${words.length > 40 ? words.slice(0, 40) + "…" : words}"` : "view";
@@ -125,7 +125,7 @@ export function flatten(tree) {
   return out;
 }
 
-const pngSize = (buf) => ({ width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) });
+export const pngSize = (buf) => ({ width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) });
 
 export async function snapshot() {
   const device = await bootedDevice();
@@ -150,10 +150,10 @@ export async function snapshot() {
   const viewport = { width: nodes[0].bounds.width, height: nodes[0].bounds.height };
   const px = pngSize(png);
   viewport.dpr = Math.round((px.width / viewport.width) * 100) / 100;
-  return { device, viewport, nodes, png: png.toString("base64") };
+  return { device, url: `ios-simulator://${device.name}`, viewport, nodes, png: png.toString("base64") };
 }
 
-const attrEsc = (s) => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+export const attrEsc = (s) => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 
 // A picked node as an annotation in the browser's shape, so every consumer downstream just works.
 export function toAnnotation({ node, comment, device, viewport, id }) {
