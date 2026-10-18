@@ -42,9 +42,10 @@ function withoutPixels(a) {
 }
 
 // `afterDelay`: how long after a resolve to look at the element again (the dev server needs a moment
-// to rebuild). 0 turns it off.
+// to rebuild). 0 turns it off. `afterWindow`: how long after a resolve the panel may still ask for
+// one; later, the page shows whatever happened since, not the agent's change.
 export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOINT_PROJECT || null, print = false, quiet = false, restartable = false,
-                              afterDelay = Number(process.env.PINPOINT_AFTER_DELAY ?? 3000) } = {}) {
+                              afterDelay = Number(process.env.PINPOINT_AFTER_DELAY ?? 3000), afterWindow = 10 * 60000 } = {}) {
   let db = load();
   const token = bridgeToken();
   const events = new EventEmitter();
@@ -323,13 +324,16 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
     // marked. Kept only if the note is still the same resolved answer when the picture comes back.
     async captureAfter(id) {
       const a = find(id);
-      if (!a || a.status !== "resolved" || !canLook(a) || afterBusy.has(a.id)) return false;
+      if (!a || a.status !== "resolved" || a.after || !canLook(a) || afterBusy.has(a.id)) return false;
       afterBusy.add(a.id);
       try {
         const at = a.resolvedAt;
         const r = await api.recheck(a.id, 10000);
         const now = find(a.id);
-        if (!now || now.status !== "resolved" || now.resolvedAt !== at || !r?.screenshot?.base64) return false;
+        if (!now || now.status !== "resolved" || now.resolvedAt !== at) return false;
+        // Gone: say so, and the panel stops asking. Busy or off screen: a later look may still get it.
+        if (r?.status === "ok" && !r.element) { now.after = { at: new Date().toISOString(), resolvedAt: at, missing: true }; persist(); return false; }
+        if (!r?.screenshot?.base64) return false;
         now.after = { at: new Date().toISOString(), resolvedAt: at, screenshot: r.screenshot };
         const kept = db.annotations.filter((x) => x.status === "resolved" && x.after?.screenshot)
           .sort((x, y) => String(y.after.at).localeCompare(String(x.after.at)));
@@ -560,11 +564,14 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
         }
         if (req.method === "POST" && m[2] === "/accept") return json(res, 200, { ok: await api.accept(id) });
         // The panel showing a done note that has no after yet (its tab was not in front at resolve
-        // time). Answers at once; the crop lands with the next version bump.
+        // time). Answers at once; the crop lands with the next version bump. Only within afterWindow
+        // (older notes, and those done before after crops existed, are left alone), and never before
+        // afterDelay is up: the done card asks the moment the resolve arrives, mid-rebuild.
         if (req.method === "POST" && m[2] === "/after") {
           const a = find(id);
-          const ok = !!a && a.status === "resolved" && !a.after && canLook(a);
-          if (ok) api.captureAfter(a.id).catch(() => {});
+          const since = a ? Date.now() - Date.parse(a.resolvedAt) : NaN;
+          const ok = !!a && a.status === "resolved" && !a.after && canLook(a) && since < afterWindow;
+          if (ok) setTimeout(() => api.captureAfter(a.id).catch(() => {}), Math.max(0, afterDelay - since)).unref?.();
           return json(res, 200, { ok });
         }
         if (req.method === "POST" && (m[2] === "/reply" || m[2] === "/answer")) {

@@ -15,6 +15,7 @@ const shot = (s) => ({ base64: Buffer.from(s).toString("base64"), width: 20, hei
 let d, BASE, EXT, stopExt;
 // The extension: long-polls /events and answers every recheck with a fresh crop, like background.js.
 let asked = 0;
+const gone = new Set(); // ids whose element the page no longer has
 function fakeExtension(base) {
   let on = true;
   const run = (async () => {
@@ -25,8 +26,9 @@ function fakeExtension(base) {
       since = r.version;
       for (const q of r.rechecks || []) {
         asked++;
-        await fetch(`${base}/rechecks/${q.reqId}`, { method: "POST", headers: { ...EXT, "content-type": "application/json" },
-          body: JSON.stringify({ status: "ok", element: { tag: "h1", text: "new" }, selectorStillMatches: true, screenshot: shot("after-" + q.id) }) });
+        const body = gone.has(q.id) ? { status: "ok", element: null }
+          : { status: "ok", element: { tag: "h1", text: "new" }, selectorStillMatches: true, screenshot: shot("after-" + q.id) };
+        await fetch(`${base}/rechecks/${q.reqId}`, { method: "POST", headers: { ...EXT, "content-type": "application/json" }, body: JSON.stringify(body) });
       }
     }
   })();
@@ -141,4 +143,45 @@ test("no extension seen: a resolve asks the browser nothing; the panel opening a
     const a = await until(async () => (await (await fetch(`${Q}/annotations/${id}`)).json()).annotation.after);
     assert.equal(a?.screenshot?.base64, shot("after-" + id).base64);
   } finally { await stop?.(); quiet.server.closeAllConnections?.(); await quiet.close(); }
+});
+
+// The panel asks too, as soon as the done card shows — usually well inside the dev server's rebuild.
+test("the panel asking for an after: it waits out the rebuild delay, and a note done long ago is left alone", async () => {
+  const q = await startDaemon({ port: 0, quiet: true, afterDelay: 600, afterWindow: 1500 });
+  const Q = `http://127.0.0.1:${q.server.address().port}`;
+  const make = async () => (await fetch(Q + "/annotations", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(sample()) }).then((r) => r.json())).id;
+  const resolve = (id) => fetch(`${Q}/annotations/${id}/resolve`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  const ask = async (id) => (await fetch(`${Q}/annotations/${id}/after`, { method: "POST", headers: EXT }).then((x) => x.json())).ok;
+  const get = async (id) => (await (await fetch(`${Q}/annotations/${id}`)).json()).annotation;
+  let stop = null;
+  try {
+    // resolved while no browser was around, so only the panel's request can bring the after
+    const fresh = await make(), old = await make();
+    await resolve(old);
+    await sleep(1600);
+    await resolve(fresh);
+    stop = fakeExtension(Q);
+    await sleep(100);
+    const n = asked;
+    assert.equal(await ask(fresh), true);
+    await sleep(200);
+    assert.equal(asked, n, "not looked at before the delay is up");
+    assert.ok(await until(async () => (await get(fresh)).after?.screenshot), "looked at once it is");
+    assert.equal(await ask(old), false, "resolved too long ago: today's page is not its after");
+    await sleep(700);
+    assert.equal((await get(old)).after, undefined);
+  } finally { await stop?.(); q.server.closeAllConnections?.(); await q.close(); }
+});
+
+test("an element that is gone is recorded as such, so the panel stops asking for it", async () => {
+  const { id } = await post("/annotations", sample());
+  gone.add(id);
+  await post(`/annotations/${id}/resolve`, { note: "removed it" });
+  const a = await until(async () => (await full(id)).after);
+  assert.equal(a?.missing, true);
+  assert.ok(!a.screenshot);
+  const n = asked;
+  assert.equal((await post(`/annotations/${id}/after`, {}, EXT)).ok, false);
+  await sleep(300);
+  assert.equal(asked, n);
 });
