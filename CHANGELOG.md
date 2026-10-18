@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Releases ship from CI.** `bash tools/release.sh x.y.z` sets the version everywhere, closes the
+  changelog and pushes a tag; `.github/workflows/release.yml` then tests and publishes to npm (trusted
+  publishing, with provenance), the MCP Registry, the Chrome Web Store and GitHub releases. See
+  `docs/releasing.md`.
+
 ## [0.6.0] — 2026-10-18
 
 A deep review (15 agents, every finding adversarially verified) and a redesign. 152 automated tests.

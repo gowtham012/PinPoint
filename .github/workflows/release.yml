@@ -1,0 +1,140 @@
+# Push a tag like v0.6.1 (tools/release.sh does it) and this ships everything:
+#   tests → npm → MCP Registry → Chrome Web Store → GitHub release.
+#
+# No long-lived npm or registry secrets: npm and the MCP Registry both trust this workflow through
+# GitHub's OIDC token. One-time setup, in docs/releasing.md:
+#   - npmjs.com → pinpoint-bridge → Settings → Trusted Publisher → GitHub Actions,
+#     repository gowtham012/pinpoint, workflow release.yml
+#   - Chrome Web Store: four repository secrets (the job is skipped until they exist)
+name: release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+jobs:
+  # The tag, the extension, the npm package and the registry entry must all say the same version,
+  # or one channel ships something the others do not.
+  versions:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          EXT=$(node -p "require('./extension/manifest.json').version")
+          PKG=$(node -p "require('./bridge/package.json').version")
+          REG=$(node -p "require('./bridge/server.json').version")
+          REGPKG=$(node -p "require('./bridge/server.json').packages[0].version")
+          echo "tag $TAG · extension $EXT · npm $PKG · registry $REG/$REGPKG"
+          for v in "$EXT" "$PKG" "$REG" "$REGPKG"; do
+            [ "$v" = "$TAG" ] || { echo "::error::version mismatch — run tools/release.sh $TAG"; exit 1; }
+          done
+          grep -q "^## \[$TAG\]" CHANGELOG.md || { echo "::error::CHANGELOG.md has no [$TAG] section"; exit 1; }
+          echo "version=$TAG" >> "$GITHUB_OUTPUT"
+
+  tests:
+    needs: versions
+    uses: ./.github/workflows/test.yml
+
+  npm:
+    needs: [versions, tests]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write          # npm trusted publishing + provenance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: npm install -g npm@latest   # trusted publishing needs npm 11.5+
+      - name: Publish (skipped if this version is already on npm)
+        working-directory: bridge
+        run: |
+          if npm view "pinpoint-bridge@${{ needs.versions.outputs.version }}" version >/dev/null 2>&1; then
+            echo "already on npm"; exit 0
+          fi
+          npm publish --provenance --access public
+
+  mcp-registry:
+    needs: [versions, npm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write          # the registry trusts github.com/gowtham012 through OIDC
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install mcp-publisher
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+          sudo mv mcp-publisher /usr/local/bin/
+      - name: Publish server.json
+        working-directory: bridge
+        run: |
+          mcp-publisher login github-oidc
+          mcp-publisher publish
+
+  chrome-web-store:
+    needs: [versions, tests]
+    runs-on: ubuntu-latest
+    env:
+      CWS_EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+      CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+      CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+      CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the store zip (manifest key stripped — the Store refuses it)
+        run: bash tools/make-cws-zip.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pinpoint-extension-cws
+          path: dist/pinpoint-extension-cws.zip
+      - name: Upload and submit for review
+        if: env.CWS_REFRESH_TOKEN != ''
+        run: |
+          TOKEN=$(curl -fsS https://oauth2.googleapis.com/token \
+            -d client_id="$CWS_CLIENT_ID" -d client_secret="$CWS_CLIENT_SECRET" \
+            -d refresh_token="$CWS_REFRESH_TOKEN" -d grant_type=refresh_token | jq -r .access_token)
+          echo "::add-mask::$TOKEN"
+          UP=$(curl -fsS -X PUT -H "Authorization: Bearer $TOKEN" -H "x-goog-api-version: 2" \
+            -T dist/pinpoint-extension-cws.zip \
+            "https://www.googleapis.com/upload/chromewebstore/v1.1/items/$CWS_EXTENSION_ID")
+          echo "$UP"
+          [ "$(echo "$UP" | jq -r .uploadState)" = "SUCCESS" ] || { echo "::error::upload failed"; exit 1; }
+          curl -fsS -X POST -H "Authorization: Bearer $TOKEN" -H "x-goog-api-version: 2" -H "Content-Length: 0" \
+            "https://www.googleapis.com/chromewebstore/v1.1/items/$CWS_EXTENSION_ID/publish"
+      - name: Store secrets not set
+        if: env.CWS_REFRESH_TOKEN == ''
+        run: echo "::notice::Chrome Web Store secrets are not set — upload dist/pinpoint-extension-cws.zip from the release by hand (docs/releasing.md)."
+
+  github-release:
+    needs: [versions, npm, chrome-web-store]
+    if: always() && needs.versions.result == 'success' && needs.npm.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: pinpoint-extension-cws
+          path: dist
+      - name: Release notes from CHANGELOG.md
+        run: |
+          V="${{ needs.versions.outputs.version }}"
+          awk -v v="## [$V]" 'index($0, v)==1 {f=1; next} /^## \[/ {f=0} f' CHANGELOG.md > notes.md
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            && gh release upload "$GITHUB_REF_NAME" dist/pinpoint-extension-cws.zip --clobber \
+            || gh release create "$GITHUB_REF_NAME" --title "Pinpoint ${{ needs.versions.outputs.version }}" --notes-file notes.md dist/pinpoint-extension-cws.zip
