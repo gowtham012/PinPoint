@@ -35,6 +35,8 @@ const auth = new URL("https://accounts.google.com/o/oauth2/v2/auth");
 auth.search = new URLSearchParams({
   response_type: "code", client_id: clientId, redirect_uri: REDIRECT, access_type: "offline", prompt: "consent",
   scope: "https://www.googleapis.com/auth/chromewebstore",
+  // The account that owns the item in the developer dashboard, which may differ from the Cloud one.
+  ...(process.env.CWS_LOGIN_HINT ? { login_hint: process.env.CWS_LOGIN_HINT } : {}),
 }).toString();
 
 const code = await new Promise((resolve, reject) => {
