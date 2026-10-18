@@ -43,7 +43,37 @@ test("the key-stripped store package loads, and Chrome needs no Grant button", a
   await popup.close();
 });
 
-// Firefox as the popup sees it: a moz-extension URL, host access withheld, a file:// tab.
+// Firefox has no per-extension file:// switch, so the real background must never send the popup
+// to one. Its canRun handler runs here with a Firefox URL, a file:// tab and file access "off".
+test("Firefox: a file:// tab gets no file_access code from the background", async () => {
+  const [sw] = ctx.serviceWorkers();
+  const canRun = async (firefox) => {
+    await sw.evaluate((firefox) => {
+      globalThis.__real ??= { getURL: chrome.runtime.getURL, query: chrome.tabs.query, fa: chrome.extension.isAllowedFileSchemeAccess };
+      chrome.runtime.getURL = firefox ? () => "moz-extension://pinpoint/" : __real.getURL;
+      chrome.tabs.query = async () => [{ id: 1, url: "file:///x.html" }];
+      chrome.extension.isAllowedFileSchemeAccess = async () => false;
+    }, firefox);
+    const page = await ctx.newPage();
+    await page.goto(`chrome-extension://${extId}/popup.html`);
+    const r = await page.evaluate(() => chrome.runtime.sendMessage({ type: "canRun" }));
+    await page.close();
+    return r;
+  };
+  try {
+    assert.equal((await canRun(false)).code, "file_access", "control: Chrome with file access off");
+    const ff = await canRun(true);
+    assert.equal(ff.code, null);
+    assert.equal(ff.local, true);
+  } finally {
+    await sw.evaluate(() => {
+      chrome.runtime.getURL = __real.getURL; chrome.tabs.query = __real.query;
+      chrome.extension.isAllowedFileSchemeAccess = __real.fa;
+    });
+  }
+});
+
+// Firefox as the popup sees it: a moz-extension URL and host access withheld.
 async function firefoxPopup({ granted = false } = {}) {
   const popup = await ctx.newPage();
   await popup.addInitScript((granted) => {
@@ -52,21 +82,13 @@ async function firefoxPopup({ granted = false } = {}) {
     chrome.permissions.contains = async () => granted;
     chrome.permissions.request = async (o) => { window.__asked = o; granted = true; return true; };
     chrome.runtime.sendMessage = async (m) => m.type === "canRun"
-      ? { url: "file:///x.html", local: false, code: "file_access", reason: "Turn on file access." }
+      ? { url: "http://localhost/", local: true, code: null, reason: "" }
       : m.type === "health" ? { ok: false } : null;
   }, granted);
   await popup.goto(`chrome-extension://${extId}/popup.html`);
-  await popup.waitForFunction(() => document.querySelector("#where").style.display === "block");
+  await popup.waitForSelector("#status");
   return popup;
 }
-
-test("Firefox: file access gets directions, not a chrome:// link that cannot open", async () => {
-  const popup = await firefoxPopup({ granted: true });
-  assert.equal(await popup.locator("#where button").count(), 0);
-  assert.match(await popup.textContent("#where"), /about:addons/);
-  assert.equal(await popup.isHidden("#grant"), true, "already granted: no button");
-  await popup.close();
-});
 
 test("Firefox: withheld host access shows Grant, which asks for the local sites only", async () => {
   const popup = await firefoxPopup({ granted: false });

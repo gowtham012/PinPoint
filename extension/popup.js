@@ -7,7 +7,6 @@ const api = globalThis.browser ?? globalThis.chrome;
 const $ = (s) => document.querySelector(s);
 const send = (msg) => api.runtime.sendMessage(msg);
 const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
-const FIREFOX = api.runtime.getURL("").startsWith("moz-extension:");
 // The pages our content scripts run on, minus file:// (Chrome has its own switch for that, and
 // Firefox will not grant it from a prompt). Firefox lets people withhold host permissions at
 // install — then nothing runs on their dev site and the bridge is unreachable — so the popup asks.
@@ -35,10 +34,8 @@ async function refresh({ keepHint = false } = {}) {
     $("#where").textContent = where.reason;
     $("#where").style.display = "block";
     // file:// with file access off: the one switch that fixes it is a click away, not five.
-    // Firefox cannot open its own settings pages from an extension, so it gets the directions.
-    if (where.code === "file_access" && FIREFOX) {
-      $("#where").append(" In Firefox: about:addons → Pinpoint → Permissions.");
-    } else if (where.code === "file_access") {
+    // Chrome only: Firefox has no such switch, so its background never sends file_access.
+    if (where.code === "file_access") {
       const b = document.createElement("button");
       b.textContent = "Open Pinpoint's settings";
       b.onclick = () => api.tabs.create({ url: `chrome://extensions/?id=${api.runtime.id}` });
