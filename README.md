@@ -132,7 +132,8 @@ is macOS and Linux only; on Windows, start the bridge in a terminal.
 
 **Chromium** — Chrome, Edge, Brave, Arc, Opera, Vivaldi. Load unpacked, as above; the test suite
 drives headless Chromium, so that is the one continuously verified.
-**Safari** — built rather than loaded: `bash tools/make-safari.sh` (needs Xcode).
+**Safari** — built rather than loaded: `bash tools/make-safari.sh` (needs Xcode). For the Mac App
+Store, `TEAM=<your team id> bash tools/make-safari.sh --release` archives and exports a signed build.
 **Firefox** — not yet.
 
 <details>
