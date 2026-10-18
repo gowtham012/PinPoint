@@ -254,7 +254,7 @@ function pageContext(tabId, fromPage) {
 }
 
 // Crop the visible tab to `rect` (CSS px, top-document viewport coordinates) at ratio `dpr`.
-async function captureElement(windowId, rect, dpr, pad = 8) {
+async function captureElement(windowId, rect, dpr, pad = 8, max = 1200) {
   const dataUrl = await api.tabs.captureVisibleTab(windowId, { format: "png" });
   const blob = await (await fetch(dataUrl)).blob();
   const bitmap = await createImageBitmap(blob);
@@ -265,7 +265,7 @@ async function captureElement(windowId, rect, dpr, pad = 8) {
   const sh = Math.min(bitmap.height - sy, Math.ceil((rect.height + pad * 2) * dpr));
   if (sw <= 0 || sh <= 0) { bitmap.close(); return null; }
 
-  const scale = Math.min(1, 1200 / Math.max(sw, sh));
+  const scale = Math.min(1, max / Math.max(sw, sh));
   const canvas = new OffscreenCanvas(Math.round(sw * scale), Math.round(sh * scale));
   const ctx = canvas.getContext("2d");
   ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
@@ -281,14 +281,17 @@ async function captureElement(windowId, rect, dpr, pad = 8) {
 // so captures are serialised with a small gap and retried once. Annotating three things quickly
 // must not cost you three screenshots.
 let captureChain = Promise.resolve();
-let lastCaptureAt = 0;
+let lastCaptureAt = 0, capturesQueued = 0;
 const MIN_GAP_MS = 650;
+// Queued, running, or so recent that the next one would have to wait.
+const captureBusy = () => capturesQueued > 0 || Date.now() - lastCaptureAt < MIN_GAP_MS;
 
 function queueCapture(fn) {
+  capturesQueued++;
   const run = captureChain.then(async () => {
     const wait = Math.max(0, MIN_GAP_MS - (Date.now() - lastCaptureAt));
     if (wait) await new Promise((r) => setTimeout(r, wait));
-    try { return await fn(); } finally { lastCaptureAt = Date.now(); }
+    try { return await fn(); } finally { lastCaptureAt = Date.now(); capturesQueued--; }
   });
   captureChain = run.catch(() => {});
   return run;
@@ -376,6 +379,52 @@ async function finishCapture(tab, capture, id, expectedUrl) {
     // Let the page show its overlay again (harmless if the tab has already gone).
     api.tabs.sendMessage(tab.id, { type: "captureDone" }).catch(() => {});
   }
+}
+
+// ---------- recording a flow ----------
+// Per tab in storage.session: it outlives the worker being suspended and the page navigating, and
+// goes with the browser session. Every step is redacted here, like page context; without the
+// redactor its text and URL are dropped (fail closed).
+const REC = (tabId) => "rec:" + tabId;
+const MAX_STEPS = 10;
+let recChain = Promise.resolve();
+const withRec = (fn) => { const run = recChain.then(fn); recChain = run.catch(() => {}); return run; };
+const getRec = async (tabId) => (await api.storage.session.get({ [REC(tabId)]: null }))[REC(tabId)];
+api.tabs.onRemoved.addListener((id) => api.storage.session.remove(REC(id)).catch(() => {}));
+
+function cleanStep(s) {
+  const R = globalThis.pinpointRedact || (() => "");
+  const at = Date.parse(s?.at);
+  return {
+    selector: String(s?.selector ?? "").slice(0, 300),
+    describe: R(s?.describe).slice(0, 120),
+    text: R(s?.text).slice(0, 120),
+    url: R(s?.url),
+    at: new Date(Number.isFinite(at) ? at : Date.now()).toISOString(),
+  };
+}
+
+// The crop of a step is a convenience. When another picture is queued or running, the step is kept
+// without one rather than queued: captureVisibleTab allows about two a second, and a queued crop
+// taken after a click has navigated would show the wrong page anyway.
+async function recordStep(tab, msg) {
+  const shoot = !!msg.capture?.rect && !captureBusy();
+  // Claimed now, before the storage round trip, so a second click a moment later sees it.
+  const shot = shoot ? queueCapture(async () => {
+    if ((await tabState(tab, msg.step?.url)) !== "ready") return null;
+    return captureElement(tab.windowId, msg.capture.rect, msg.capture.dpr, 8, 600);
+  }).catch(() => null) : Promise.resolve(null);
+  return withRec(async () => {
+    const rec = await getRec(tab.id);
+    if (!rec) return { ok: false };
+    if (rec.steps.length >= MAX_STEPS) return { ok: false, full: true, n: rec.steps.length };
+    const step = cleanStep(msg.step);
+    step.screenshot = await shot;
+    if (!step.screenshot) step.screenshotSkipped = shoot ? "the picture could not be taken" : "no crop — another picture was being taken";
+    rec.steps.push(step);
+    await api.storage.session.set({ [REC(tab.id)]: rec });
+    return { ok: true, n: rec.steps.length, full: rec.steps.length >= MAX_STEPS };
+  });
 }
 
 // ---------- re-checking a pin against the live page ----------
@@ -531,6 +580,30 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       // A pin telling us the page has moved underneath it. Fire and forget: the bridge stores it
       // without bumping its version, so this can never turn into a reload loop.
+      // Only the top frame of a tab records; the steps are the worker's, not the page's.
+      case "recordStart": {
+        if (!sender.tab?.id || sender.frameId) return { ok: false };
+        await withRec(() => api.storage.session.set({ [REC(sender.tab.id)]: { steps: [], startedAt: Date.now() } }));
+        return { ok: true };
+      }
+      case "recordState": {
+        if (!sender.tab?.id) return { recording: false };
+        const rec = await withRec(() => getRec(sender.tab.id));
+        return { recording: !!rec, n: rec?.steps.length || 0 };
+      }
+      case "recordStep": {
+        if (!sender.tab?.id || sender.frameId) return { ok: false };
+        return recordStep(sender.tab, msg);
+      }
+      // Done hands the steps back for the note; Esc just throws them away.
+      case "recordStop": {
+        if (!sender.tab?.id) return { ok: false };
+        return withRec(async () => {
+          const rec = await getRec(sender.tab.id);
+          await api.storage.session.remove(REC(sender.tab.id));
+          return { ok: true, steps: msg.keep ? rec?.steps || [] : [] };
+        });
+      }
       case "elementState": {
         try {
           await bridgeFetch(`/annotations/${encodeURIComponent(msg.id)}/element-state`, {

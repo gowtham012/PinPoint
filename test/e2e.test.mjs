@@ -2070,6 +2070,9 @@ test("U6: a bridge on a neighbouring port is found when the saved one does not a
 test("U7: the bar can be dragged anywhere, stays there after a reload, and a drag is not a click", async () => {
   const page = await openPage("/");
   await waitShadow(page, () => __pinpointShadow.querySelector(".dock").style.display === "flex", null, { timeout: 8000 });
+  // The position is kept as a fraction of the free space, so the bar must be the same width before
+  // and after the reload: wait out the agent's live label from an earlier test, which widens it.
+  await waitShadow(page, () => !__pinpointShadow.querySelector(".dock").classList.contains("agent-live"), null, { timeout: 30000 });
   const sw = ctx.serviceWorkers()[0];
   await sw.evaluate((o) => chrome.storage.local.remove(`dockXY:${o}`), `http://localhost:${SITE}`);
   // Hovering expands a bar that has shrunk to its mark, which shows the grip.
@@ -2342,5 +2345,91 @@ test("V7: no mic button where the browser has no speech recognizer", async () =>
   assert.equal(await inShadow(page, () => __pinpointShadow.querySelector(".pop .mic").offsetParent), null);
   await page.keyboard.press("Escape");
   await disarm(page);
+  await page.close();
+});
+
+// ============ 0.7.0 lane UI: recorded flows ============
+const recording = (page) => inShadow(page, () => __pinpointShadow.querySelector(".dock").classList.contains("recording"));
+const recN = (page, n) => waitShadow(page, (n) => __pinpointShadow.querySelector(".dock .rec-n")?.textContent === n, n, { timeout: 6000 });
+// A step is cropped only when no other picture is due (captureVisibleTab allows ~2/s); the wait keeps
+// the previous test's capture out of the first step.
+async function startRecording(page) {
+  await arm(page);
+  await tapShadow(page, ".dock .rec-start");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".dock").classList.contains("recording"));
+  await page.waitForTimeout(800);
+}
+
+test("W1: Record steps logs real clicks across a navigation, and Done sends them as one flow", async () => {
+  await clearAll();
+  const page = await openPage("/plain.html?session=abc123secret");
+  await startRecording(page);
+  assert.equal((await S(page)).picking, false, "recording is not picking: clicks go to the page");
+  // a page script's synthetic press is not the developer
+  await page.evaluate(() => document.getElementById("search").dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
+  await page.locator("#search").click();
+  assert.equal(await page.evaluate(() => document.activeElement.id), "search", "the click reached the page");
+  await recN(page, "1");
+  await page.waitForTimeout(900);
+  await page.goto(url("/"));
+  await waitShadow(page, () => __pinpointShadow.querySelector(".dock").classList.contains("recording"), null, { timeout: 8000 });
+  await page.locator("h1").click();
+  await recN(page, "2");
+  await page.waitForTimeout(900);
+  await tapShadow(page, ".dock .rec-done");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pop").style.display === "block");
+  assert.match(await inShadow(page, () => __pinpointShadow.querySelector(".pop .meta").textContent), /2 steps/);
+  assert.equal(await recording(page), false);
+  await typeComment(page, "the headline jumps after a search");
+  await page.keyboard.press(SEND);
+  const [a] = await pendingWithShots(1);
+  assert.equal(a.kind, "flow");
+  assert.equal(a.steps.length, 2);
+  assert.match(a.steps[0].selector, /search/);
+  assert.equal(a.steps[0].url, url("/plain.html"), "query string stripped");
+  assert.ok(a.steps[0].screenshot?.base64, `the first step is cropped: ${a.steps[0].screenshotSkipped}`);
+  assert.ok(Math.max(a.steps[0].screenshot.width, a.steps[0].screenshot.height) <= 600);
+  assert.equal(a.steps[1].url, url("/"));
+  assert.doesNotMatch(JSON.stringify(a), /abc123secret/);
+  assert.match(await (await fetch(BASE + "/pending.md")).text(), /Steps to reproduce/);
+  await disarm(page);
+  await page.close();
+});
+
+test("W2: a click right after another keeps its step without a crop", async () => {
+  await clearAll();
+  const page = await openPage("/plain.html");
+  await startRecording(page);
+  await page.locator("#search").click();
+  await page.locator("#wide").click();
+  await recN(page, "2");
+  await page.waitForTimeout(900);
+  await tapShadow(page, ".dock .rec-done");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pop").style.display === "block");
+  await typeComment(page, "two quick clicks");
+  await page.keyboard.press(SEND);
+  const [a] = await pendingWithShots(1);
+  assert.equal(a.steps.length, 2);
+  assert.ok(a.steps[0].screenshot?.base64, a.steps[0].screenshotSkipped);
+  assert.equal(a.steps[1].screenshot, null);
+  assert.ok(a.steps[1].screenshotSkipped);
+  await disarm(page);
+  await page.close();
+});
+
+test("W3: ten steps is the most; Esc throws the recording away, and a reload does not bring it back", async () => {
+  await clearAll();
+  const page = await openPage("/plain.html");
+  await startRecording(page);
+  for (let i = 0; i < 11; i++) await page.locator("#search").click();
+  await recN(page, "10");
+  await page.waitForTimeout(300);
+  assert.equal(await inShadow(page, () => __pinpointShadow.querySelector(".dock .rec-n").textContent), "10");
+  await page.keyboard.press("Escape");
+  await waitShadow(page, () => !__pinpointShadow.querySelector(".dock").classList.contains("recording"));
+  await page.reload();
+  await page.waitForTimeout(800);
+  assert.equal(await recording(page), false);
+  assert.equal((await pending()).length, 0, "nothing was sent");
   await page.close();
 });

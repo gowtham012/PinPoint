@@ -30,6 +30,14 @@ export function restartArgs({ port, project = null, quiet = false, print = false
 
 // `restartable` is off by default on purpose: POST /restart re-execs the process and exits it, and
 // a daemon embedded in someone else's process (the test suite) must never do that to its host.
+// Every image an annotation carries, as its size only.
+const size = (x) => (x ? { width: x.width, height: x.height } : null);
+function withoutPixels(a) {
+  const out = { ...a, screenshot: size(a.screenshot) };
+  if (Array.isArray(a.steps)) out.steps = a.steps.map((st) => ({ ...st, screenshot: size(st.screenshot) }));
+  return out;
+}
+
 export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOINT_PROJECT || null, print = false, quiet = false, restartable = false } = {}) {
   let db = load();
   const token = bridgeToken();
@@ -65,7 +73,7 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
       if (!fs.existsSync(ignore)) fs.writeFileSync(ignore, "*\n");
       fs.writeFileSync(path.join(dir, "pending.md"), pendingMarkdown(db, { channel: "file", cliPath: CLI_PATH, port }));
       const stripped = pending(db).map((a) => ({
-        ...a,
+        ...withoutPixels(a),
         screenshot: a.screenshot ? { width: a.screenshot.width, height: a.screenshot.height, note: "not included in this file; read it over MCP (get_annotation) or from the bridge" } : null,
       }));
       fs.writeFileSync(path.join(dir, "pending.json"), JSON.stringify(stripped, null, 2));
@@ -95,6 +103,9 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
       // A draft is marked but not handed over: no agent sees it until the developer sends it.
       a.status = a.status === "draft" ? "draft" : "pending";
       a.receivedAt = new Date().toISOString();
+      // A recorded flow: the extension caps it at ten, and so does the store.
+      if (Array.isArray(a.steps)) a.steps = a.steps.slice(0, 10).filter((x) => x && typeof x === "object");
+      else delete a.steps;
       db.annotations.push(a);
       // Keep the store bounded: only the most recent resolved annotations are kept.
       const resolved = db.annotations.filter((x) => x.status === "resolved");
@@ -467,11 +478,9 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
         const match = status === "all" ? () => true : status === "open" ? (a) => a.status !== "resolved" : (a) => a.status === status;
         const items = db.annotations.filter((a) => match(a) && (!u || a.page.url.split("#")[0] === u));
         const withImages = url.searchParams.get("images") === "1";
-        return json(res, 200, { version, agent: api.agent(), annotations: withImages ? items : items.map(({ screenshot, ...a }) => ({
-          // Keep the size, drop the pixels: text consumers (the hook, the popup) still say "a 340×120
-          // screenshot is stored" without pulling megabytes of base64 on every prompt.
-          ...a, hasScreenshot: !!screenshot, screenshot: screenshot ? { width: screenshot.width, height: screenshot.height } : null,
-        })) });
+        // Keep the size, drop the pixels: text consumers (the hook, the popup) still say "a 340×120
+        // screenshot is stored" without pulling megabytes of base64 on every prompt.
+        return json(res, 200, { version, agent: api.agent(), annotations: withImages ? items : items.map((a) => ({ ...withoutPixels(a), hasScreenshot: !!a.screenshot })) });
       }
 
       if (p === "/annotations" && req.method === "POST") {

@@ -15,6 +15,7 @@
   let pins = []; // { id, number, selector, comment, el }
   let replies = []; // resolved annotations for this page, with what the agent said back
   let pickChain = [], pickIndex = 0; // the element stack under the last click, and where we sit in it
+  let recording = false, recN = 0, flowSteps = null; // a flow being recorded; its steps once Done
 
   const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
   const K_SEND = MAC ? "\u2318\u21a9" : "Ctrl+Enter";
@@ -166,6 +167,15 @@
       .dock .page-note { display: none; }
       .dock.armed .page-note { display: inline-flex; pointer-events: auto; color: var(--accent-ink); font-weight: 600; }
       .dock.armed .page-note:hover { background: rgba(0,0,0,.1); }
+      /* Recording a flow: a red light and a running count of steps; Done is the way out. */
+      .dock .rec-start, .dock .rec-done { display: none; }
+      .dock.armed .rec-start { display: inline-flex; pointer-events: auto; color: var(--accent-ink); font-weight: 600; }
+      .dock.armed .rec-start:hover { background: rgba(0,0,0,.1); }
+      .dock.recording .rec-done { display: inline-flex; font-weight: 600; }
+      .dock .rec-done .led { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); flex: none; animation: pulse 1.6s ease-in-out infinite; }
+      .dock.recording .toggle, .dock.recording .drafts, .dock.recording.armed .rec-start { display: none; }
+      .pop .steps { margin: 4px 0 0; padding-left: 18px; color: var(--paper-dim); font: 11px/1.5 var(--mono); max-height: 120px; overflow: auto; }
+      .pop .steps li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
       /* ---------- region marquee ---------- */
       .marquee { position: fixed; display: none; pointer-events: none; z-index: 3;
@@ -332,6 +342,8 @@
       <span class="grip" title="Drag to move the bar anywhere" aria-hidden="true"></span>
       <button class="toggle" aria-label="Pinpoint: pick an element" aria-pressed="false"><span class="mark" aria-hidden="true"></span><span class="label">Pinpoint</span><span class="hint"></span></button>
       <button class="page-note" title="A note about the whole page, not one element">Whole page</button>
+      <button class="rec-start" title="Click through what goes wrong; each click becomes a step">Record steps</button>
+      <button class="rec-done" title="Stop recording and write the note (Esc throws it away)"><span class="led" aria-hidden="true"></span>Recording · <span class="rec-n">0</span>&nbsp;· Done</button>
       <button class="stop" title="Stop picking">Stop&nbsp;<kbd>Esc</kbd></button>
       <button class="start" title="Start the Pinpoint bridge"><span class="led" aria-hidden="true"></span><span class="st">Bridge off · Start</span></button>
       <span class="sep"></span>
@@ -383,6 +395,9 @@
     dockToggle: shadow.querySelector(".dock .toggle"),
     dockStop: shadow.querySelector(".dock .stop"),
     dockPage: shadow.querySelector(".dock .page-note"),
+    recStart: shadow.querySelector(".dock .rec-start"),
+    recDone: shadow.querySelector(".dock .rec-done"),
+    recN: shadow.querySelector(".dock .rec-n"),
     dockDrafts: shadow.querySelector(".dock .drafts"),
     dockDraftsN: shadow.querySelector(".dock .drafts .dn"),
     draft: shadow.querySelector(".pop .draft"),
@@ -842,14 +857,16 @@
   function expandDock(ms = 4000) {
     ui.dock.classList.remove("mini");
     clearTimeout(miniTimer);
-    if (!picking) miniTimer = setTimeout(() => ui.dock.classList.add("mini"), ms);
+    if (!picking && !recording) miniTimer = setTimeout(() => ui.dock.classList.add("mini"), ms);
   }
 
   function paintDock() {
     if (!isTop) return;
     ui.dock.classList.toggle("armed", picking);
     ui.dockToggle.setAttribute("aria-pressed", String(picking));
-    if (picking) { clearTimeout(miniTimer); ui.dock.classList.remove("mini"); }
+    ui.dock.classList.toggle("recording", recording);
+    ui.recN.textContent = String(recN);
+    if (picking || recording) { clearTimeout(miniTimer); ui.dock.classList.remove("mini"); }
     else if (!ui.dock.classList.contains("mini")) expandDock();
     // While armed the Stop button carries the Esc affordance, so the hint just names the action.
     ui.dockHint.innerHTML = picking ? `Click any element` : `<kbd>${MAC ? "\u2325\u21e7A" : "Alt+Shift+A"}</kbd>`;
@@ -908,6 +925,8 @@
   ui.dockCount.addEventListener("click", (e) => { e.stopPropagation(); togglePanel(); });
   ui.dockDrafts.addEventListener("click", (e) => { e.stopPropagation(); sendDrafts(); });
   ui.dockPage.addEventListener("click", (e) => { e.stopPropagation(); e.preventDefault(); notePage(); });
+  ui.recStart.addEventListener("click", (e) => { e.stopPropagation(); e.preventDefault(); if (e.isTrusted) startRecording(); });
+  ui.recDone.addEventListener("click", (e) => { e.stopPropagation(); e.preventDefault(); if (e.isTrusted) finishRecording(); });
   async function sendDrafts() {
     const r = await chrome.runtime.sendMessage({ type: "sendDrafts", url: location.href.split("#")[0] }).catch(() => null);
     if (!r || r.error) return toast("Not sent — the bridge isn't answering");
@@ -1041,6 +1060,7 @@
       li.querySelector(".n").textContent = p.number;
       li.querySelector(".c").textContent = p.comment;
       li.querySelector(".s").innerHTML = p.kind === "page" ? "the whole page"
+        : p.kind === "flow" ? `a recorded flow · ${Number(p.steps) || 0} steps`
         : p.node.dataset.orphan === "1" ? `<span class="warn">not on this view</span>`
         : escapeHtml(p.selector);
       appendThread(li.querySelector(".body"), p.thread);
@@ -1147,7 +1167,7 @@
   }
 
   function revealPin(p) {
-    if (p.kind === "page") return;
+    if (p.kind === "page" || p.kind === "flow") return;
     const el = p.el && p.el.isConnected ? p.el : findElement(p.selector, p.fp);
     if (!el) return toast("That element isn't on the page right now");
     // The CSS media query cannot reach this one — jumping to a note must respect the setting too.
@@ -1411,6 +1431,7 @@
       }
     }
     if (e.key === "Escape") {
+      if (recording && !picking && ui.pop.style.display !== "block") { took(); return stopRecording(); }
       if (tipPinned && !picking && ui.pop.style.display !== "block") { took(); return hideTip(); }
       if (ui.panel.style.display === "flex" && !picking && ui.pop.style.display !== "block") { took(); return togglePanel(false); }
       if (picking) { took(); return stopPicking(); }
@@ -1443,6 +1464,54 @@
     pickChain = [document.body]; pickIndex = 0;
     openPopover(document.body);
   }
+
+  // ---------- recording a flow ----------
+  // "It breaks after I do this, then this": you click through the page as usual and each click is a
+  // step. The worker keeps the steps per tab (storage.session), so a click that navigates keeps the
+  // recording going on the next page. Clicks are never stopped — the page has to do what it does.
+  // ponytail: top frame only; a click inside an iframe is not a step.
+  async function startRecording() {
+    stopPicking();
+    const r = await chrome.runtime.sendMessage({ type: "recordStart" }).catch(() => null);
+    if (!r?.ok) return toast("Can't record here — the extension isn't answering");
+    recording = true; recN = 0;
+    paintDock();
+    toast("Recording — click through it, then Done. Esc throws it away", 3000);
+  }
+  function stopRecording() {
+    recording = false;
+    paintDock();
+    chrome.runtime.sendMessage({ type: "recordStop" }).catch(() => {});
+  }
+  async function finishRecording() {
+    recording = false;
+    paintDock();
+    const r = await chrome.runtime.sendMessage({ type: "recordStop", keep: true }).catch(() => null);
+    const steps = Array.isArray(r?.steps) ? r.steps : [];
+    if (!steps.length) return toast("No steps yet — click through the page, then Done");
+    selected = document.body;
+    selectedPage = true;
+    flowSteps = steps;
+    pickChain = [document.body]; pickIndex = 0;
+    openPopover(document.body);
+  }
+  document.addEventListener("pointerdown", async (e) => {
+    if (!recording || picking || !isTop || !e.isTrusted || e.button !== 0) return;
+    const el = targetFromEvent(e);
+    if (!el) return;   // our own bar, or the bare page
+    // What you would say out loud: the thing, its label. Never an input's value — that is what you typed.
+    const step = { selector: uniqueSelector(el), describe: describe(el), url: location.href, at: new Date().toISOString(),
+                   text: clip(el.innerText || el.getAttribute("aria-label") || el.getAttribute("placeholder") || "", 80) };
+    const capture = await captureRect(el);
+    const r = await chrome.runtime.sendMessage({ type: "recordStep", step, capture }).catch(() => null);
+    if (!recording) return;
+    if (r?.n) { recN = r.n; paintDock(); }
+    if (r?.full) toast("Ten steps is the most one note takes — press Done", 3000);
+  }, true);
+  // A navigation reloads this script; the recording is still the worker's.
+  if (isTop) chrome.runtime.sendMessage({ type: "recordState" }).then((r) => {
+    if (r?.recording) { recording = true; recN = r.n || 0; paintDock(); }
+  }).catch(() => {});
 
   let returnFocus = null;
   function openPopover(el, region = null) {
@@ -1489,6 +1558,13 @@
     const hint = sourceHint(el);
     const comp = hint.components[0] ? `<b>&lt;${hint.components[0]}&gt;</b> ` : "";
     const file = hint.file ? ` · ${hint.file}${hint.line ? ":" + hint.line : ""}` : "";
+    if (flowSteps) {
+      ui.meta.innerHTML = `<div class="row"><b>Recorded flow</b>${flowSteps.length} step${flowSteps.length === 1 ? "" : "s"}</div><ol class="steps"></ol>`;
+      const ol = ui.meta.querySelector(".steps");
+      for (const st of flowSteps) { const li = document.createElement("li"); li.textContent = st.describe + (st.text ? ` “${st.text}”` : ""); ol.appendChild(li); }
+      ui.scope.style.display = "none";
+      return;
+    }
     if (selectedPage) {
       ui.meta.innerHTML = `<div class="row"><b>This page</b>${escapeHtml(clip(document.title || location.pathname, 60))}</div>` +
         `<div class="picked">A note about the whole page — the screenshot is what is on screen now</div>`;
@@ -1529,6 +1605,7 @@
   function hidePopover() {
     stopDictation(true);
     selectedPage = false;
+    flowSteps = null;
     const hadFocus = !!shadow.activeElement && ui.pop.contains(shadow.activeElement);
     if (hadFocus && returnFocus?.isConnected) { try { returnFocus.focus({ preventScroll: true }); } catch {} }
     returnFocus = null;
@@ -1758,10 +1835,11 @@
     ui.send.disabled = true;
     try {
       const region = selectedRegion;
-      const page = selectedPage;
+      const page = selectedPage, steps = flowSteps;
       const a = await buildAnnotation(el, comment, region ? { region } : {});
       if (draft) a.status = "draft";
       if (page) a.kind = "page";
+      if (steps) { a.kind = "flow"; a.steps = steps; }
       // A page note is cropped to the window: the whole visible page, not the <body> box.
       const capture = await captureRect(el, page ? { x: window.scrollX, y: window.scrollY, width: window.innerWidth, height: window.innerHeight } : region);
       if (capture) hideOverlayForCapture();
@@ -1777,7 +1855,7 @@
       }
       if (!res || res.error) { showOverlay(); throw new Error(res?.error || "no response"); }
       addPin({ id: a.id, number: res.number || pins.length + 1, selector: a.element.selector, comment, el, fp: a.element.fingerprint, region, fresh: true,
-               status: draft ? "draft" : "pending", kind: page ? "page" : null });
+               status: draft ? "draft" : "pending", kind: a.kind || null, steps: steps?.length || 0 });
       setStatus(draft ? "Saved as a draft" : "Sent ✓", "ok");
       lastWasDraft = draft;
       // The overlay stays hidden until the worker has taken its picture ("captureDone"), which
@@ -1840,7 +1918,7 @@
   }
 
   function positionPin(p, taken) {
-    if (p.kind === "page") {
+    if (p.kind === "page" || p.kind === "flow") {
       // About the page, not an element: it lives at the window's top-left, below any others there.
       delete p.node.dataset.orphan;
       p.node.style.display = "block";
@@ -1987,7 +2065,7 @@
       pins.forEach((p) => p.node.remove());
       pins = [];
       for (const a of res.annotations) addPin({ id: a.id, number: a.number, selector: a.element.selector, comment: a.comment, fp: a.element.fingerprint,
-                                               region: a.region || null, status: a.status, kind: a.kind || null, thread: a.thread || [] });
+                                               region: a.region || null, status: a.status, kind: a.kind || null, thread: a.thread || [], steps: a.steps?.length || 0 });
       noticeQuestions();
       positionAll();
       paintDock();
