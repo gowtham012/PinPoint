@@ -6,4 +6,5 @@ WORKDIR /app
 COPY bridge/package.json bridge/package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund
 COPY bridge/ ./
-ENTRYPOINT ["node", "cli.js", "mcp"]
+# CMD, not ENTRYPOINT: Glama's build form requires at least one CMD. Same effect here.
+CMD ["node", "cli.js", "mcp"]
