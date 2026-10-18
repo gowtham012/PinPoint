@@ -6,7 +6,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { Client } from "../bridge/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js";
 import { StreamableHTTPClientTransport } from "../bridge/node_modules/@modelcontextprotocol/sdk/dist/esm/client/streamableHttp.js";
 import { StdioClientTransport } from "../bridge/node_modules/@modelcontextprotocol/sdk/dist/esm/client/stdio.js";
@@ -1184,7 +1184,7 @@ test("R-b3: re-running Codex setup with a new port rewrites the Pinpoint block i
 
 test("R-b4: PINPOINT_PORT in the environment does not drop --port from a written config", async () => {
   const out = execFileSync("node", ["--input-type=module", "-e",
-    `const { mcpCommand } = await import(${JSON.stringify(path.resolve(here, "../bridge/agents.js"))}); console.log(JSON.stringify(mcpCommand("/c.js", { port: 7444 })));`],
+    `const { mcpCommand } = await import(${JSON.stringify(pathToFileURL(path.resolve(here, "../bridge/agents.js")).href)}); console.log(JSON.stringify(mcpCommand("/c.js", { port: 7444 })));`],
     { env: { ...process.env, PINPOINT_PORT: "7444" } }).toString();
   assert.deepEqual(JSON.parse(out).args, ["/c.js", "mcp", "--port", "7444"], "a client launched without that env would talk to 7331");
 });
