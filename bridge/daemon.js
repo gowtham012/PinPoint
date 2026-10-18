@@ -565,7 +565,11 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
     server.close(() => {
       // Close BEFORE spawning or the replacement hits EADDRINUSE against us. stdio is inherited on
       // purpose: started from a terminal, Ctrl-C must still work on the new one.
-      spawn(process.execPath, restartArgs({ port, project, quiet, print }), { stdio: "inherit", cwd: process.cwd() }).unref();
+      spawn(process.execPath, restartArgs({ port, project, quiet, print }), {
+        stdio: "inherit", cwd: process.cwd(),
+        // On Windows a non-detached child dies with its parent's console; hide the new window.
+        detached: process.platform === "win32", windowsHide: true,
+      }).unref();
       process.exit(0);
     });
   }

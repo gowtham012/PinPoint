@@ -9,10 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Releases ship from CI.** `bash tools/release.sh x.y.z` sets the version everywhere, closes the
   changelog and pushes a tag; `.github/workflows/release.yml` then tests and publishes to npm (trusted
-  publishing, with provenance), the MCP Registry, the Chrome Web Store and GitHub releases. See
-  `docs/releasing.md`.
+  publishing, with provenance), the MCP Registry, the Chrome Web Store (API v2) and GitHub releases.
+  See `docs/releasing.md`.
 
 ### Fixed
+- **Restarting the bridge on Windows** no longer kills the replacement along with the old process.
 - **"Start bridge" works for the Chrome Web Store install.** The Store gives the extension its own id
   (`mkjegdlcpijniabibingcbmjfedcepgp`); the native host now allows it as well as the unpacked build.
   Re-run `node bridge/cli.js install-native-host` once to pick it up.

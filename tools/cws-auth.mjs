@@ -1,30 +1,32 @@
 #!/usr/bin/env node
 // One-time Chrome Web Store API setup for the release workflow. Run it on your own machine:
 //
-//   node tools/cws-auth.mjs <client_secret_….json> <EXTENSION_ID>     the file Google lets you download
-//   node tools/cws-auth.mjs <CLIENT_ID> <CLIENT_SECRET> <EXTENSION_ID>
+//   node tools/cws-auth.mjs <client_secret_….json> <EXTENSION_ID> <PUBLISHER_ID>   the file Google lets you download
+//   node tools/cws-auth.mjs <CLIENT_ID> <CLIENT_SECRET> <EXTENSION_ID> <PUBLISHER_ID>
+//
+// PUBLISHER_ID is the UUID in the developer dashboard's URL (chrome.google.com/webstore/devconsole/<id>).
 //
 // It opens Google's consent page, catches the reply on http://localhost:8765, exchanges it for a
-// refresh token, and stores all four values as GitHub Actions secrets with `gh secret set`. Nothing
+// refresh token, and stores all five values as GitHub Actions secrets with `gh secret set`. Nothing
 // is printed: the secrets go straight from Google to GitHub. Needs `gh` signed in as an account that
 // can write the repository's secrets.
 import http from "node:http";
 import fs from "node:fs";
 import { execFileSync, spawn } from "node:child_process";
 
-let [a, b, c] = process.argv.slice(2);
-let clientId, clientSecret, extensionId;
+let [a, b, c, d] = process.argv.slice(2);
+let clientId, clientSecret, extensionId, publisherId;
 if (a && a.endsWith(".json")) {
   // Google's download: {"installed": {"client_id": …, "client_secret": …}} (or "web" for web clients).
   const j = JSON.parse(fs.readFileSync(a, "utf8"));
   const k = j.installed || j.web || j;
-  [clientId, clientSecret, extensionId] = [k.client_id, k.client_secret, b];
+  [clientId, clientSecret, extensionId, publisherId] = [k.client_id, k.client_secret, b, c];
 } else {
-  [clientId, clientSecret, extensionId] = [a, b, c];
+  [clientId, clientSecret, extensionId, publisherId] = [a, b, c, d];
 }
-if (!clientId || !clientSecret || !/^[a-p]{32}$/.test(extensionId || "")) {
-  console.error("usage: node tools/cws-auth.mjs <client_secret_….json> <EXTENSION_ID (32 letters a-p)>");
-  console.error("   or: node tools/cws-auth.mjs <CLIENT_ID> <CLIENT_SECRET> <EXTENSION_ID>");
+if (!clientId || !clientSecret || !/^[a-p]{32}$/.test(extensionId || "") || !/^[0-9a-f-]{36}$/i.test(publisherId || "")) {
+  console.error("usage: node tools/cws-auth.mjs <client_secret_….json> <EXTENSION_ID (32 letters a-p)> <PUBLISHER_ID (dashboard URL UUID)>");
+  console.error("   or: node tools/cws-auth.mjs <CLIENT_ID> <CLIENT_SECRET> <EXTENSION_ID> <PUBLISHER_ID>");
   process.exit(2);
 }
 const REPO = "gowtham012/pinpoint";
@@ -64,5 +66,6 @@ set("CWS_CLIENT_ID", clientId);
 set("CWS_CLIENT_SECRET", clientSecret);
 set("CWS_REFRESH_TOKEN", tok.refresh_token);
 set("CWS_EXTENSION_ID", extensionId);
-console.log(`Stored CWS_CLIENT_ID, CWS_CLIENT_SECRET, CWS_REFRESH_TOKEN and CWS_EXTENSION_ID on ${REPO}.`);
+set("CWS_PUBLISHER_ID", publisherId);
+console.log(`Stored CWS_CLIENT_ID, CWS_CLIENT_SECRET, CWS_REFRESH_TOKEN, CWS_EXTENSION_ID and CWS_PUBLISHER_ID on ${REPO}.`);
 console.log("The next tagged release uploads to the Chrome Web Store and submits it for review.");

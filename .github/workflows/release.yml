@@ -23,7 +23,7 @@ jobs:
     outputs:
       version: ${{ steps.v.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: v
         run: |
           TAG="${GITHUB_REF_NAME#v}"
@@ -47,21 +47,21 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write          # npm trusted publishing + provenance
+      id-token: write          # npm trusted publishing (provenance is automatic)
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 24     # ships npm 11.x, new enough for trusted publishing
           registry-url: https://registry.npmjs.org
-      - run: npm install -g npm@latest   # trusted publishing needs npm 11.5+
       - name: Publish (skipped if this version is already on npm)
         working-directory: bridge
         run: |
+          npm --version
           if npm view "pinpoint-bridge@${{ needs.versions.outputs.version }}" version >/dev/null 2>&1; then
             echo "already on npm"; exit 0
           fi
-          npm publish --provenance --access public
+          npm publish --access public
 
   mcp-registry:
     needs: [versions, npm]
@@ -70,14 +70,18 @@ jobs:
       contents: read
       id-token: write          # the registry trusts github.com/gowtham012 through OIDC
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install mcp-publisher
         run: |
           curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
           sudo mv mcp-publisher /usr/local/bin/
-      - name: Publish server.json
+      - name: Publish server.json (skipped if this version is already listed)
         working-directory: bridge
         run: |
+          V="${{ needs.versions.outputs.version }}"
+          if curl -fsS -o /dev/null "https://registry.modelcontextprotocol.io/v0.1/servers/io.github.gowtham012%2Fpinpoint/versions/$V"; then
+            echo "already on the MCP Registry"; exit 0
+          fi
           mcp-publisher login github-oidc
           mcp-publisher publish
 
@@ -86,33 +90,44 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CWS_EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+      CWS_PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
       CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
       CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
       CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build the store zip (manifest key stripped — the Store refuses it)
         run: bash tools/make-cws-zip.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: pinpoint-extension-cws
           path: dist/pinpoint-extension-cws.zip
+      # Chrome Web Store API v2 (v1.1 stopped working on 2026-10-15).
       - name: Upload and submit for review
-        if: env.CWS_REFRESH_TOKEN != ''
+        if: env.CWS_REFRESH_TOKEN != '' && env.CWS_PUBLISHER_ID != ''
         run: |
           TOKEN=$(curl -fsS https://oauth2.googleapis.com/token \
             -d client_id="$CWS_CLIENT_ID" -d client_secret="$CWS_CLIENT_SECRET" \
-            -d refresh_token="$CWS_REFRESH_TOKEN" -d grant_type=refresh_token | jq -r .access_token)
+            -d refresh_token="$CWS_REFRESH_TOKEN" -d grant_type=refresh_token | jq -r '.access_token // empty')
+          [ -n "$TOKEN" ] || { echo "::error::Google refused the refresh token — re-run tools/cws-auth.mjs (docs/releasing.md)"; exit 1; }
           echo "::add-mask::$TOKEN"
-          UP=$(curl -fsS -X PUT -H "Authorization: Bearer $TOKEN" -H "x-goog-api-version: 2" \
-            -T dist/pinpoint-extension-cws.zip \
-            "https://www.googleapis.com/upload/chromewebstore/v1.1/items/$CWS_EXTENSION_ID")
+          ITEM="https://chromewebstore.googleapis.com/v2/publishers/$CWS_PUBLISHER_ID/items/$CWS_EXTENSION_ID"
+          UP=$(curl -sS --fail-with-body -X POST -H "Authorization: Bearer $TOKEN" -T dist/pinpoint-extension-cws.zip \
+            "https://chromewebstore.googleapis.com/upload/v2/publishers/$CWS_PUBLISHER_ID/items/$CWS_EXTENSION_ID:upload")
           echo "$UP"
-          [ "$(echo "$UP" | jq -r .uploadState)" = "SUCCESS" ] || { echo "::error::upload failed"; exit 1; }
-          curl -fsS -X POST -H "Authorization: Bearer $TOKEN" -H "x-goog-api-version: 2" -H "Content-Length: 0" \
-            "https://www.googleapis.com/chromewebstore/v1.1/items/$CWS_EXTENSION_ID/publish"
+          STATE=$(echo "$UP" | jq -r .uploadState)
+          for _ in $(seq 1 24); do
+            [ "$STATE" = "IN_PROGRESS" ] || break
+            sleep 5
+            STATE=$(curl -fsS -H "Authorization: Bearer $TOKEN" "$ITEM:fetchStatus" | jq -r .lastAsyncUploadState)
+            echo "upload: $STATE"
+          done
+          [ "$STATE" = "SUCCEEDED" ] || { echo "::error::upload ended as $STATE"; exit 1; }
+          PUB=$(curl -sS --fail-with-body -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+            -d '{"publishType":"DEFAULT_PUBLISH"}' "$ITEM:publish")
+          echo "$PUB" | jq '{state, warningInfo}'
       - name: Store secrets not set
-        if: env.CWS_REFRESH_TOKEN == ''
+        if: env.CWS_REFRESH_TOKEN == '' || env.CWS_PUBLISHER_ID == ''
         run: echo "::notice::Chrome Web Store secrets are not set — upload dist/pinpoint-extension-cws.zip from the release by hand (docs/releasing.md)."
 
   github-release:
@@ -122,8 +137,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: pinpoint-extension-cws
           path: dist

@@ -20,3 +20,6 @@ carry-forward/
 # store uploads (zip, screenshots)
 dist/
 demo/carry-forward/
+
+# Google OAuth client files (never commit)
+client_secret_*.json
