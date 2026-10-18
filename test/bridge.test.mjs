@@ -961,7 +961,7 @@ test("setup wires a project up in one non-interactive run, twice over", async ()
   // A native iOS app skips the browser entirely and is pointed at the Simulator picker instead.
   const ios = await run([proj, "--for", "mobile"]);
   assert.equal(ios.code, 0, ios.err);
-  assert.match(ios.err, /127\.0\.0\.1:7401\/ios/);
+  assert.match(ios.err, new RegExp(`127\\.0\\.0\\.1:${PORT + 2}/ios`));
   assert.doesNotMatch(ios.err, /Load unpacked/, "no extension to load for a native app");
   const { normTarget } = await import("../bridge/setup.js");
   assert.deepEqual(["", "web", "iOS", "native", "Both"].map(normTarget), ["web", "web", "ios", "ios", "both"]);
