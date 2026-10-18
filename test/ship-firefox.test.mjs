@@ -75,7 +75,9 @@ test("make-firefox-zip.sh builds an AMO package from the same extension/", zipOk
   assert.equal(m.version, src.version);
   assert.ok(m.name.length <= 45, "AMO refuses a longer name");
   assert.equal(m.key, undefined, "AMO assigns ids from the gecko id, not a key");
-  assert.deepEqual(m.background, { scripts: ["background.js"] }, "Firefox has no MV3 service workers");
+  assert.deepEqual(m.background, { scripts: ["redact.js", "background.js"] }, "Firefox has no MV3 service workers; the redactor loads first or page context fails closed");
+  assert.deepEqual(m.browser_specific_settings.gecko.data_collection_permissions.required, ["websiteContent", "browsingActivity"]);
+  assert.equal(m.browser_specific_settings.gecko_android, undefined, "no native messaging on Android, so it must not be listed there");
   const g = m.browser_specific_settings.gecko;
   assert.equal(g.id, FIREFOX_ID);
   assert.equal(g.strict_min_version, "140.0");
