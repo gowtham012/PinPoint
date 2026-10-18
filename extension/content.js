@@ -30,337 +30,248 @@
   globalThis.__pinpointShadow = shadow;
   shadow.innerHTML = `
     <style>
+      /* Pinpoint is a layer over somebody else's app, so it keeps one look of its own in every theme:
+         violet-tinted graphite, like an instrument laid on the page, with the brand violet as the
+         only accent and the agent's orange for anything the agent did. The one flourish is the
+         highlight — print crop marks, not a filled box — and the pins, which are numbered drops. */
       :host {
-        /* One token set for the bar, popover, pins and panel (and the popup, which repeats it).
-           Surfaces are opaque: the frosted-glass blur cost a compositing layer on every page and
-           made text contrast depend on whatever the page painted underneath. */
-        --accent: #6d5ae6;          /* fills: white on it is 4.9:1 */
-        --accent-text: #5b47d6;     /* accent used as text on a light surface */
-        --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
-        --agent: #b8582e;
+        --graphite: #1e1c26;        /* surfaces */
+        --graphite-2: #2a2735;      /* wells, hovers */
+        --graphite-3: #37334a;      /* pressed, rules */
+        --paper: #f4f2fb;           /* text on graphite: 15.6:1 */
+        --paper-dim: #b3aec6;       /* secondary text: 8.4:1 */
+        --paper-faint: #8a849f;     /* hints: 5.0:1 */
+        --accent: #7c66f2;          /* the brand violet, lifted a step for graphite */
+        --accent-hi: #a594ff;       /* violet as text on graphite: 6.7:1 */
         --accent-ink: #ffffff;
-        --surface: #ffffff;
-        --surface-2: #f5f5f7;
-        --ink: #111114;
-        --ink-dim: #55555f;
-        --ink-3: #6e6e78;
-        --line: rgba(17,17,20,.08);
-        --line-2: rgba(17,17,20,.14);
-        --shadow: 0 1px 2px rgba(0,0,0,.05), 0 4px 12px rgba(0,0,0,.08), 0 0 0 1px var(--line);
-        --shadow-lg: 0 2px 4px rgba(0,0,0,.04), 0 12px 32px -4px rgba(0,0,0,.16), 0 0 0 1px var(--line);
-        --ease-out: cubic-bezier(.16,1,.3,1);
-        --radius: 12px;
-        /* Status colours at >=4.5:1 on their surface, light and dark. */
-        --danger: #d1343a; --success: #18794e; --warn: #976200;
-        /* The logo as drawn — written by tools/make-icons.sh from tools/logo/mark.png. Painted
-           as-is rather than masked to the accent colour: this is the mark, not a tinted stand-in.
-           It only needs to invert on the violet pill while armed. */
+        --agent: #f29a63;           /* the agent */
+        --ok: #5fd39a; --danger: #ff7a7f; --warn: #f2c14e;
+        --line: rgba(255,255,255,.09);
+        --shadow: 0 1px 0 rgba(255,255,255,.06) inset, 0 10px 30px -6px rgba(10,6,30,.45), 0 2px 6px rgba(10,6,30,.25);
         --mark-src: url("data:image/png;base64,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");
-        --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
-        --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+        --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        --ease: cubic-bezier(.16,1,.3,1);
         all: initial;
       }
-      @media (prefers-color-scheme: dark) {
-        :host {
-          --surface: #1c1c1f;
-          --surface-2: #26262a;
-          --ink: #ededf0;
-          --ink-dim: #a8a8b3;
-          --ink-3: #8f8f9a;
-          --accent-text: #a99cff;
-          --line-2: rgba(255,255,255,.14);
-          --agent: #f0a070;
-          --danger: #ff6b6f; --success: #4cc38a; --warn: #f0b43c;
-          --line: rgba(255,255,255,.08);
-          --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 20px rgba(0,0,0,.4), 0 0 0 1px var(--line);
-          --shadow-lg: 0 2px 4px rgba(0,0,0,.3), 0 16px 40px -4px rgba(0,0,0,.55), 0 0 0 1px var(--line);
-        }
-        .mark { filter: invert(1); }
-      }
-      * { box-sizing: border-box; font-family: var(--sans); }
+      * { box-sizing: border-box; font-family: var(--sans); -webkit-font-smoothing: antialiased; }
       button { border: 0; background: none; padding: 0; margin: 0; cursor: pointer; color: inherit; font: inherit; outline: none; -webkit-tap-highlight-color: transparent; }
       button:focus { outline: none; }
-      button:focus-visible { box-shadow: 0 0 0 2px var(--surface-2), 0 0 0 4px var(--accent); }
+      button:focus-visible { box-shadow: 0 0 0 2px var(--graphite), 0 0 0 4px var(--accent-hi); }
       @media (forced-colors: active) { button:focus-visible { outline: 2px solid ButtonText; outline-offset: 2px; } }
+      kbd { font: 500 10.5px/1 var(--mono); color: var(--paper-dim); background: var(--graphite-2);
+            border-radius: 5px; padding: 3px 5px; box-shadow: inset 0 -1px 0 rgba(0,0,0,.35); }
 
-      /* ---------- element highlight ---------- */
-      .hl {
-        position: fixed; pointer-events: none; display: none; border-radius: 4px;
-        outline: 2px solid var(--accent); outline-offset: 1px;
-        background: color-mix(in srgb, var(--accent) 9%, transparent);
-        transition: none;
-      }
+      /* ---------- the highlight: crop marks ---------- */
+      .hl { position: fixed; pointer-events: none; display: none; transition: none;
+            outline: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 2px; }
+      .hl .c { position: absolute; width: 14px; height: 14px; border: 0 solid var(--accent); }
+      .hl .c.tl { left: -6px; top: -6px; border-left-width: 3px; border-top-width: 3px; }
+      .hl .c.tr { right: -6px; top: -6px; border-right-width: 3px; border-top-width: 3px; }
+      .hl .c.bl { left: -6px; bottom: -6px; border-left-width: 3px; border-bottom-width: 3px; }
+      .hl .c.br { right: -6px; bottom: -6px; border-right-width: 3px; border-bottom-width: 3px; }
       .hl .tag {
-        position: absolute; left: -3px; top: -23px; display: inline-flex; gap: 6px; align-items: center;
-        background: var(--accent); color: var(--accent-ink); font: 500 11px/1 var(--mono);
-        padding: 5px 7px; border-radius: 5px 5px 5px 0; white-space: nowrap;
-        max-width: 70vw; overflow: hidden; text-overflow: ellipsis;
-        box-shadow: 0 2px 8px rgba(0,0,0,.2);
+        position: absolute; left: -6px; top: -34px; display: inline-flex; gap: 6px; align-items: center;
+        background: var(--graphite); color: var(--paper-dim); font: 500 11px/1 var(--mono);
+        padding: 6px 8px; border-radius: 6px; white-space: nowrap; max-width: 70vw; overflow: hidden;
+        text-overflow: ellipsis; box-shadow: var(--shadow);
       }
-      .hl .tag b { font-weight: 700; }
-      /* An element at the very top of the window has no room above it for its label. */
-      .hl .tag.below { top: auto; bottom: -23px; border-radius: 0 5px 5px 5px; }
-      /* The element you picked reads as "held", not "wrong" — neutral ink, distinct from the
-         accent used while merely hovering. */
-      .hl.selected { outline-color: var(--ink); background: color-mix(in srgb, var(--ink) 7%, transparent); }
-      .hl.selected .tag { background: var(--ink); color: var(--surface-2); }
-      .hl.flash { animation: flash 1s ease-out; }
-      @keyframes flash { 0%,100% { background: transparent } 30% { background: color-mix(in srgb, var(--accent) 22%, transparent) } }
+      .hl .tag.below { top: auto; bottom: -34px; }
+      .hl .tag b { font-weight: 600; color: var(--accent-hi); }
+      /* Held, not hovered: the marks go solid ink-violet and the box gets a faint wash. */
+      .hl.selected { outline-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+      .hl.selected .c { border-color: var(--accent-hi); }
+      .hl.flash { animation: flash 1s var(--ease); }
+      @keyframes flash { 30% { background: color-mix(in srgb, var(--accent) 22%, transparent) } }
 
-      /* ---------- the dock: "Pinpoint is on in this tab" ---------- */
+      /* ---------- the bar ---------- */
       .dock {
-        position: fixed; bottom: 16px; left: 16px;
-        display: none; align-items: center; gap: 2px; pointer-events: auto;
-        background: var(--surface); color: var(--ink);
-        border: 0; border-radius: 999px;
-        box-shadow: var(--shadow); padding: 3px;
-        /* Deliberately NOT dimmed. Fading the whole bar (was .58 at rest, .4 minified) took the
-           label to 4.4:1, the shortcut keycap to 2.34:1 and the minified bar to 2.55:1 against a
-           white page — under the 4.5:1 AA floor. Discretion comes from size and position now. */
-        /* No transition on transform. keepDockOnScreen() sets transform:none and measures on the
-           very next line; with a transition that rect is read mid-animation, so the correction is
-           computed from the wrong position. The transform is only ever a position fix, never an
-           effect, so there is nothing here worth animating. */
-        font-size: 12px; user-select: none;
+        position: fixed; bottom: 16px; left: 16px; display: none; align-items: center; gap: 2px;
+        pointer-events: auto; background: var(--graphite); color: var(--paper);
+        border-radius: 999px; box-shadow: var(--shadow); padding: 4px; font-size: 12.5px; user-select: none;
+        /* No transition on transform: keepDockOnScreen() measures right after resetting it. */
       }
       .dock.pos-br { left: auto; right: 16px; }
       .dock.pos-tl { bottom: auto; top: 16px; }
       .dock.pos-tr { bottom: auto; top: 16px; left: auto; right: 16px; }
-      .dock.mini .label, .dock.mini .hint, .dock.mini .sep, .dock.mini .close { display: none; }
-      .dock.mini { padding: 3px; }
-      .dock.mini .toggle { padding: 0 6px; }
-      /* While picking, every click belongs to the page: the bar goes inert so it can never sit
-         between you and the element you want, wherever it is. Esc (or the shortcut) stops. */
-      .dock.armed { pointer-events: none; }
-      /* ...except the one control whose whole job is to stop. Clicking the armed bar used to fall
-         through and annotate whatever sat beneath it, while the "Esc" hint lived inside the thing
-         you could no longer click. The bar stays inert; Stop takes its pointer events back. */
+      .dock button { display: inline-flex; align-items: center; gap: 7px; border-radius: 999px; height: 28px; padding: 0 11px; line-height: 1; }
+      .dock button:hover { background: var(--graphite-2); }
+      .dock .toggle { font-weight: 600; letter-spacing: -.005em; }
+      .mark { width: 16px; height: 16px; flex: none; background: var(--mark-src) center / contain no-repeat; filter: invert(1); }
+      .dock .hint { color: var(--paper-faint); font-weight: 400; }
+      .dock .hint kbd { margin-left: 2px; }
+      .dock .sep { width: 1px; height: 16px; background: var(--line); margin: 0 3px; flex: none; }
+      .dock:not(.agent-live) .agent-say + .sep { display: none; }
+      .dock .count { color: var(--paper-dim); font-variant-numeric: tabular-nums; position: relative; }
+      .dock .count b { color: var(--paper); font-weight: 600; }
+      .dock .count.only-done b { color: var(--paper-dim); }
+      .dock .count.unread::after { content: ""; position: absolute; top: 4px; right: 6px; width: 7px; height: 7px;
+                                   border-radius: 50%; background: var(--agent); box-shadow: 0 0 0 2px var(--graphite); }
+      .dock .close, .dock .restart { color: var(--paper-faint); width: 28px; padding: 0; justify-content: center; font-size: 15px; }
+      .dock .close:hover, .dock .restart:hover { color: var(--paper); }
+      .dock .restart.busy { opacity: .5; pointer-events: none; }
+      .dock.mini .label, .dock.mini .hint, .dock.mini .sep, .dock.mini .close, .dock.mini .restart { display: none; }
+      .dock.mini .toggle { padding: 0 8px; }
+      .dock.mini .count { padding: 0 9px 0 4px; }
+      /* The agent, while it works: an orange light and what it is doing. */
+      .who { display: none; align-items: center; padding-left: 6px; }
+      .dock.agent-live .who { display: inline-flex; }
+      .av { display: none; }
+      .av.agent { display: block; width: 8px; height: 8px; border-radius: 50%; background: var(--agent);
+                  box-shadow: 0 0 0 3px color-mix(in srgb, var(--agent) 30%, transparent); }
+      .av.agent svg { display: none; }
+      .dock.agent-live .av.agent { animation: breathe 1.8s ease-in-out infinite; }
+      @keyframes breathe { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--agent) 10%, transparent); } }
+      .agent-say { color: var(--paper-dim); font-size: 12px; max-width: 0; overflow: hidden; white-space: nowrap; opacity: 0;
+                   transition: max-width 240ms var(--ease), opacity 180ms ease; }
+      .dock.agent-live .agent-say { max-width: 200px; opacity: 1; padding: 0 8px 0 7px; }
+      .dock.mini .agent-say { display: none; }
+      /* Picking: the bar turns violet and goes inert, so it can never sit between you and a target;
+         only Stop and the counter take clicks. */
+      .dock.armed { pointer-events: none; background: var(--accent); color: var(--accent-ink); }
+      .dock.armed .toggle:hover { background: transparent; }
+      .dock.armed .mark { filter: brightness(0) invert(1); animation: pulse 1.6s ease-in-out infinite; }
+      @keyframes pulse { 50% { opacity: .5 } }
+      .dock.armed .hint { color: rgba(255,255,255,.85); }
+      .dock.armed .label, .dock.armed .sep, .dock.armed .close, .dock.armed .restart { display: none; }
       .dock .stop { display: none; }
-      .dock.armed .stop {
-        display: inline-flex; align-items: center; pointer-events: auto;
-        border-radius: 999px; height: 24px; padding: 0 10px; line-height: 1; font-weight: 600;
-        /* Ink on surface, NOT accent-ink: only the toggle pill turns violet when armed — the bar
-           itself stays var(--surface). White-on-white measured 1.00:1, i.e. invisible. This pair
-           inverts with the theme (17.9:1 light, 15.2:1 dark) and stays distinct from the violet
-           state pill next to it. */
-        background: var(--ink); color: var(--surface);
-      }
-      .dock.armed .stop:hover { background: color-mix(in srgb, var(--ink) 82%, var(--surface)); }
-      /* The notes list stays reachable while picking — you are usually marking things *because*
-         you want to see what is already there. Like Stop, it takes its pointer events back. */
-      .dock.armed .count { pointer-events: auto; }
-      .dock.armed .label { display: none; }
-      .dock.armed .sep, .dock.armed .close, .dock.armed .restart { display: none; }
-      .dock.mini .count { padding: 0 8px; }
-      .dock.armed { opacity: 1; box-shadow: var(--shadow), 0 0 0 1.5px var(--accent); }
+      .dock.armed .stop { display: inline-flex; pointer-events: auto; background: var(--graphite); color: var(--paper); font-weight: 600; }
+      .dock.armed .stop:hover { background: var(--graphite-2); }
+      .dock.armed .stop kbd { background: var(--graphite-2); }
+      .dock.armed .count { pointer-events: auto; color: rgba(255,255,255,.8); }
+      .dock.armed .count b { color: #fff; }
+      .dock.armed .count:hover { background: rgba(255,255,255,.14); }
       /* Bridge down: a small pill whose only job is to bring it back. */
-      .dock .start { display: none; color: var(--ink-dim); font-weight: 500; }
+      .dock .start { display: none; color: var(--paper-dim); font-weight: 500; }
       .dock.offline .start { display: inline-flex; }
-      .dock .start .led { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-3); flex: none; }
+      .dock .start .led { width: 7px; height: 7px; border-radius: 50%; background: var(--paper-faint); flex: none; }
       .dock .start.busy { opacity: .55; pointer-events: none; }
       .dock.offline .count, .dock.offline .who, .dock.offline .agent-say, .dock.offline .restart,
       .dock.offline .sep, .dock.offline .label, .dock.offline .hint { display: none; }
       .dock.offline.armed .start { display: none; }
-      /* Every direct child sits on the same 24px optical row, with one horizontal rhythm.
-         Before, the toggle padded 5/10, close 5/8, count 5/10 and .who 0/4/0/6 — four different
-         rhythms in a 200px bar. */
-      .dock button { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px;
-                     height: 24px; padding: 0 10px; line-height: 1; }
-      .dock button:hover { background: var(--surface-2); }
-      .dock .toggle { font-weight: 600; }
-      .dock.armed .toggle { background: var(--accent); color: var(--accent-ink); }
-      .dock.armed .toggle:hover { background: var(--accent); }
-      .mark { width: 15px; height: 15px; flex: none; background: var(--mark-src) center / contain no-repeat; }
-      .dock.armed .mark { filter: brightness(0) invert(1); animation: pulse 1.6s ease-in-out infinite; }
-      @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .45 } }
-      .dock .hint { color: var(--ink-dim); font-size: 11px; }
-      .dock.armed .hint { color: var(--accent-ink); opacity: .85; }
-      .dock kbd { font: 11px/1 var(--mono); letter-spacing: .06em; border: 1px solid var(--line);
-                  color: var(--ink-dim); background: var(--surface-2); border-radius: 6px; padding: 3px 5px 3px 6px;
-                  display: inline-flex; align-items: center; }
-      /* who is here — you, and your coding agent when it is doing something */
-      /* Two hues, both of which mean something: violet is you (the same violet as your pins and
-         the brand mark), orange is the agent. The old palette also carried #a8577f for "you" — a
-         mauve unrelated to either, so the bar showed three hues from three corners of the wheel
-         (h248, h330, h18) and read as muddy rather than designed. */
-      .who { display: inline-flex; align-items: center; gap: 0; }
-      .av { width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
-            box-shadow: 0 0 0 2px var(--surface); color: var(--accent-ink); flex: none; }
-      .av.you { display: none; }
-      /* Idle, the agent is absent — drawn as an outline, not a colour. Greyscaling the orange fill
-         produced ~#cacaca, which left its white glyph at 1.64:1: a blob you cannot read. */
-      .who { display: none; }
-      .dock.agent-live .who { display: inline-flex; }
-      .av.agent { background: var(--surface); color: var(--ink-dim); margin-left: 0;
-                  box-shadow: 0 0 0 2px var(--surface), inset 0 0 0 1px var(--line);
-                  transition: background 200ms ease, color 200ms ease, box-shadow 200ms ease; }
-      .dock.agent-live .av.agent { background: var(--agent); color: var(--accent-ink);
-                  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px color-mix(in srgb, var(--agent) 40%, transparent); }
-      .dock.agent-live .av.agent svg { animation: spin 2.6s linear infinite; }
-      @keyframes spin { to { transform: rotate(360deg) } }
-      .agent-say { color: var(--ink-dim); font-size: 11px; max-width: 0; overflow: hidden; white-space: nowrap; opacity: 0;
-                   transition: max-width 220ms ease, opacity 180ms ease; }
-      .dock.agent-live .agent-say { max-width: 190px; opacity: 1; padding-right: 4px; }
-      .dock.mini .who, .dock.mini .agent-say { display: none; }
-      .dock.mini.agent-live .who { display: inline-flex; }
-      .dock .count { color: var(--ink-dim); font-variant-numeric: tabular-nums; }
-      .dock .count b { color: var(--ink); font-weight: 600; }
-      .dock .count.only-done b { color: var(--ink-dim); }
-      /* Something was finished since you last looked. */
-      .dock .count { position: relative; }
-      .dock .count.unread::after { content: ""; position: absolute; top: 3px; right: 5px; width: 7px; height: 7px;
-                                   border-radius: 50%; background: var(--agent); box-shadow: 0 0 0 2px var(--surface); }
-      .dock .sep { width: 1px; height: 14px; background: var(--line-2); margin: 0 4px; flex: none; align-self: center; }
-      /* With no agent at work its slot is empty, and its two dividers would sit side by side. */
-      .dock:not(.agent-live) .agent-say + .sep { display: none; }
-      .dock .close, .dock .restart { color: var(--ink-dim); height: 24px; width: 24px; padding: 0; font-size: 14px;
-                     justify-content: center; }
-      /* Restarting is a rare, deliberate act, so it lives with the close button rather than in the
-         resting bar: it appears when the bar is expanded and is gone from the mini pill. */
-      .dock.mini .restart { display: none; }
-      .dock .restart.busy { opacity: .5; pointer-events: none; }
 
-      /* ---------- region marquee: drag to take a whole area, not one element ---------- */
-      .marquee {
-        position: fixed; display: none; pointer-events: none; z-index: 3;
-        border: 1px dashed var(--accent); border-radius: 3px;
-        background: color-mix(in srgb, var(--accent) 7%, transparent);
-      }
-      .marquee::after {
-        content: ""; position: absolute; left: -4px; top: -4px; width: 8px; height: 8px;
-        border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--surface);
-      }
-      .marquee .size {
-        position: absolute; right: 0; bottom: -21px; font: 500 10px/1 var(--mono);
-        background: var(--accent); color: var(--accent-ink); padding: 4px 5px; border-radius: 4px;
-        white-space: nowrap;
-      }
+      /* ---------- region marquee ---------- */
+      .marquee { position: fixed; display: none; pointer-events: none; z-index: 3;
+                 border: 1px dashed var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
+      .marquee .size { position: absolute; right: 0; bottom: -26px; font: 500 10.5px/1 var(--mono); background: var(--graphite);
+                       color: var(--paper-dim); padding: 5px 7px; border-radius: 5px; white-space: nowrap; box-shadow: var(--shadow); }
 
-      /* ---------- comment popover ---------- */
+      /* ---------- the comment box ---------- */
       .pop {
-        position: fixed; z-index: 3; width: min(340px, calc(100vw - 16px)); pointer-events: auto; display: none;
-        background: var(--surface); color: var(--ink);
-        border: 0; border-radius: var(--radius);
-        box-shadow: var(--shadow-lg); padding: 12px;
-        animation: pop 160ms var(--ease-out);
+        position: fixed; z-index: 3; width: min(360px, calc(100vw - 16px)); pointer-events: auto; display: none;
+        background: var(--graphite); color: var(--paper); border-radius: 14px; box-shadow: var(--shadow);
+        padding: 14px 14px 12px; animation: rise 180ms var(--ease);
       }
-      @keyframes pop { from { opacity: 0; transform: translateY(-4px) scale(.985) } }
-      .pop .meta { font: 11px/1.45 var(--mono); color: var(--ink-dim); margin-bottom: 8px; }
+      @keyframes rise { from { opacity: 0; transform: translateY(4px) } }
+      .pop .meta { font: 11px/1.5 var(--mono); color: var(--paper-faint); margin-bottom: 10px; display: grid; gap: 3px; }
       .pop .meta .row { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .pop .meta b { color: var(--accent-text); font: 600 13px/1.3 var(--sans); }
-      .pop .meta .picked { color: var(--ink); font-family: var(--sans); font-size: 12.5px; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .pop .meta b { font: 600 13.5px/1.3 var(--sans); color: var(--accent-hi); margin-right: 4px; }
+      .pop .meta .picked { color: var(--paper-dim); font: 12.5px/1.4 var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .pop textarea {
-        width: 100%; min-height: 56px; max-height: 220px; resize: none; color: var(--ink);
-        background: var(--surface-2); border: 1px solid transparent; border-radius: 8px;
-        padding: 9px 10px; font: 13px/1.5 var(--sans); outline: none;
+        width: 100%; min-height: 60px; max-height: 220px; resize: none; color: var(--paper);
+        background: var(--graphite-2); border: 1px solid transparent; border-radius: 10px;
+        padding: 10px 11px; font: 13.5px/1.5 var(--sans); outline: none; caret-color: var(--accent-hi);
         transition: border-color 120ms ease, box-shadow 120ms ease;
       }
-      .pop textarea::placeholder { color: var(--ink-dim); }
-      .pop textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
-      /* Clicking is a guess: the element under the pointer can be far bigger or smaller than the
-         thing you meant. These walk the stack at the point you clicked, so you can correct it. */
-      .pop .scope { display: flex; gap: 5px; align-items: center; margin: -2px 0 8px; }
-      .pop .scope button { font: 500 11px var(--sans); color: var(--ink-dim); background: var(--surface-2);
-                           border-radius: 6px; padding: 4px 8px; line-height: 1; }
-      .pop .scope button:hover:not(:disabled) { color: var(--ink); }
+      .pop textarea::placeholder { color: var(--paper-faint); }
+      .pop textarea:focus { border-color: color-mix(in srgb, var(--accent) 70%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+      /* Clicking is a guess; these walk the stack under the point you clicked. */
+      .pop .scope { display: flex; gap: 4px; align-items: center; margin: -2px 0 10px; }
+      .pop .scope button { font: 500 11.5px var(--sans); color: var(--paper-dim); background: var(--graphite-2);
+                           border-radius: 7px; padding: 5px 9px; line-height: 1; }
+      .pop .scope button:hover:not(:disabled) { color: var(--paper); background: var(--graphite-3); }
       .pop .scope button:disabled { opacity: .35; cursor: default; }
-      .pop .scope-hint { font: 10px/1 var(--mono); color: var(--ink-dim); margin-left: auto; }
-      .pop .row2 { display: flex; gap: 6px; margin-top: 9px; align-items: center; }
-      .pop .row2 button { border-radius: 8px; padding: 7px 12px; font-size: 12px; font-weight: 600; }
-      .pop .send { background: var(--accent); color: var(--accent-ink); display: inline-flex; gap: 7px; align-items: center; }
-      .pop .send:hover { filter: brightness(1.08); }
-      .pop .send kbd { font: 10px/1 var(--mono); background: rgba(255,255,255,.18); color: #fff; border: 0; border-radius: 4px; padding: 3px 5px; }
-      /* Secondary actions read as text until hovered — one filled button per box. */
-      .pop .ghost { background: transparent; color: var(--ink-dim); font-weight: 500; }
-      .pop .ghost:hover { background: var(--surface-2); color: var(--ink); }
-      .pop .status { margin-left: auto; font-size: 11px; color: var(--ink-dim); }
+      .pop .scope-hint { font: 10.5px/1 var(--mono); color: var(--paper-faint); margin-left: auto; }
+      .pop .row2 { display: flex; gap: 4px; margin-top: 10px; align-items: center; }
+      .pop .status { order: -1; margin-right: auto; font-size: 11.5px; color: var(--paper-faint); }
       .pop .status.err { color: var(--danger); }
-      .pop .status.ok { color: var(--success); }
+      .pop .status.ok { color: var(--ok); }
+      .pop .ghost { color: var(--paper-dim); font: 500 12px var(--sans); border-radius: 8px; padding: 7px 10px; }
+      .pop .ghost:hover { background: var(--graphite-2); color: var(--paper); }
+      .pop .send { background: var(--accent); color: var(--accent-ink); display: inline-flex; gap: 8px; align-items: center;
+                   border-radius: 8px; padding: 7px 8px 7px 13px; font: 600 12.5px var(--sans); }
+      .pop .send:hover { background: color-mix(in srgb, var(--accent) 88%, #fff); }
+      .pop .send kbd { background: rgba(0,0,0,.2); color: #fff; box-shadow: none; }
 
-      /* ---------- pins ---------- */
+      /* ---------- pins: numbered drops, pointing at the corner they mark ---------- */
       .pin {
-        position: fixed; z-index: 2; min-width: 20px; height: 20px; padding: 0 6px;
-        /* Your marks are the accent, not error red: a pending note is not a fault, and white on
-           #e5484d measured 3.91:1 at 11px bold. Red now means only "error" or "delete". */
-        border-radius: 999px; background: var(--accent); color: var(--accent-ink);
-        font: 700 11px/20px var(--sans); text-align: center;
-        box-shadow: 0 2px 8px rgba(0,0,0,.28), 0 0 0 2px var(--surface);
-        cursor: pointer; pointer-events: auto; transform: translate(-50%, -50%);
-        transition: transform 100ms cubic-bezier(.2,.8,.2,1);
+        position: fixed; z-index: 2; min-width: 22px; height: 22px; padding: 0 6px; pointer-events: auto; cursor: pointer;
+        border-radius: 11px 11px 11px 3px; background: var(--accent); color: var(--accent-ink);
+        font: 700 11px/22px var(--sans); text-align: center; font-variant-numeric: tabular-nums;
+        box-shadow: 0 0 0 2px #fff, 0 4px 12px rgba(30,20,90,.35);
+        transform: translate(-50%, -50%); transition: transform 120ms var(--ease);
       }
-      .pin:hover { transform: translate(-50%, -50%) scale(1.15); }
-      .pin.watched { box-shadow: 0 2px 8px rgba(0,0,0,.28), 0 0 0 2px var(--surface), 0 0 0 6px color-mix(in srgb, var(--agent) 45%, transparent); }
-      .pin.new { animation: drop 220ms var(--ease-out); }
-      @keyframes drop { from { transform: translate(-50%, -50%) scale(.6); opacity: 0 } }
-
+      .pin:hover { transform: translate(-50%, -50%) scale(1.12); }
+      .pin.watched { box-shadow: 0 0 0 2px #fff, 0 0 0 6px color-mix(in srgb, var(--agent) 55%, transparent), 0 4px 12px rgba(30,20,90,.35); }
+      .pin.new { animation: drop 260ms var(--ease); }
+      @keyframes drop { from { transform: translate(-50%, -90%) scale(.6); opacity: 0 } }
       .tip {
         position: fixed; z-index: 4; max-width: min(300px, calc(100vw - 16px)); pointer-events: auto; display: none;
-        background: var(--surface); color: var(--ink); border: 0;
-        border-radius: 10px; box-shadow: var(--shadow-lg); padding: 9px 11px;
-        font-size: 12.5px; line-height: 1.45;
+        background: var(--graphite); color: var(--paper); border-radius: 10px; box-shadow: var(--shadow);
+        padding: 10px 12px; font-size: 12.5px; line-height: 1.5;
       }
-      .tip .num { color: var(--accent-text); font-weight: 700; margin-right: 5px; }
-      .tip .del { display: inline-block; margin-top: 7px; color: var(--ink-dim); cursor: pointer; font-size: 11px; border-radius: 4px; }
+      .tip .num { color: var(--accent-hi); font-weight: 700; margin-right: 5px; font-variant-numeric: tabular-nums; }
+      .tip .del { display: inline-block; margin-top: 8px; color: var(--paper-faint); font-size: 11.5px; border-radius: 5px; padding: 2px 0; }
       .tip .del:hover { color: var(--danger); }
 
       /* ---------- notes panel ---------- */
       .panel {
-        position: fixed; z-index: 5; top: 0; right: 0; bottom: 0; width: 304px; display: none;
-        pointer-events: auto; background: var(--surface); color: var(--ink);
-        border-left: 1px solid var(--line); box-shadow: var(--shadow-lg);
-        animation: slide 220ms var(--ease-out);
-        flex-direction: column;
+        position: fixed; z-index: 5; top: 8px; right: 8px; bottom: 8px; width: 316px; display: none;
+        pointer-events: auto; background: var(--graphite); color: var(--paper); border-radius: 14px;
+        box-shadow: var(--shadow); animation: slide 220ms var(--ease); flex-direction: column; overflow: hidden;
       }
-      @keyframes slide { from { transform: translateX(12px); opacity: 0 } }
-      .panel h2 { margin: 0; padding: 14px 14px 10px; font-size: 13px; font-weight: 600; color: var(--ink); display: flex; align-items: center; }
-      .panel h2 .close { margin-left: auto; color: var(--ink-dim); font-size: 15px; padding: 0 4px; }
-      .panel .list { list-style: none; margin: 0; padding: 0 8px 12px; overflow: auto; flex: 1; }
-      .panel .item { display: flex; gap: 9px; padding: 9px 8px; border-radius: 8px; cursor: pointer; align-items: flex-start; outline: none; }
-      .panel .item:hover, .panel .item:focus-visible { background: var(--surface-2); }
-      .panel .item:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
-      .panel .item .x { color: var(--ink-3); width: 22px; height: 22px; border-radius: 6px; font-size: 15px; line-height: 1;
+      @keyframes slide { from { transform: translateX(14px); opacity: 0 } }
+      .panel h2 { margin: 0; padding: 16px 16px 8px; font-size: 14px; font-weight: 600; letter-spacing: -.005em; display: flex; align-items: center; }
+      .panel h2 .close { margin-left: auto; color: var(--paper-faint); font-size: 17px; width: 26px; height: 26px; border-radius: 7px; }
+      .panel h2 .close:hover { color: var(--paper); background: var(--graphite-2); }
+      .panel .list { list-style: none; margin: 0; padding: 0 8px 14px; overflow: auto; flex: 1; }
+      .panel .item { display: flex; gap: 10px; padding: 10px 8px; border-radius: 10px; cursor: pointer; align-items: flex-start; outline: none; }
+      .panel .item:hover, .panel .item:focus-visible { background: var(--graphite-2); }
+      .panel .item:focus-visible { box-shadow: 0 0 0 2px var(--accent-hi); }
+      .panel .item .n { background: var(--accent); color: var(--accent-ink); border-radius: 10px 10px 10px 3px; min-width: 20px; height: 20px;
+                        font: 700 10.5px/20px var(--sans); text-align: center; padding: 0 5px; flex: none; font-variant-numeric: tabular-nums; }
+      .panel .item .body { min-width: 0; flex: 1; display: grid; gap: 3px; }
+      .panel .item .c { font-size: 13px; line-height: 1.45; }
+      .panel .item .s { font: 10.5px/1.5 var(--mono); color: var(--paper-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .panel .item .s .warn { color: var(--warn); }
+      .panel .item.gone .c { opacity: .55; }
+      .panel .item .x { color: var(--paper-faint); width: 24px; height: 24px; border-radius: 7px; font-size: 16px; line-height: 1;
                         display: inline-flex; align-items: center; justify-content: center; flex: none; opacity: 0; }
       .panel .item:hover .x, .panel .item:focus-within .x, .panel .item .x:focus-visible { opacity: 1; }
-      .panel .item .x:hover { color: var(--danger); background: var(--surface); }
-      .panel .item .n { background: var(--accent); color: var(--accent-ink); border-radius: 999px; min-width: 19px; height: 19px; font: 700 10px/19px var(--sans); text-align: center; padding: 0 5px; flex: none; }
-      .panel .item .body { min-width: 0; flex: 1; }
-      .panel .item .c { font-size: 12.5px; line-height: 1.4; }
-      .panel .item .s { font: 10px/1.5 var(--mono); color: var(--ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .panel .item.gone .c { opacity: .5; }
-      .panel .item .s .warn { color: var(--warn); }
-      .panel .group { padding: 14px 8px 5px; font: 600 11px/1 var(--sans); color: var(--ink-dim); display: flex; align-items: center; }
-      .panel .group .clear-done { margin-left: auto; font: 500 11px var(--sans); color: var(--ink-dim); padding: 3px 6px; border-radius: 6px; }
-      .panel .group .clear-done:hover { color: var(--ink); background: var(--surface-2); }
+      .panel .item .x:hover { color: var(--danger); background: var(--graphite-3); }
+      .panel .group { padding: 16px 8px 6px; font: 600 12px/1 var(--sans); color: var(--paper-dim); display: flex; align-items: center;
+                      border-top: 1px solid var(--line); margin-top: 8px; }
+      .panel .group .clear-done { margin-left: auto; font: 500 11.5px var(--sans); color: var(--paper-faint); padding: 4px 8px; border-radius: 7px; }
+      .panel .group .clear-done:hover { color: var(--paper); background: var(--graphite-2); }
       .panel .item.done { cursor: default; }
       .panel .item.done:hover { background: none; }
-      .panel .item.done .n { background: var(--surface-2); color: var(--ink-dim); }
-      .panel .item.done .c { color: var(--ink-dim); }
-      /* The agent's answer, in the agent's colour — the same orange its avatar uses. */
-      .panel .reply { margin-top: 6px; padding: 6px 0 0 9px; border-left: 2px solid var(--agent);
-                      font-size: 12px; line-height: 1.45; color: var(--ink); }
-      .panel .reply .who { display: block; font: 600 11px/1 var(--sans); color: var(--agent); margin-bottom: 4px; }
-      .panel .reply.none { color: var(--ink-dim); font-style: italic; }
-      .panel .empty { padding: 18px 14px; color: var(--ink-dim); font-size: 12.5px; line-height: 1.5; }
+      .panel .item.done .n { background: var(--graphite-3); color: var(--paper-dim); }
+      .panel .item.done .c { color: var(--paper-dim); }
+      /* The agent's answer, in the agent's colour. */
+      .panel .reply { margin-top: 6px; padding: 8px 10px; background: color-mix(in srgb, var(--agent) 9%, var(--graphite-2));
+                      border-radius: 4px 10px 10px 10px; font-size: 12.5px; line-height: 1.5; color: var(--paper); }
+      .panel .reply .who { display: block; font: 600 11px/1 var(--sans); color: var(--agent); margin-bottom: 5px; padding: 0; }
+      .panel .reply.none { color: var(--paper-faint); font-style: italic; }
+      .panel .empty { padding: 20px 16px; color: var(--paper-dim); font-size: 13px; line-height: 1.55; }
 
       /* ---------- toast ---------- */
       .toast {
-        position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
-        background: var(--ink); color: var(--surface); border-radius: 999px; padding: 8px 14px;
-        font-size: 12.5px; box-shadow: var(--shadow-lg); max-width: min(560px, calc(100vw - 32px));
-        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-        display: none; pointer-events: none; animation: pop 160ms var(--ease-out);
+        position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); display: none; pointer-events: none;
+        background: var(--graphite); color: var(--paper); border-radius: 999px; padding: 9px 16px 9px 14px;
+        font-size: 12.5px; box-shadow: var(--shadow); max-width: min(560px, calc(100vw - 32px));
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; animation: rise 180ms var(--ease);
       }
+      .toast::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent-hi); margin-right: 9px; vertical-align: 1px; }
       .toast.action { pointer-events: auto; cursor: pointer; }
-      .toast.action::after { content: " ›"; opacity: .7; }
+      .toast.action::before { background: var(--agent); }
+      .toast.action::after { content: " ›"; color: var(--paper-faint); }
 
-      /* Nothing here is load-bearing motion — it is all emphasis. Two of these loop forever (the
-         armed pulse and the agent's spinner), which is exactly what this setting exists to stop. */
       @media (prefers-reduced-motion: reduce) {
         *, *::before, *::after { animation: none !important; transition-duration: 1ms !important; }
       }
     </style>
 
-    <div class="hl"><div class="tag"></div></div>
+    <div class="hl"><i class="c tl"></i><i class="c tr"></i><i class="c bl"></i><i class="c br"></i><div class="tag"></div></div>
     <div class="marquee"><span class="size"></span></div>
 
     <div class="dock">
@@ -388,10 +299,10 @@
       </div>
       <textarea rows="2" aria-label="What should change"></textarea>
       <div class="row2">
-        <button class="send">Send<kbd></kbd></button>
-        <button class="ghost copy">Copy</button>
-        <button class="ghost cancel" title="Close this and pick another element">Re-pick</button>
         <span class="status" role="status"></span>
+        <button class="ghost copy" title="Copy as a prompt, for any chat">Copy</button>
+        <button class="ghost cancel" title="Close this and pick another element">Re-pick</button>
+        <button class="send">Send<kbd></kbd></button>
       </div>
     </div>
 
@@ -1059,7 +970,11 @@
       hoverTimer = setTimeout(() => {
         if (!picking || hovered !== t) return;
         const c = sourceHint(t).components[0];
-        if (c && hovered === t) ui.tag.textContent = `<${c}>  ` + describe(t);
+        if (c && hovered === t) {
+          const b = document.createElement("b");
+          b.textContent = `<${c}>`;
+          ui.tag.replaceChildren(b, document.createTextNode("  " + describe(t)));
+        }
       }, 90);
     }
   }, true);
