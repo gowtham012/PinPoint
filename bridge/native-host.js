@@ -9,6 +9,8 @@ import { fileURLToPath } from "node:url";
 import { DATA_DIR } from "./store.js";
 
 export const HOST_NAME = "com.pinpoint.bridge";
+// Pinpoint's id on the Chrome Web Store.
+export const STORE_ID = "mkjegdlcpijniabibingcbmjfedcepgp";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 // Chrome derives an extension's id from its manifest "key": sha256 of the DER public key, first
@@ -119,7 +121,9 @@ export function installNativeHost({
   try { manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")); }
   catch { throw new Error(`could not read ${manifestPath} — run this from the pinpoint checkout`); }
   if (!manifest.key) throw new Error(`${manifestPath} has no "key", so the extension's id is not stable — pass --id <extension id> instead`);
-  const wanted = [extensionId(manifest.key), ...ids];
+  // The unpacked build (its id comes from the manifest key) and the Chrome Web Store build, which
+  // the Store assigns its own id — both may start the bridge.
+  const wanted = [...new Set([extensionId(manifest.key), STORE_ID, ...ids])];
 
   fs.mkdirSync(path.dirname(wrapperPath), { recursive: true });
   fs.writeFileSync(wrapperPath, wrapperScript({ node, hostPath, project, home }));

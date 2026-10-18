@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // One-time Chrome Web Store API setup for the release workflow. Run it on your own machine:
 //
+//   node tools/cws-auth.mjs <client_secret_….json> <EXTENSION_ID>     the file Google lets you download
 //   node tools/cws-auth.mjs <CLIENT_ID> <CLIENT_SECRET> <EXTENSION_ID>
 //
 // It opens Google's consent page, catches the reply on http://localhost:8765, exchanges it for a
@@ -8,11 +9,22 @@
 // is printed: the secrets go straight from Google to GitHub. Needs `gh` signed in as an account that
 // can write the repository's secrets.
 import http from "node:http";
+import fs from "node:fs";
 import { execFileSync, spawn } from "node:child_process";
 
-const [clientId, clientSecret, extensionId] = process.argv.slice(2);
+let [a, b, c] = process.argv.slice(2);
+let clientId, clientSecret, extensionId;
+if (a && a.endsWith(".json")) {
+  // Google's download: {"installed": {"client_id": …, "client_secret": …}} (or "web" for web clients).
+  const j = JSON.parse(fs.readFileSync(a, "utf8"));
+  const k = j.installed || j.web || j;
+  [clientId, clientSecret, extensionId] = [k.client_id, k.client_secret, b];
+} else {
+  [clientId, clientSecret, extensionId] = [a, b, c];
+}
 if (!clientId || !clientSecret || !/^[a-p]{32}$/.test(extensionId || "")) {
-  console.error("usage: node tools/cws-auth.mjs <CLIENT_ID> <CLIENT_SECRET> <EXTENSION_ID (32 letters a-p)>");
+  console.error("usage: node tools/cws-auth.mjs <client_secret_….json> <EXTENSION_ID (32 letters a-p)>");
+  console.error("   or: node tools/cws-auth.mjs <CLIENT_ID> <CLIENT_SECRET> <EXTENSION_ID>");
   process.exit(2);
 }
 const REPO = "gowtham012/pinpoint";

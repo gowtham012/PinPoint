@@ -653,7 +653,9 @@ test("install-native-host: writes one manifest per detected browser, unions, uni
   assert.equal(written.name, HOST_NAME);
   assert.equal(path.basename(r.files[0]), `${HOST_NAME}.json`, "filename must equal the host name");
   assert.equal(written.type, "stdio");
-  assert.deepEqual(written.allowed_origins, [`chrome-extension://${id}/`]);
+  // the unpacked build and the Chrome Web Store build may both start the bridge
+  const { STORE_ID } = await import("../bridge/native-host.js");
+  assert.deepEqual(written.allowed_origins, [`chrome-extension://${id}/`, `chrome-extension://${STORE_ID}/`].sort());
   assert.equal(written.path, wrapperPath);
   assert.ok(path.isAbsolute(written.path));
   assert.ok(fs.statSync(wrapperPath).mode & 0o111, "the wrapper must be executable");
@@ -666,7 +668,7 @@ test("install-native-host: writes one manifest per detected browser, unions, uni
   assert.equal(fs.readFileSync(r.files[0], "utf8"), before, "re-running must be byte-identical");
   installNativeHost({ ...opts, ids: ["aaaabbbbccccddddeeeeffffgggghhhh"] });
   const unioned = JSON.parse(fs.readFileSync(r.files[0], "utf8"));
-  assert.equal(unioned.allowed_origins.length, 2, "a second id is added, not swapped in");
+  assert.equal(unioned.allowed_origins.length, 3, "a further id is added, not swapped in");
   assert.ok(unioned.allowed_origins.includes(`chrome-extension://${id}/`));
 
   const gone = installNativeHost({ ...opts, uninstall: true });
