@@ -6,7 +6,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-10-18
+
+A deep review (15 agents, every finding adversarially verified) and a redesign. 152 automated tests.
+
+### Security
+- **A web page can no longer drive Pinpoint.** The in-page UI is a closed shadow root and the picker
+  ignores synthetic events, so a page script cannot type into the comment box, press Send, or arm the
+  picker to file a note the developer never wrote.
+- **Only Pinpoint's own extension can use the bridge.** Any installed extension could call
+  `127.0.0.1`; extension requests now need the token in `~/.pinpoint/token`. Chrome fetches it through
+  the native host; Safari and Firefox paste it into the popup once (`node bridge/cli.js token`).
+  **Upgrade the extension and the bridge together** — a 0.5 extension cannot send the token.
+- `/annotations/wait` and `/ios/screen` need an `x-pinpoint` header, so an `<img>` on any website
+  cannot claim a note or start Maestro. Scraped page text is flattened so it cannot forge a
+  `**Change:**` line, and the HTML fence outgrows any backticks inside it.
+
 ### Added
+- **Notes are conversations.** New MCP tool `reply_annotation`: the agent asks instead of guessing,
+  the pin shows a **?**, and the answer from the notes panel sends the note back with the whole
+  thread. Finished notes can be reopened with **Reply…**.
+- **Drafts** (**Draft** or ⇧⌘↩) stay on the page until **Send** on the bar hands them all over.
+- **Whole-page notes**, cropped to the window.
+- **Move the bar anywhere** by dragging it; it stays put per site.
+- **Keyboard picking**: Tab moves the highlight, arrows walk the tree, Enter picks.
+- A **"Bridge off · Start"** pill when the bridge stops, and Send starts it and resends; a toast with
+  the agent's reply and an unread dot; one-click remove and **Clear done** in the panel; the popup
+  finds a bridge on a neighbouring port, shows agent activity, and jumps to a note's tab.
+- **Trailhead**, a one-screen SwiftUI demo in `demo/ios/` for trying the Simulator picker.
 - **Published.** `pinpoint-bridge` is on npm, Pinpoint is in the official MCP Registry as
   `io.github.gowtham012/pinpoint`, and on cursor.directory and Glama. `npx -y pinpoint-bridge mcp` is
   now the MCP entry the README suggests, and `npx -y pinpoint-bridge` runs the bridge (and the iOS
@@ -15,7 +42,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so the listing can be claimed. A hosted container is for that inspection only: Pinpoint talks to
   your browser and Simulator on `127.0.0.1`, so it cannot do anything useful deployed elsewhere.
 
+### Changed
+- **A new look**: ink panels and a lime accent in every theme, a crop-mark highlight, pins as
+  numbered drops. Opaque surfaces, AA contrast, visible focus, reduced motion respected.
+
 ### Fixed
+- Resolves were silently undone on non-default ports; abandoned `wait_for_annotation` calls swallowed
+  the next note; `/restart` re-ran the setup wizard; a region drag followed the link under it; Esc
+  reached the page's own modals; crops of half-scrolled elements included what sat below; region pins
+  lost their box; pins outlived client-side route changes; picking drifted between frames; the
+  shortcut threw away a half-written note; `setup --for ios` hung on Maestro 2.9; and about thirty more.
+- The bridge's `package-lock.json` is tracked, so a fresh clone (and Glama's build) can `npm ci`.
 - **CI has been red since 10 September.** The setup test assumed a `claude` CLI on the machine,
   which CI does not have, so setup skipped the hooks the test then looked for. The test now puts a
   stub `claude` on its own PATH.
