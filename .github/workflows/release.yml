@@ -1,11 +1,11 @@
 # Push a tag like v0.6.1 (tools/release.sh does it) and this ships everything:
-#   tests → npm → MCP Registry → Chrome Web Store, Edge Add-ons → GitHub release.
+#   tests → npm → MCP Registry → Chrome Web Store, Edge Add-ons, Firefox (AMO) → GitHub release.
 #
 # No long-lived npm or registry secrets: npm and the MCP Registry both trust this workflow through
 # GitHub's OIDC token. One-time setup, in docs/releasing.md:
 #   - npmjs.com → pinpoint-bridge → Settings → Trusted Publisher → GitHub Actions,
 #     repository gowtham012/pinpoint, workflow release.yml
-#   - Chrome Web Store, Edge Add-ons: repository secrets (each store's upload is skipped until
+#   - Chrome Web Store, Edge Add-ons, AMO: repository secrets (each store's upload is skipped until
 #     its secrets exist; the zips are still built and attached to the release)
 name: release
 
@@ -147,8 +147,50 @@ jobs:
       - name: Upload and submit for certification (skipped without secrets)
         run: bash tools/edge-publish.sh dist/pinpoint-extension-cws.zip
 
+  # Firefox: the same extension/ with a Firefox manifest. The first listed version goes up by hand
+  # (AMO wants listing metadata for it); after that web-ext submits each release for review.
+  firefox:
+    needs: [versions, tests]
+    runs-on: ubuntu-latest
+    env:
+      WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
+      WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Build and lint the Firefox zip
+        run: |
+          bash tools/make-firefox-zip.sh
+          mkdir -p dist/firefox && unzip -q dist/pinpoint-extension-firefox.zip -d dist/firefox
+          npx --yes web-ext@10 lint --source-dir dist/firefox
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pinpoint-extension-firefox
+          path: dist/pinpoint-extension-firefox.zip
+      # --approval-timeout 0: submit and return; review takes hours to days and the signed file
+      # appears on AMO, not here.
+      - name: Submit to AMO (listed)
+        if: env.WEB_EXT_API_KEY != '' && env.WEB_EXT_API_SECRET != ''
+        run: |
+          set +e
+          npx --yes web-ext@10 sign --source-dir dist/firefox --artifacts-dir dist/web-ext \
+            --channel listed --approval-timeout 0 2>&1 | tee sign.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          [ "$rc" = 0 ] && exit 0
+          if grep -qi "already exists" sign.log; then echo "::notice::this version is already on AMO"; exit 0; fi
+          if grep -qiE "401|403|unauthori|signature|credential" sign.log; then
+            echo "::error::AMO refused the API credentials — make new ones at https://addons.mozilla.org/developers/addon/api/key/ and update AMO_JWT_ISSUER / AMO_JWT_SECRET"
+          fi
+          exit "$rc"
+      - name: AMO secrets not set
+        if: env.WEB_EXT_API_KEY == '' || env.WEB_EXT_API_SECRET == ''
+        run: echo "::notice::AMO secrets are not set — upload dist/pinpoint-extension-firefox.zip from the release at addons.mozilla.org by hand (docs/releasing.md)."
+
   github-release:
-    needs: [versions, npm, chrome-web-store, edge-addons]
+    needs: [versions, npm, chrome-web-store, edge-addons, firefox]
     if: always() && needs.versions.result == 'success' && needs.npm.result == 'success'
     runs-on: ubuntu-latest
     permissions:

@@ -31,12 +31,20 @@ jobs:
         working-directory: test
         run: npx playwright install --with-deps chromium
 
-      # The bridge, the CLI, the hooks and every MCP tool over both transports.
+      # The bridge, the CLI, the hooks, every MCP tool over both transports, and every other
+      # non-browser test file (any *.test.mjs not starting with e2e).
       - name: Bridge and MCP tests
         working-directory: test
-        run: node --test --test-reporter=spec bridge.test.mjs
+        run: node --test --test-reporter=spec --test-concurrency=1 '!(e2e*).test.mjs'
 
       # Loads the unpacked extension into a real headless Chromium and drives real pages.
       - name: Browser tests
         working-directory: test
-        run: node --test --test-reporter=spec e2e.test.mjs
+        run: node --test --test-reporter=spec --test-concurrency=1 'e2e*.test.mjs'
+
+      # The Firefox package AMO will review.
+      - name: Firefox package lint
+        run: |
+          bash tools/make-firefox-zip.sh
+          mkdir -p dist/firefox && unzip -q dist/pinpoint-extension-firefox.zip -d dist/firefox
+          npx --yes web-ext@10 lint --source-dir dist/firefox
