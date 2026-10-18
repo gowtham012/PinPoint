@@ -1,0 +1,21 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Pinpoint test: a page that goes wrong</title>
+</head>
+<body>
+<h1 id="title">The list never loads</h1>
+<ul id="list"></ul>
+<script>
+  // Everything here carries a secret that must not reach the agent: an uncaught error, an unhandled
+  // rejection, a 404 with a key in its query string, and a request to a port nothing listens on
+  // (?dead=<port>, from the test).
+  setTimeout(() => { throw new Error("render failed for token=abc123secret"); }, 0);
+  Promise.reject(new Error("load failed: Bearer sk-abcdef123456"));
+  fetch("/missing.json?api_key=SHOULD_NOT_LEAK").catch(() => {});
+  const dead = new URLSearchParams(location.search).get("dead");
+  if (dead) fetch(`http://127.0.0.1:${dead}/dead?session_id=NOPE`).catch(() => {});
+</script>
+</body>
+</html>

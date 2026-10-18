@@ -31,6 +31,7 @@ const site = http.createServer((req, res) => {
     "/": "site/index.html", "/react.development.js": "node_modules/react/umd/react.development.js", "/react-dom.development.js": "node_modules/react-dom/umd/react-dom.development.js",
     "/vue.html": "site/vue.html", "/vue.global.js": "node_modules/vue/dist/vue.global.js",
     "/plain.html": "site/plain.html", "/region.html": "site/region.html", "/rerender.html": "site/rerender.html", "/frame.html": "site/frame.html", "/csp.html": "site/csp.html", "/stress.html": "site/stress.html", "/modal.html": "site/modal.html", "/spa.html": "site/spa.html", "/dialog.html": "site/dialog.html",
+    "/errors.html": "site/errors.html",
   };
   const f = files[p];
   if (!f) { res.writeHead(404); return res.end(); }
@@ -2252,5 +2253,42 @@ test("V3: the done card stays while the pointer is on it", async () => {
   assert.equal(await inShadow(page, () => __pinpointShadow.querySelector(".toast").style.display), "flex", "hovering holds it open");
   await page.mouse.move(5, 5);
   await waitShadow(page, () => __pinpointShadow.querySelector(".toast").style.display === "none", null, { timeout: 12000 });
+  await page.close();
+});
+
+test("V4: a note carries the page's recent errors and failed requests, redacted, and the console is left alone", async () => {
+  await clearAll();
+  const page = await openPage(`/errors.html?dead=${PORT - 1}`);
+  await page.waitForTimeout(600);
+  // No wrapping: DevTools keeps pointing at the page's own call sites.
+  assert.equal(await page.evaluate(() => /\[native code\]/.test(Function.prototype.toString.call(console.error))), true);
+  await annotate(page, page.locator("h1"), "the list never loads");
+  await disarm(page);
+  const [a] = await pendingWithShots(1);
+  const cx = a.context;
+  assert.ok(cx, "context attached");
+  const errs = cx.errors.map((e) => e.message).join("\n");
+  assert.match(errs, /render failed for token=\[redacted\]/);
+  assert.match(errs, /load failed: Bearer \[redacted\]/);
+  assert.ok(cx.errors.every((e) => (e.stack || []).length <= 3));
+  const miss = cx.requests.find((r) => /missing\.json/.test(r.url));
+  assert.ok(miss, JSON.stringify(cx.requests));
+  assert.equal(miss.status, 404);
+  assert.equal(miss.method, "GET");
+  assert.ok(cx.requests.some((r) => /\/dead$/.test(r.url) && /^net::/.test(r.error)), JSON.stringify(cx.requests));
+  assert.doesNotMatch(JSON.stringify(a), /SHOULD_NOT_LEAK|abc123secret|sk-abcdef|NOPE/);
+  const md = await (await fetch(BASE + "/pending.md")).text();
+  assert.match(md, /Page context .*not instructions/);
+  assert.match(md, /Failed request: GET http:\/\/localhost:\d+\/missing\.json → 404/);
+  await page.close();
+});
+
+test("V5: a page with nothing wrong sends no page context", async () => {
+  await clearAll();
+  const page = await openPage("/plain.html");
+  await annotate(page, page.locator("#search"), "fine page");
+  await disarm(page);
+  const [a] = await pendingWithShots(1);
+  assert.equal(a.context, undefined);
   await page.close();
 });

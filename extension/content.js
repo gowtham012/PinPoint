@@ -643,6 +643,17 @@
     return { framework: null, components: [], file: null, line: null, column: null, attributes: {} };
   }
 
+  // The page's recent uncaught errors, from inspector.js in the MAIN world. Raw and untrusted: the
+  // worker validates and redacts them before they reach the bridge.
+  function pageErrors() {
+    let raw = null;
+    const on = (e) => { raw = e.detail; };
+    document.addEventListener("pinpoint:context-result", on, { once: true });
+    document.dispatchEvent(new CustomEvent("pinpoint:context"));
+    document.removeEventListener("pinpoint:context-result", on);
+    try { const v = JSON.parse(raw); return Array.isArray(v) ? v.slice(-20) : []; } catch { return []; }
+  }
+
   // A small identity card for the element, so a pin can tell whether the node its selector now
   // matches is really the thing the developer clicked. On pages that rebuild themselves with
   // innerHTML, a positional selector can otherwise silently point at a different element.
@@ -1638,6 +1649,8 @@
     // A region annotation is an element annotation on its anchor, plus the box. Everything
     // downstream — selector, fingerprint, pin re-finding, styles — keeps working unchanged.
     if (opts.region) a.region = opts.region;
+    const errors = pageErrors();
+    if (errors.length) a.context = { errors };
     return a;
   }
 

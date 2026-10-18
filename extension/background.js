@@ -9,6 +9,9 @@
 // Chrome builds refuse it ("Identifier 'chrome' has already been declared"), which kills the worker.
 const api = globalThis.browser ?? globalThis.chrome;
 
+// pinpointRedact, for page context. A Firefox build lists redact.js in background.scripts instead.
+if (typeof importScripts === "function") { try { importScripts("redact.js"); } catch {} }
+
 const DEFAULT_PORT = 7331;
 const WATCH_ALARM = "pinpoint-watch";
 const NATIVE_HOST = "com.pinpoint.bridge";
@@ -212,6 +215,43 @@ api.alarms.onAlarm.addListener((a) => a.name === WATCH_ALARM && watch());
 api.runtime.onStartup.addListener(() => { refreshBadge(); watch(); });
 api.runtime.onInstalled.addListener(() => { refreshBadge(); watch(); });
 watch();
+
+// ---------- page context: failed requests ----------
+// Per tab, in memory only: method, URL without its query, and the status or network error. Never a
+// body or a header. Only requests a local dev page made, so ordinary browsing is never collected.
+// ponytail: lost when the worker is evicted; storage.session if notes ever miss requests because of it.
+const failedRequests = new Map();
+function noteRequest(d, outcome) {
+  if (d.tabId < 0 || !isLocalDev(d.initiator || d.documentUrl || d.originUrl || d.url)) return;
+  const list = failedRequests.get(d.tabId) || [];
+  list.push({ at: Date.now(), method: d.method, url: String(d.url).split(/[?#]/)[0].slice(0, 400), ...outcome });
+  if (list.length > 30) list.shift();
+  failedRequests.set(d.tabId, list);
+}
+if (api.webRequest?.onCompleted) {
+  api.webRequest.onCompleted.addListener((d) => {
+    if (d.type === "main_frame") failedRequests.delete(d.tabId); // a new page starts with a clean slate
+    if (d.statusCode >= 400) noteRequest(d, { status: d.statusCode });
+  }, { urls: ["<all_urls>"] });
+  api.webRequest.onErrorOccurred.addListener((d) => {
+    if (d.error !== "net::ERR_ABORTED") noteRequest(d, { error: d.error }); // aborted = navigated away, not a bug
+  }, { urls: ["<all_urls>"] });
+  api.tabs.onRemoved.addListener((id) => failedRequests.delete(id));
+}
+
+// The last minute of errors (from the page, via the content script — untrusted) and failed requests
+// (ours), checked and redacted. Without the redactor nothing goes: fail closed.
+function pageContext(tabId, fromPage) {
+  const R = globalThis.pinpointRedact;
+  if (!R) return undefined;
+  const now = Date.now(), since = now - 60000;
+  const fresh = (t) => typeof t === "number" && t >= since && t <= now + 1000;
+  const errors = (Array.isArray(fromPage?.errors) ? fromPage.errors : []).filter((e) => e && fresh(e.at)).slice(-20)
+    .map((e) => ({ message: R(e.message), stack: (Array.isArray(e.stack) ? e.stack : []).slice(0, 3).map(R), at: new Date(e.at).toISOString() }));
+  const requests = (failedRequests.get(tabId) || []).filter((r) => fresh(r.at)).slice(-20)
+    .map((r) => ({ method: r.method, url: R(r.url), ...(r.status ? { status: r.status } : { error: R(r.error) }), at: new Date(r.at).toISOString() }));
+  return errors.length || requests.length ? { errors, requests } : undefined;
+}
 
 // Crop the visible tab to `rect` (CSS px, top-document viewport coordinates) at ratio `dpr`.
 async function captureElement(windowId, rect, dpr, pad = 8) {
@@ -472,6 +512,7 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       // while the screenshot is being taken.
       case "submit": {
         if (sender.tab) msg.annotation.page = { ...msg.annotation.page, topUrl: sender.tab.url || null, frameId: sender.frameId || 0 };
+        msg.annotation.context = pageContext(sender.tab?.id, msg.annotation.context);
         const result = await bridgeFetch("/annotations", {
           method: "POST",
           headers: { "content-type": "application/json" },
