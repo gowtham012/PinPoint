@@ -186,7 +186,8 @@ test("/pending.md serves markdown; CORS preflight ok; non-loopback Host refused"
   const o = await fetch(BASE + "/annotations", { method: "OPTIONS" });
   assert.equal(o.status, 204);
   assert.equal(o.headers.get("access-control-allow-origin"), "*");
-  const bad = await new Promise((res) => http.get({ host: "127.0.0.1", port: PORT, path: "/health", headers: { host: "evil.example" } }, (r) => res(r.statusCode)));
+  // The bridge hangs up after the 403; on Windows that reaches the client as ECONNRESET.
+  const bad = await new Promise((res) => http.get({ host: "127.0.0.1", port: PORT, path: "/health", headers: { host: "evil.example" } }, (r) => res(r.statusCode)).on("error", () => {}));
   assert.equal(bad, 403, "non-loopback Host refused");
   const web = await fetch(BASE + "/annotations", { headers: { origin: "https://evil.example" } });
   assert.equal(web.status, 403, "web page origin refused");

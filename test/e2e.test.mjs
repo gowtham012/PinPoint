@@ -1926,8 +1926,21 @@ test("S7: re-checking a note made inside an iframe looks in that iframe", async 
 });
 
 // ============ 0.6.0 batch 3: fewer clicks ============
+// A real click at the element's centre — once it is laid out and holding still. The bar takes its
+// corner from an async storage read and can jump there after we measure; on a slow runner (macOS CI)
+// the click then lands on the page instead.
 const tapShadow = async (page, sel) => {
-  const b = await inShadow(page, (s) => { const r = __pinpointShadow.querySelector(s).getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; }, sel);
+  const b = await inShadow(page, async (s) => {
+    const at = () => { const r = __pinpointShadow.querySelector(s).getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width }; };
+    let prev = at();
+    for (let i = 0; i < 40; i++) {
+      await new Promise((r) => setTimeout(r, 50));
+      const now = at();
+      if (now.w > 0 && now.x === prev.x && now.y === prev.y) return now;
+      prev = now;
+    }
+    return prev;
+  }, sel);
   await page.mouse.click(b.x, b.y);
 };
 const SEND = process.platform === "darwin" ? "Meta+Enter" : "Control+Enter";
