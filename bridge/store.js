@@ -244,9 +244,10 @@ export function pendingMarkdown(db, { channel = "mcp", cliPath = null, port = nu
     ? `Locate each element in the codebase using the source file and component chain first, then the selector and DOM path.`
     : `This page has no framework metadata, so the rendered DOM may not appear literally in the source (templates, string concatenation, innerHTML). Locate each element by grepping for distinctive strings from its HTML snippet or its attributes; treat the CSS selector as a hint about structure, not as something to search for.`;
   // A native app's tree carries no source at all; its identifiers are what the code spells out.
-  const native = items.some((a) => a.source?.framework === "ios-native")
-    ? ` For an iOS Simulator item, grep for its accessibilityIdentifier (a \`testID\`, \`.accessibilityIdentifier(…)\`) first, then its visible label.`
-    : "";
+  const has = (fw) => items.some((a) => a.source?.framework === fw);
+  const native =
+    (has("ios-native") ? ` For an iOS Simulator item, grep for its accessibilityIdentifier (a \`testID\`, \`.accessibilityIdentifier(…)\`) first, then its visible label.` : "") +
+    (has("android-native") ? ` For an Android item, grep for its resource-id (\`@+id/…\`, \`R.id.…\`, a Compose \`testTag\`, a React Native \`testID\`) first, then its visible text or content-desc.` : "");
   // The comment is not always about pixels. "This should save the draft" names a button, but the
   // change lives in a handler, a hook or an API route — an agent told these are "UI change
   // requests" restyles the button and stops there.

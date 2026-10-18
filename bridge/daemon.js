@@ -9,7 +9,8 @@ import { fileURLToPath } from "node:url";
 import { EventEmitter } from "node:events";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createMcpServer } from "./mcp.js";
-import { snapshot as iosSnapshot, toAnnotation as iosAnnotation } from "./ios.js";
+import * as ios from "./ios.js";
+import * as android from "./android.js";
 import { DEFAULT_PORT, DATA_FILE, load, save, pending, pendingMarkdown, summaryLine, findAnnotation, pageKeyOf, bridgeToken } from "./store.js";
 
 const MAX_RESOLVED = Number(process.env.PINPOINT_MAX_RESOLVED) || 200;
@@ -354,7 +355,7 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
     const origin = req.headers.origin;
     // Only the extension (a *-extension:// origin) and origin-less local CLI tools. A localhost
     // origin is a web page too — the very dev site being annotated — so it is refused like any other.
-    // The one exception is our own origin: the /ios picker page is served by this bridge.
+    // The one exception is our own origin: the /ios and /android picker page is served by this bridge.
     const self = origin === `http://127.0.0.1:${port}` || origin === `http://localhost:${port}`;
     if (origin && !self && !/^(chrome|moz|safari-web)-extension:\/\//.test(origin)) {
       return json(res, 403, { error: "origin not allowed" });
@@ -373,9 +374,9 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
     // any other installed extension does not have it. /health stays answerable so the popup can tell
     // "bridge is up, but this browser needs the token" from "bridge is down".
     const fromExtension = !!origin && !self;
-    if ((p === "/annotations/wait" || p === "/ios/screen") && req.headers["x-pinpoint"] !== "1") {
+    if ((p === "/annotations/wait" || p === "/ios/screen" || p === "/android/screen") && req.headers["x-pinpoint"] !== "1") {
       // A plain GET carries no Origin — so <img src="http://127.0.0.1:7331/annotations/wait"> on any
-      // website would claim a note, or start Maestro. A custom header needs a preflight we refuse.
+      // website would claim a note, or start Maestro or adb. A custom header needs a preflight we refuse.
       return json(res, 403, { error: "x-pinpoint header required" });
     }
     const tokenOk = !fromExtension || req.headers["x-pinpoint-token"] === token;
@@ -424,20 +425,22 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
         return;
       }
 
-      // ---- iOS Simulator picker ----
-      if (p === "/ios" && req.method === "GET") {
+      // ---- native pickers: iOS Simulator and Android emulator, one page for both ----
+      const native = /^\/(ios|android)(\/screen|\/annotations)?$/.exec(p);
+      const picker = native && { ios, android }[native[1]];
+      if (native && !native[2] && req.method === "GET") {
         // Never framed: a page that could embed us could trick a click into sending a note.
         res.writeHead(200, { "content-type": "text/html; charset=utf-8", "x-frame-options": "DENY", "content-security-policy": "frame-ancestors 'none'" });
-        return res.end(fs.readFileSync(path.join(path.dirname(CLI_PATH), "ios.html")));
+        return res.end(fs.readFileSync(path.join(path.dirname(CLI_PATH), "picker.html")));
       }
-      if (p === "/ios/screen" && req.method === "GET") {
-        try { return json(res, 200, await iosSnapshot()); } catch (e) { return json(res, 502, { error: e.message }); }
+      if (native?.[2] === "/screen" && req.method === "GET") {
+        try { return json(res, 200, await picker.snapshot()); } catch (e) { return json(res, 502, { error: e.message }); }
       }
-      if (p === "/ios/annotations" && req.method === "POST") {
+      if (native?.[2] === "/annotations" && req.method === "POST") {
         let b;
         try { b = await readBody(req); } catch (e) { return json(res, 400, { error: String(e.message) }); }
         if (!b?.comment || !b.node?.bounds || !b.device?.name) return json(res, 400, { error: "comment, node and device required" });
-        const saved = await api.add(iosAnnotation({ ...b, id: Math.random().toString(36).slice(2, 10) }));
+        const saved = await api.add(picker.toAnnotation({ ...b, id: Math.random().toString(36).slice(2, 10) }));
         if (b.screenshot?.base64) await api.attachScreenshot(saved.id, b.screenshot);
         return json(res, 201, { ok: true, id: saved.id, number: saved.number });
       }
@@ -579,6 +582,7 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
     server.listen(port, "127.0.0.1", () => {
       log(`listening on http://127.0.0.1:${port}  (MCP: http://127.0.0.1:${port}/mcp)`);
       if (process.platform === "darwin") log(`iOS Simulator picker: http://127.0.0.1:${port}/ios`);
+      if (android.findAdb()) log(`Android emulator picker: http://127.0.0.1:${port}/android`);
       if (project) { log(`mirroring pending annotations to ${path.join(project, ".pinpoint")}/`); mirrorToProject(); }
       resolve({ server, api, port, close: () => new Promise((r) => server.close(r)) });
     });

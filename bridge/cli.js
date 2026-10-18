@@ -29,10 +29,14 @@ Options
   --id <id>         (with install-native-host) also allow this extension id
   --yes             (with setup) take every default instead of asking
   --no-start        (with setup) wire everything up but do not start the bridge
-  --for <what>      (with setup) web, ios or both, instead of being asked
+  --for <what>      (with setup) web, ios, android or both, instead of being asked
 
 iOS Simulator
   open http://127.0.0.1:<port>/ios while the bridge runs (needs Xcode and Maestro)
+
+Android emulator
+  open http://127.0.0.1:<port>/android while the bridge runs (needs adb; set ANDROID_SERIAL
+  to pick one of several emulators, or a physical device)
 
 Files
   ${DATA_FILE}   annotations (screenshots inline, no loose image files)

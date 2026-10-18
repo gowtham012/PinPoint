@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pinpoint — iOS Simulator</title>
+<title>Pinpoint</title>
 <style>
   :root { --bg: #f6f6f4; --fg: #1d1d1f; --muted: #6e6e73; --card: #fff; --line: #d9d9d6; --accent: #c6f432; --on-accent: #121212; }
   @media (prefers-color-scheme: dark) { :root { --bg: #161617; --fg: #f2f2f2; --muted: #9a9a9f; --card: #232325; --line: #3a3a3d; } }
@@ -29,13 +29,13 @@
 </head>
 <body>
 <header>
-  <b>Pinpoint · iOS Simulator</b>
+  <b id="name">Pinpoint</b>
   <span id="status">Loading…</span>
   <button id="refresh" title="Take a fresh screenshot (R)">Refresh</button>
 </header>
 <main>
   <div id="stage">
-    <img id="shot" alt="Simulator screen">
+    <img id="shot" alt="Device screen">
     <div id="hover" class="box" hidden></div>
     <div id="tip" hidden></div>
     <div id="pop" hidden>
@@ -48,6 +48,12 @@
 <script>
 // Everything shown from the tree goes through textContent: labels come from the app and are untrusted.
 const $ = (id) => document.getElementById(id);
+// One page for both: /ios reads the Simulator through Maestro, /android the emulator through adb.
+const KIND = location.pathname.startsWith("/android") ? "android" : "ios";
+const DEVICE = { ios: "iOS Simulator", android: "Android emulator" }[KIND];
+const READING = { ios: "Reading the simulator… (the first time takes a few seconds)", android: "Reading the emulator…" }[KIND];
+document.title = "Pinpoint — " + DEVICE;
+$("name").textContent = "Pinpoint · " + DEVICE;
 const shot = $("shot"), stage = $("stage"), hover = $("hover"), tip = $("tip"), pop = $("pop");
 let screen = null, picked = null, pins = [];
 
@@ -72,9 +78,9 @@ function pointFrom(e) {
 }
 
 async function load() {
-  $("status").textContent = "Reading the simulator… (the first time takes a few seconds)";
+  $("status").textContent = READING;
   closePop();
-  const res = await fetch("/ios/screen", { headers: { "x-pinpoint": "1" } });
+  const res = await fetch(`/${KIND}/screen`, { headers: { "x-pinpoint": "1" } });
   const body = await res.json();
   if (!res.ok) { $("status").textContent = body.error; return; }
   screen = body;
@@ -84,11 +90,10 @@ async function load() {
   loadPins();
 }
 
-// Pending notes for this simulator, so a resolved one disappears when you refresh.
+// Pending notes for this device, so a resolved one disappears when you refresh.
 async function loadPins() {
   pins.forEach((p) => p.remove());
-  const url = `ios-simulator://${screen.device.name}`;
-  const { annotations } = await (await fetch("/annotations?status=pending&url=" + encodeURIComponent(url))).json();
+  const { annotations } = await (await fetch("/annotations?status=pending&url=" + encodeURIComponent(screen.url))).json();
   pins = annotations.map((a) => {
     const p = document.createElement("div");
     p.className = "pin";
@@ -146,7 +151,7 @@ async function send() {
   if (!comment || !picked) return;
   $("send").disabled = true;
   try {
-    const res = await fetch("/ios/annotations", {
+    const res = await fetch(`/${KIND}/annotations`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ comment, node: picked, device: screen.device, viewport: screen.viewport, screenshot: crop(picked.bounds) }),
