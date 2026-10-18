@@ -31,10 +31,11 @@ jobs:
         working-directory: test
         run: npx playwright install --with-deps chromium
 
-      # The bridge, the CLI, the hooks and every MCP tool over both transports.
+      # The bridge, the CLI, the hooks and every MCP tool over both transports; ui-*: the panel's
+      # bridge routes and page-context redaction.
       - name: Bridge and MCP tests
         working-directory: test
-        run: node --test --test-reporter=spec bridge.test.mjs
+        run: node --test --test-reporter=spec bridge.test.mjs ui-*.test.mjs
 
       # Loads the unpacked extension into a real headless Chromium and drives real pages.
       - name: Browser tests
