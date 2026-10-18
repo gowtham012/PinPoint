@@ -166,12 +166,20 @@ one driver, so if another one (an agent's Maestro MCP server, a test run) restar
 read fails, and the bridge then starts a fresh Maestro and tries once more. If the first load takes
 minutes, close the Claude Code sessions you are not using that have the Maestro MCP server.
 
+![The iOS Simulator picker: the Book this trip button highlighted in the Trailhead demo app, with a note being typed](docs/images/ios-comment.png)
+
 Setup asks whether your app is web or iOS, and for iOS opens this page for you. Otherwise, with the
 bridge running — `node cli.js` from the clone, or `npx -y pinpoint-bridge` with no clone at all — open
 **http://127.0.0.1:7331/ios**. It shows the Simulator's screen: hover to
 see each element, click one, type what should change, **⌘↩**. The note reaches your agent like any
 other, with the element's `accessibilityIdentifier` (your `testID`), its label, its path in the tree,
 its frame and a crop. Press **R** (or Refresh) after the app changes; resolved notes drop off.
+
+![After sending: a numbered pin on the button, and the next element hovered with its identifier](docs/images/ios-pin.png)
+
+**No app handy?** `bash demo/ios/run.sh` builds **Trailhead**, a one-screen SwiftUI demo in
+`demo/ios/`, with `swiftc` alone (no Xcode project) and launches it on the booted Simulator. Every
+element has an `accessibilityIdentifier`, so you can see exactly what an agent receives.
 
 What it cannot give you: a source-file hint or component chain (the tree has neither — give elements
 an identifier and the agent greps for it), styles, or `recheck_annotation`, which waits for a browser
@@ -191,13 +199,14 @@ phone — the toolbar popup turns it on for that one tab.
 While the bridge is running, a small bar sits in the **top-right** corner of every page. Click it (or
 press **⌥⇧A** / **Alt+Shift+A**) to start marking. Click an element, type what should change, press
 **⌘↩** / **Ctrl+Enter**, and you are immediately ready for the next one. **Esc** when you are done, or
-click **Stop** on the bar. The **×** hides the bar for that site; the popup brings it back, and can
-move it to any corner.
+click **Stop** on the bar. The **×** hides the bar for that site; the popup brings it back. **Drag the
+bar by its grip** to put it anywhere on the page — it stays there on that site — or pick a corner in
+the popup.
 
 | | | |
 |---|---|---|
 | ![The bar, idle](docs/images/bar-idle.png) | ![The bar resting as a dot](docs/images/bar-mini.png) | ![The bar while picking, with a Stop control](docs/images/bar-armed.png) |
-| It tells you the shortcut, and who is here — you, and your agent. | After a few seconds it settles to a dot, out of your way. Hover to bring it back. | Picking. The bar is click-through so it can never block the element you are aiming at; **Stop** is the exception. |
+| It tells you the shortcut, and lights up when your agent is working. | After a few seconds it settles to a dot, out of your way. Hover to bring it back. | Picking. The bar is click-through so it can never block the element you are aiming at; **Stop** is the exception. |
 
 ![The comment popover on a form field, showing the element it picked](docs/images/popover.png)
 
@@ -210,6 +219,20 @@ bridge, not the page, so they survive reloads, appear in every tab showing that 
 moment your agent marks the change done. On apps that rebuild their DOM, each pin re-finds its own
 element by identity, and hides itself rather than sit on a different element that happens to match the
 old selector. The bar's counter opens the list of everything marked on this page; click a row to jump to it.
+
+### Talking it through
+
+A note is a conversation, not a one-way ticket:
+
+- **The agent can ask back.** When a request is ambiguous it calls `reply_annotation` instead of
+  guessing. Its question appears on the pin (a **?**) and as a toast; answer in the notes panel and the
+  note goes back to the agent with the whole conversation.
+- **Not quite right?** Every finished note in the panel has **Reply…**. Say what is still wrong and the
+  note reopens, carrying what the agent said it did and your follow-up.
+- **Drafts.** **Draft** (or **⇧⌘↩**) marks something without sending it — an outlined pin. When you
+  are ready, **Send** on the bar hands every draft over at once.
+- **The whole page.** While picking, **Whole page** on the bar makes a note about the page itself
+  ("the spacing feels cramped everywhere"), with a screenshot of what is on screen.
 
 ![Two notes on a panel that rebuilds itself: one re-finds its element, the other says it is not on this view](docs/stale-demo.gif)
 
@@ -356,6 +379,7 @@ $PINPOINT_HOME   where annotations are stored (default ~/.pinpoint)
 | `get_annotation` | full detail + screenshot for one id or pin number |
 | `recheck_annotation` | re-find the element in the live page and report what changed, with a fresh crop next to the original |
 | `resolve_annotation` | mark done → the pin disappears in the browser within a second |
+| `reply_annotation` | ask the developer a question instead of guessing; their answer comes back as pending, with the conversation |
 | `wait_for_annotation` | block until the developer sends the next one |
 | `clear_annotations` | wipe everything |
 
@@ -467,7 +491,7 @@ cd demo && python3 -m http.server 8080     # then open http://localhost:8080
 cd test && npm install && npx playwright install chromium && npm test
 ```
 
-102 tests. `bridge.test.mjs` covers the daemon, CLI, hooks, the iOS picker's tree-to-annotation path
+152 tests. `bridge.test.mjs` covers the daemon, CLI, hooks, the iOS picker's tree-to-annotation path
 and every MCP tool over both stdio and Streamable HTTP; `e2e.test.mjs` loads the unpacked extension into headless Chromium and drives real pages
 — React, Vue, shadow DOM, an iframe, a strict-CSP page, a 3,600-node stress page, DPR 2, cross-tab sync,
 and a form that rebuilds its whole DOM. See [CONTRIBUTING.md](CONTRIBUTING.md) for what each suite is for.

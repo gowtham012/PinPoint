@@ -2096,3 +2096,97 @@ test("U7: the bar can be dragged anywhere, stays there after a reload, and a dra
   await sw.evaluate(() => chrome.storage.local.remove(`dockXY:${"http://localhost:8081"}`));
   await page.close();
 });
+
+// ============ conversations, drafts and page notes ============
+const pickH1 = async (page) => {
+  await arm(page);
+  await page.locator("h1").hover();
+  await page.locator("h1").click();
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pop").style.display === "block");
+};
+
+test("E1: a draft stays on the page, off the agent's list, until Send on the bar", async () => {
+  await clearAll();
+  const page = await openPage("/");
+  await pickH1(page);
+  await typeComment(page, "tighter headline, but not yet");
+  await page.keyboard.press(process.platform === "darwin" ? "Shift+Meta+Enter" : "Shift+Control+Enter");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pin.draft"), null, { timeout: 6000 });
+  // the overlay is hidden while its screenshot is taken; wait for it before using the bar
+  await page.waitForFunction(() => document.querySelector("pinpoint-root").style.display !== "none", null, { timeout: 8000 });
+  await page.waitForTimeout(300);
+  assert.match(await inShadow(page, () => __pinpointShadow.querySelector(".toast").textContent), /Saved as a draft/, "a draft is never announced as sent");
+  await disarm(page);
+  assert.equal((await pending()).length, 0, "the agent does not see a draft");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".dock").classList.contains("has-drafts"));
+  await page.mouse.move(640, 400);
+  await inShadow(page, () => __pinpointShadow.querySelector(".dock").classList.remove("mini"));
+  await tapShadow(page, ".dock .drafts");
+  for (let i = 0; i < 40 && (await pending()).length === 0; i++) await page.waitForTimeout(100);
+  assert.equal((await pending()).length, 1, "Send hands it over");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pin") && !__pinpointShadow.querySelector(".pin.draft"), null, { timeout: 6000 });
+  await page.close();
+});
+
+test("E2: the agent asks a question; the page shows it and the developer answers from the panel", async () => {
+  await clearAll();
+  const page = await openPage("/");
+  await annotate(page, page.locator("#get-started"), "make it stand out");
+  await disarm(page);
+  const [a] = await pendingWithShots(1);
+  await fetch(`${BASE}/annotations/${a.id}/reply`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "Primary colour, or bigger?", by: "claude-code" }) });
+  await waitShadow(page, () => /claude-code asks — Primary colour, or bigger\?/.test(__pinpointShadow.querySelector(".toast").textContent), null, { timeout: 8000 });
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pin.waiting"));
+  await tapShadow(page, ".toast");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".panel .item.waiting form textarea"));
+  await inShadow(page, () => __pinpointShadow.querySelector(".panel .item.waiting form textarea").focus());
+  await page.keyboard.type("Primary colour, same size");
+  await tapShadow(page, ".panel .item.waiting form .go");
+  let got = null;
+  for (let i = 0; i < 40; i++) { got = (await (await fetch(`${BASE}/annotations/${a.id}`)).json()).annotation; if (got.status === "pending") break; await page.waitForTimeout(100); }
+  assert.equal(got.status, "pending", "answered notes go back to the agent");
+  assert.deepEqual(got.thread.map((m) => [m.by, m.text]), [["agent", "Primary colour, or bigger?"], ["you", "Primary colour, same size"]]);
+  await page.close();
+});
+
+test("E3: a done note can be reopened from the panel with a follow-up", async () => {
+  await clearAll();
+  const page = await openPage("/");
+  await annotate(page, page.locator("h1"), "bigger headline");
+  await disarm(page);
+  const [a] = await pendingWithShots(1);
+  await fetch(`${BASE}/annotations/${a.id}/resolve`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ note: "h1 is 48px now", by: "claude-code" }) });
+  await waitShadow(page, () => __pinpointShadow.querySelectorAll(".pin").length === 0, null, { timeout: 8000 });
+  await inShadow(page, () => __pinpointShadow.querySelector(".dock").classList.remove("mini"));
+  await tapShadow(page, ".dock .count");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".panel .item.done .follow"), null, { timeout: 5000 });
+  await tapShadow(page, ".panel .item.done .follow");
+  await waitShadow(page, () => __pinpointShadow.activeElement?.tagName === "TEXTAREA");
+  await page.keyboard.type("Not quite, 56px");
+  await tapShadow(page, ".panel .item.done form .go");
+  let got = null;
+  for (let i = 0; i < 40; i++) { got = (await (await fetch(`${BASE}/annotations/${a.id}`)).json()).annotation; if (got.status === "pending") break; await page.waitForTimeout(100); }
+  assert.equal(got.status, "pending");
+  assert.equal(got.thread.at(-1).text, "Not quite, 56px");
+  assert.equal(got.thread[0].kind, "resolution");
+  await waitShadow(page, () => __pinpointShadow.querySelectorAll(".pin").length === 1, null, { timeout: 6000 });
+  await page.close();
+});
+
+test("E4: a note about the whole page, cropped to the window", async () => {
+  await clearAll();
+  const page = await openPage("/");
+  await arm(page);
+  await tapShadow(page, ".dock .page-note");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pop").style.display === "block");
+  assert.match(await inShadow(page, () => __pinpointShadow.querySelector(".pop .meta").textContent), /This page/);
+  await typeComment(page, "the whole page feels cramped");
+  await page.keyboard.press(SEND);
+  const [a] = await pendingWithShots(1);
+  assert.equal(a.kind, "page");
+  assert.ok(a.screenshot && a.screenshot.width >= 1200, `the crop is the window: ${a.screenshot?.width}`);
+  const md = await (await fetch(BASE + "/pending.md")).text();
+  assert.match(md, /about the whole page/);
+  await disarm(page);
+  await page.close();
+});

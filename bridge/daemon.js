@@ -92,7 +92,8 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
       // nothing to the person looking at it. Ids stay globally unique and are what agents use.
       const page = pageKeyOf(a);
       a.number = 1 + db.annotations.reduce((m, x) => (pageKeyOf(x) === page ? Math.max(m, x.number || 0) : m), 0);
-      a.status = "pending";
+      // A draft is marked but not handed over: no agent sees it until the developer sends it.
+      a.status = a.status === "draft" ? "draft" : "pending";
       a.receivedAt = new Date().toISOString();
       db.annotations.push(a);
       // Keep the store bounded: only the most recent resolved annotations are kept.
@@ -102,8 +103,8 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
         db.annotations = db.annotations.filter((x) => !drop.has(x.id));
       }
       persist();
-      events.emit("added", a);
-      log("new:", summaryLine(a));
+      if (a.status === "pending") events.emit("added", a);
+      log(a.status === "draft" ? "draft:" : "new:", summaryLine(a));
       if (print) process.stdout.write(pendingMarkdown({ annotations: [a] }) + "\n");
       return a;
     },
@@ -131,6 +132,46 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
       persist();
       log(`resolved: #${a.number} ${a.comment}${note ? "  — " + note : ""}`);
       return first ? "already" : true;
+    },
+    // The agent asks instead of resolving — the request is ambiguous, or it needs a decision. The
+    // note then waits on the developer, and leaves every agent's pending list until they answer.
+    async reply(id, text, by) {
+      const a = find(id);
+      if (!a || a.status === "resolved" || a.status === "draft" || !text) return false;
+      (a.thread ||= []).push({ by: "agent", name: by || null, text: String(text), at: new Date().toISOString() });
+      a.status = "waiting";
+      persist();
+      log(`asked: #${a.number} ${text}`);
+      return true;
+    },
+    // The developer answers the agent, adds to a note, or comes back to a finished one ("not quite").
+    // Either way the note is theirs to hand over again: pending, with the whole conversation on it,
+    // delivered to the hook and to wait_for_annotation exactly like a new note.
+    async answer(id, text) {
+      const a = find(id);
+      if (!a || a.status === "draft" || !text) return false;
+      a.thread ||= [];
+      if (a.status === "resolved") {
+        a.thread.push({ by: "agent", name: a.resolvedBy || null, text: a.resolution || "marked it done", at: a.resolvedAt || null, kind: "resolution" });
+        delete a.resolution; delete a.resolvedAt; delete a.resolvedBy;
+      }
+      a.thread.push({ by: "you", text: String(text), at: new Date().toISOString() });
+      a.status = "pending";
+      delete a.notifiedAt;
+      taken.delete(a.id);
+      persist();
+      events.emit("added", a);
+      log(`answered: #${a.number} ${text}`);
+      return true;
+    },
+    // Drafts go out together, when the developer says so — for one page, or everywhere.
+    async sendDrafts(url) {
+      const ds = db.annotations.filter((x) => x.status === "draft" && (!url || pageKeyOf(x) === url));
+      for (const d of ds) d.status = "pending";
+      if (ds.length) persist();
+      for (const d of ds) events.emit("added", d);
+      if (ds.length) log(`sent ${ds.length} draft${ds.length === 1 ? "" : "s"}`);
+      return ds.length;
     },
     async remove(id) {
       const before = db.annotations.length;
@@ -410,7 +451,9 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
       if (p === "/annotations" && req.method === "GET") {
         const status = url.searchParams.get("status") || "all";
         const u = url.searchParams.get("url");
-        const items = db.annotations.filter((a) => (status === "all" || a.status === status) && (!u || a.page.url.split("#")[0] === u));
+        // "open": everything that still has a pin on the page — drafts, pending, and waiting on you.
+        const match = status === "all" ? () => true : status === "open" ? (a) => a.status !== "resolved" : (a) => a.status === status;
+        const items = db.annotations.filter((a) => match(a) && (!u || a.page.url.split("#")[0] === u));
         const withImages = url.searchParams.get("images") === "1";
         return json(res, 200, { version, agent: api.agent(), annotations: withImages ? items : items.map(({ screenshot, ...a }) => ({
           // Keep the size, drop the pixels: text consumers (the hook, the popup) still say "a 340×120
@@ -432,6 +475,12 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
         return json(res, 200, { ok: true });
       }
 
+      if (p === "/annotations/send-drafts" && req.method === "POST") {
+        let body = {};
+        try { body = (await readBody(req)) || {}; } catch {}
+        return json(res, 200, { ok: true, sent: await api.sendDrafts(body.url || null) });
+      }
+
       if (p === "/annotations/wait") {
         const ac = new AbortController();
         res.on("close", () => { if (!res.writableEnded) ac.abort(); });
@@ -443,7 +492,7 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
         return json(res, 200, { annotation: full });
       }
 
-      const m = p.match(/^\/annotations\/([^/]+)(\/resolve|\/screenshot|\/notified|\/element-state|\/recheck)?$/);
+      const m = p.match(/^\/annotations\/([^/]+)(\/resolve|\/reply|\/answer|\/screenshot|\/notified|\/element-state|\/recheck)?$/);
       if (m) {
         const id = decodeURIComponent(m[1]);
         if (req.method === "DELETE") return json(res, 200, { ok: await api.remove(id) });
@@ -451,6 +500,12 @@ export function startDaemon({ port = DEFAULT_PORT, project = process.env.PINPOIN
           let body = {};
           try { body = (await readBody(req)) || {}; } catch {}
           return json(res, 200, { ok: await api.resolve(id, body.note, body.by) });
+        }
+        if (req.method === "POST" && (m[2] === "/reply" || m[2] === "/answer")) {
+          let body = {};
+          try { body = (await readBody(req)) || {}; } catch {}
+          if (!body.text) return json(res, 400, { error: "text required" });
+          return json(res, 200, { ok: m[2] === "/reply" ? await api.reply(id, body.text, body.by) : await api.answer(id, body.text) });
         }
         if (req.method === "POST" && m[2] === "/element-state") {
           let body = {};

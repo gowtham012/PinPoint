@@ -250,7 +250,7 @@ for (const [name, mk] of [["http", httpClient], ["stdio", stdioClient]]) {
     await post(sample({ id: "mcp00002", comment: "second", page: { ...sample().page, url: "http://other.test/" }, screenshot: null }));
     const c = await mk();
     const tools = (await c.listTools()).tools.map((t) => t.name).sort();
-    assert.deepEqual(tools, ["clear_annotations", "get_annotation", "get_pending_annotations", "list_annotations", "recheck_annotation", "resolve_annotation", "wait_for_annotation"]);
+    assert.deepEqual(tools, ["clear_annotations", "get_annotation", "get_pending_annotations", "list_annotations", "recheck_annotation", "reply_annotation", "resolve_annotation", "wait_for_annotation"]);
     const res = await c.listResources();
     assert.ok(res.resources.some((r) => r.uri === "pinpoint://pending"));
     const rr = await c.readResource({ uri: "pinpoint://pending" });
@@ -1259,4 +1259,61 @@ test("R-b9: the native host hands over the bridge token, and nothing else", asyn
   assert.equal(reply.ok, true);
   assert.equal(reply.token, TOKEN(), "the same token the bridge checks, read from PINPOINT_HOME");
   assert.deepEqual(Object.keys(reply).sort(), ["cmd", "ok", "token"]);
+});
+
+// ============ conversations, drafts and page notes ============
+
+test("C1: a draft is marked but no agent sees it until it is sent", async () => {
+  await fetch(BASE + "/annotations", { method: "DELETE" });
+  const url = "http://localhost:3000/drafts";
+  await post(sample({ id: "draft001", status: "draft", comment: "later", page: { ...sample().page, url } }));
+  await post(sample({ id: "draft002", status: "draft", comment: "also later", page: { ...sample().page, url } }));
+  assert.equal((await get("/annotations?status=pending")).annotations.length, 0, "not on the agent's list");
+  assert.equal((await get(`/annotations?status=open&url=${encodeURIComponent(url)}`)).annotations.length, 2, "but still pinned on the page");
+  const waiting = getW("/annotations/wait?timeout=4000");
+  await sleep(150);
+  const sent = await (await fetch(BASE + "/annotations/send-drafts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url }) })).json();
+  assert.equal(sent.sent, 2);
+  assert.ok((await waiting).annotation, "a watching agent hears about them once they are sent");
+  assert.equal((await get("/annotations?status=pending")).annotations.length, 2);
+});
+
+test("C2: the agent asks, the developer answers, and the note comes back with the conversation", async () => {
+  await fetch(BASE + "/annotations", { method: "DELETE" });
+  await post(sample({ id: "conv0001", comment: "make the CTA stand out" }));
+  const c = await httpClient();
+  const asked = text(await c.callTool({ name: "reply_annotation", arguments: { id: "conv0001", message: "Primary colour, or a bigger size?" } }));
+  assert.match(asked, /waits on the developer/);
+  assert.equal((await get("/annotations?status=pending")).annotations.length, 0, "a question is not work to do");
+  assert.equal((await get("/annotations/conv0001")).annotation.status, "waiting");
+  const waiting = getW("/annotations/wait?timeout=4000");
+  await sleep(150);
+  const ans = await (await fetch(BASE + "/annotations/conv0001/answer", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "Primary colour, keep the size" }) })).json();
+  assert.equal(ans.ok, true);
+  assert.equal((await waiting).annotation?.id, "conv0001", "the answer is delivered like a new note");
+  const md = text(await c.callTool({ name: "get_annotation", arguments: { id: "conv0001" } }));
+  assert.match(md, /\*\*Change:\*\* make the CTA stand out/);
+  assert.match(md, /> .* asked: Primary colour, or a bigger size\?/, "the agent's question is quoted context");
+  assert.match(md, /\*\*Follow-up:\*\* Primary colour, keep the size/, "the developer's answer is an instruction");
+  assert.match(md, /act on the latest Follow-up/);
+  await c.close();
+});
+
+test("C3: a finished note can be reopened with a follow-up, keeping what the agent said", async () => {
+  await fetch(BASE + "/annotations", { method: "DELETE" });
+  await post(sample({ id: "reop0001", comment: "purple button" }));
+  await fetch(BASE + "/annotations/reop0001/resolve", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ note: "Set bg-violet-600 in Hero.tsx", by: "claude-code" }) });
+  await fetch(BASE + "/annotations/reop0001/answer", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "Not quite, darker" }) });
+  const { annotation: a } = await get("/annotations/reop0001");
+  assert.equal(a.status, "pending");
+  assert.equal(a.resolution, undefined, "no longer resolved");
+  assert.deepEqual(a.thread.map((m) => [m.by, m.kind || null, m.text]), [["agent", "resolution", "Set bg-violet-600 in Hero.tsx"], ["you", null, "Not quite, darker"]]);
+  const { toMarkdown } = await import("../bridge/store.js");
+  assert.match(toMarkdown(a), /claude-code replied when it marked this done: Set bg-violet-600 in Hero\.tsx/);
+});
+
+test("C4: a page-level note says so in what the agent reads", async () => {
+  const { toMarkdown } = await import("../bridge/store.js");
+  const md = toMarkdown({ ...sample({ id: "page0001", kind: "page", comment: "the whole page feels cramped" }), status: "pending", number: 1 });
+  assert.match(md, /This note is about the whole page/);
 });

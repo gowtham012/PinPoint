@@ -36,6 +36,16 @@ export async function startStdio({ port = DEFAULT_PORT } = {}) {
       save(db);
       return first ? "already" : true;
     },
+    async reply(id, text, by) {
+      if (await up()) return (await call(`/annotations/${encodeURIComponent(id)}/reply`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text, by }) })).ok;
+      const db = load();
+      const a = findAnnotation(db, id);
+      if (!a || a.status === "resolved" || a.status === "draft") return false;
+      (a.thread ||= []).push({ by: "agent", name: by || null, text, at: new Date().toISOString() });
+      a.status = "waiting";
+      save(db);
+      return true;
+    },
     async clear() {
       if (await up()) return call("/annotations", { method: "DELETE" });
       save({ nextNumber: 1, annotations: [] });

@@ -157,6 +157,15 @@
       .dock.offline .count, .dock.offline .who, .dock.offline .agent-say, .dock.offline .restart,
       .dock.offline .sep, .dock.offline .label, .dock.offline .hint { display: none; }
       .dock.offline.armed .start { display: none; }
+      /* Drafts wait for you to hand them over. */
+      .dock .drafts { display: none; background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+      .dock .drafts:hover { background: color-mix(in srgb, var(--accent) 88%, #fff); }
+      .dock.has-drafts .drafts { display: inline-flex; }
+      .dock.mini .drafts, .dock.armed .drafts, .dock.offline .drafts { display: none; }
+      /* While picking, a note about the whole page is one press away. */
+      .dock .page-note { display: none; }
+      .dock.armed .page-note { display: inline-flex; pointer-events: auto; color: var(--accent-ink); font-weight: 600; }
+      .dock.armed .page-note:hover { background: rgba(0,0,0,.1); }
 
       /* ---------- region marquee ---------- */
       .marquee { position: fixed; display: none; pointer-events: none; z-index: 3;
@@ -213,6 +222,11 @@
       .pin:hover { transform: translate(-50%, -50%) scale(1.12); }
       .pin.watched { box-shadow: 0 0 0 2px var(--edge), 0 0 0 6px color-mix(in srgb, var(--agent) 60%, transparent), 0 4px 12px rgba(0,0,0,.3); }
       .pin.new { animation: drop 260ms var(--ease); }
+      /* A draft is marked but not sent: an outline of a pin. */
+      .pin.draft { background: var(--graphite); color: var(--accent); box-shadow: 0 0 0 2px var(--accent), 0 4px 12px rgba(0,0,0,.3); }
+      /* The agent asked something: the pin carries a question mark in the agent's colour. */
+      .pin.waiting::after { content: "?"; position: absolute; top: -8px; right: -8px; width: 15px; height: 15px; border-radius: 50%;
+                            background: var(--agent); color: #08131a; font: 800 10px/15px var(--sans); box-shadow: 0 0 0 2px var(--edge); }
       @keyframes drop { from { transform: translate(-50%, -90%) scale(.6); opacity: 0 } }
       .tip {
         position: fixed; z-index: 4; max-width: min(300px, calc(100vw - 16px)); pointer-events: auto; display: none;
@@ -262,6 +276,25 @@
       .panel .reply .who { display: block; font: 600 11px/1 var(--sans); color: var(--agent); margin-bottom: 5px; padding: 0; }
       .panel .reply.none { color: var(--paper-faint); font-style: italic; }
       .panel .empty { padding: 20px 16px; color: var(--paper-dim); font-size: 13px; line-height: 1.55; }
+      .panel .item.draft .n { background: var(--graphite); color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent); }
+      .panel .item.waiting .n { background: var(--agent); color: #08131a; }
+      .panel .ask { margin-top: 6px; padding: 8px 10px; border-radius: 4px 10px 10px 10px; font-size: 12.5px; line-height: 1.5;
+                    background: color-mix(in srgb, var(--agent) 12%, var(--graphite-2)); }
+      .panel .ask b { display: block; font: 600 11px/1 var(--sans); color: var(--agent); margin-bottom: 5px; }
+      .panel .mine { margin-top: 6px; padding: 7px 10px; border-radius: 10px 4px 10px 10px; font-size: 12.5px; line-height: 1.5;
+                     background: color-mix(in srgb, var(--accent) 10%, var(--graphite-2)); }
+      .panel .mine b { display: block; font: 600 11px/1 var(--sans); color: var(--accent); margin-bottom: 4px; }
+      .panel form { margin-top: 8px; display: grid; gap: 6px; }
+      .panel form textarea { width: 100%; min-height: 52px; resize: none; border-radius: 8px; border: 1px solid transparent; background: var(--graphite-2);
+                             color: var(--paper); font: 12.5px/1.45 var(--sans); padding: 8px 9px; outline: none; }
+      .panel form textarea:focus { border-color: color-mix(in srgb, var(--accent) 70%, transparent); }
+      .panel form .fr { display: flex; gap: 6px; justify-content: flex-end; }
+      .panel form button { font: 600 11.5px var(--sans); border-radius: 7px; padding: 6px 11px; }
+      .panel form .go { background: var(--accent); color: var(--accent-ink); }
+      .panel form .no { color: var(--paper-faint); }
+      .panel .follow { margin-top: 6px; font: 500 11.5px var(--sans); color: var(--paper-faint); padding: 3px 0; }
+      .panel .follow:hover { color: var(--accent); }
+      .panel .group .send-all { margin-left: auto; font: 700 11.5px var(--sans); color: var(--accent-ink); background: var(--accent); padding: 4px 9px; border-radius: 7px; }
 
       /* ---------- toast ---------- */
       .toast {
@@ -286,6 +319,7 @@
     <div class="dock">
       <span class="grip" title="Drag to move the bar anywhere" aria-hidden="true"></span>
       <button class="toggle" aria-label="Pinpoint: pick an element" aria-pressed="false"><span class="mark" aria-hidden="true"></span><span class="label">Pinpoint</span><span class="hint"></span></button>
+      <button class="page-note" title="A note about the whole page, not one element">Whole page</button>
       <button class="stop" title="Stop picking">Stop&nbsp;<kbd>Esc</kbd></button>
       <button class="start" title="Start the Pinpoint bridge"><span class="led" aria-hidden="true"></span><span class="st">Bridge off · Start</span></button>
       <span class="sep"></span>
@@ -295,6 +329,7 @@
       </span>
       <span class="agent-say"></span>
       <span class="sep"></span>
+      <button class="drafts" title="Hand your drafts to the agent">Send <span class="dn">0</span></button>
       <button class="count"><b>0</b>&nbsp;<span class="cw">notes</span></button>
       <button class="restart" title="Restart the bridge (picks up a new build)" aria-label="Restart the bridge">&#8635;</button>
       <button class="close" title="Hide on this site" aria-label="Hide Pinpoint on this site">&times;</button>
@@ -312,6 +347,7 @@
         <span class="status" role="status"></span>
         <button class="ghost copy" title="Copy as a prompt, for any chat">Copy</button>
         <button class="ghost cancel" title="Close this and pick another element">Re-pick</button>
+        <button class="ghost draft" title="Keep it on the page without sending it yet (Shift+Cmd/Ctrl+Enter)">Draft</button>
         <button class="send">Send<kbd></kbd></button>
       </div>
     </div>
@@ -333,6 +369,10 @@
     marqueeSize: shadow.querySelector(".marquee .size"),
     dockToggle: shadow.querySelector(".dock .toggle"),
     dockStop: shadow.querySelector(".dock .stop"),
+    dockPage: shadow.querySelector(".dock .page-note"),
+    dockDrafts: shadow.querySelector(".dock .drafts"),
+    dockDraftsN: shadow.querySelector(".dock .drafts .dn"),
+    draft: shadow.querySelector(".pop .draft"),
     dockStart: shadow.querySelector(".dock .start"),
     dockStartLabel: shadow.querySelector(".dock .start .st"),
     dockHint: shadow.querySelector(".dock .hint"),
@@ -799,6 +839,9 @@
     paintAgent();
     ui.dockCount.style.display = pend || done ? "inline-flex" : "none";
     ui.dockCount.classList.toggle("unread", unread);
+    const drafts = pins.filter((p) => p.status === "draft").length;
+    ui.dock.classList.toggle("has-drafts", drafts > 0);
+    ui.dockDraftsN.textContent = String(drafts);
     // Bridge down used to mean no bar at all — the one moment you needed a way back. Now the bar
     // stays, as a small pill that starts it.
     ui.dock.classList.toggle("offline", !bridgeOk);
@@ -838,6 +881,14 @@
   ui.dockToggle.addEventListener("click", (e) => { e.stopPropagation(); togglePicking(); });
   ui.dockStop.addEventListener("click", (e) => { e.stopPropagation(); e.preventDefault(); stopPicking(); });
   ui.dockCount.addEventListener("click", (e) => { e.stopPropagation(); togglePanel(); });
+  ui.dockDrafts.addEventListener("click", (e) => { e.stopPropagation(); sendDrafts(); });
+  ui.dockPage.addEventListener("click", (e) => { e.stopPropagation(); e.preventDefault(); notePage(); });
+  async function sendDrafts() {
+    const r = await chrome.runtime.sendMessage({ type: "sendDrafts", url: location.href.split("#")[0] }).catch(() => null);
+    if (!r || r.error) return toast("Not sent — the bridge isn't answering");
+    toast(`Sent ${r.sent} draft${r.sent === 1 ? "" : "s"} to your agent`);
+    loadPins();
+  }
   ui.dockStart.addEventListener("click", async (e) => {
     e.stopPropagation();
     if (bridgeCode === "token") return toast("Open the Pinpoint toolbar popup and paste the bridge token — once", 5000);
@@ -905,9 +956,21 @@
       ui.panelList.innerHTML = `<li class="empty">Nothing marked on this page yet. Turn on Pinpoint and click anything you want changed.</li>`;
       return;
     }
-    for (const p of pins) {
+    // What needs you first: questions from the agent, then drafts you have not sent.
+    const order = { waiting: 0, draft: 1 };
+    const sorted = pins.slice().sort((a, b) => (order[a.status] ?? 2) - (order[b.status] ?? 2));
+    const draftCount = pins.filter((p) => p.status === "draft").length;
+    if (draftCount) {
+      const g = document.createElement("li");
+      g.className = "group";
+      g.innerHTML = `<span class="gl"></span><button class="send-all">Send all</button>`;
+      g.querySelector(".gl").textContent = `${draftCount} draft${draftCount === 1 ? "" : "s"}, not sent`;
+      g.querySelector(".send-all").addEventListener("click", (e) => { e.stopPropagation(); sendDrafts(); });
+      ui.panelList.appendChild(g);
+    }
+    for (const p of sorted) {
       const li = document.createElement("li");
-      li.className = "item" + (p.node.dataset.orphan === "1" ? " gone" : "");
+      li.className = "item" + (p.node.dataset.orphan === "1" ? " gone" : "") + (p.status === "draft" ? " draft" : p.status === "waiting" ? " waiting" : "");
       li.innerHTML = `<span class="n"></span><div class="body"><div class="c"></div><div class="s"></div></div><button class="x">&times;</button>`;
       li.tabIndex = 0;
       li.setAttribute("role", "button");
@@ -919,10 +982,13 @@
       x.addEventListener("click", (e) => { e.stopPropagation(); deleteNote(p.id); });
       li.querySelector(".n").textContent = p.number;
       li.querySelector(".c").textContent = p.comment;
-      li.querySelector(".s").innerHTML = p.node.dataset.orphan === "1"
-        ? `<span class="warn">not on this view</span>`
+      li.querySelector(".s").innerHTML = p.kind === "page" ? "the whole page"
+        : p.node.dataset.orphan === "1" ? `<span class="warn">not on this view</span>`
         : escapeHtml(p.selector);
-      li.addEventListener("click", () => revealPin(p));
+      appendThread(li.querySelector(".body"), p.thread);
+      // The agent asked: the answer box is right here.
+      if (p.status === "waiting") li.querySelector(".body").appendChild(answerForm(p.id, "Your answer", "Answer"));
+      li.addEventListener("click", (e) => { if (!e.target.closest("form")) revealPin(p); });
       ui.panelList.appendChild(li);
     }
 
@@ -968,11 +1034,61 @@
         what.textContent = "marked done without a note";
         li.querySelector(".reply").classList.add("none");
       }
+      // Not what you meant? Say so here: the note reopens with this conversation attached.
+      const follow = document.createElement("button");
+      follow.className = "follow";
+      follow.textContent = "Reply…";
+      follow.addEventListener("click", (e) => {
+        e.stopPropagation();
+        follow.replaceWith(answerForm(a.id, "Not quite? Say what is still wrong — the note reopens", "Reopen"));
+        li.querySelector("form textarea")?.focus();
+      });
+      li.querySelector(".body").appendChild(follow);
       ui.panelList.appendChild(li);
     }
   }
 
+  // The conversation on a note, oldest first: what the agent asked or said, and what you answered.
+  function appendThread(body, thread = []) {
+    for (const m of thread) {
+      const d = document.createElement("div");
+      d.className = m.by === "you" ? "mine" : "ask";
+      const b = document.createElement("b");
+      b.textContent = m.by === "you" ? "You" : (m.name || "Your agent") + (m.kind === "resolution" ? " (done)" : "");
+      d.append(b, document.createTextNode(m.text));
+      body.appendChild(d);
+    }
+  }
+  function answerForm(id, placeholder, label) {
+    const f = document.createElement("form");
+    f.innerHTML = `<textarea rows="2"></textarea><div class="fr"><button type="submit" class="go"></button></div>`;
+    const ta = f.querySelector("textarea"), go = f.querySelector(".go");
+    ta.placeholder = placeholder;
+    ta.setAttribute("aria-label", placeholder);
+    go.textContent = label;
+    ta.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); f.requestSubmit(); }
+    });
+    ["keyup", "keypress", "input"].forEach((t) => ta.addEventListener(t, (e) => e.stopPropagation()));
+    f.addEventListener("click", (e) => e.stopPropagation());
+    f.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const text = ta.value.trim();
+      if (!text) return ta.focus();
+      go.disabled = true;
+      const r = await chrome.runtime.sendMessage({ type: "answer", id, text }).catch(() => null);
+      go.disabled = false;
+      if (!r || r.error || r.ok === false) return toast("Not sent — the bridge isn't answering");
+      toast("Sent to your agent");
+      await loadPins();
+      renderPanel();
+    });
+    return f;
+  }
+
   function revealPin(p) {
+    if (p.kind === "page") return;
     const el = p.el && p.el.isConnected ? p.el : findElement(p.selector, p.fp);
     if (!el) return toast("That element isn't on the page right now");
     // The CSS media query cannot reach this one — jumping to a note must respect the setting too.
@@ -1259,6 +1375,16 @@
   }, true);
 
   // ---------- popover ----------
+  // A note about the page as a whole: anchored to <body>, cropped to what is on screen.
+  let selectedPage = false;
+  function notePage() {
+    stopPicking();
+    selected = document.body;
+    selectedPage = true;
+    pickChain = [document.body]; pickIndex = 0;
+    openPopover(document.body);
+  }
+
   let returnFocus = null;
   function openPopover(el, region = null) {
     const prev = document.activeElement;
@@ -1278,6 +1404,7 @@
     let left = Math.max(M, Math.min(r.left, window.innerWidth - W - M));
     let top = r.bottom + M;
     if (top + H > window.innerHeight - M) top = Math.max(M, r.top - H - M);
+    if (selectedPage) { left = Math.round((window.innerWidth - W) / 2); top = Math.max(M, Math.round(window.innerHeight * 0.18)); }
     Object.assign(ui.pop.style, { left: left + "px", top: top + "px" });
     ui.send.title = `Send to your coding agent (${K_SEND})`;
     ui.text.placeholder = region
@@ -1302,6 +1429,12 @@
     const hint = sourceHint(el);
     const comp = hint.components[0] ? `<b>&lt;${hint.components[0]}&gt;</b> ` : "";
     const file = hint.file ? ` · ${hint.file}${hint.line ? ":" + hint.line : ""}` : "";
+    if (selectedPage) {
+      ui.meta.innerHTML = `<div class="row"><b>This page</b>${escapeHtml(clip(document.title || location.pathname, 60))}</div>` +
+        `<div class="picked">A note about the whole page — the screenshot is what is on screen now</div>`;
+      ui.scope.style.display = "none";
+      return;
+    }
     const label = clip(el.innerText || el.getAttribute("aria-label") || el.getAttribute("placeholder") || "", 46);
     ui.meta.innerHTML = region
       ? `<div class="row"><b>Region</b> ${region.width}×${region.height} in ${escapeHtml(describe(el))}${escapeHtml(file)}</div>` +
@@ -1334,6 +1467,7 @@
   }
 
   function hidePopover() {
+    selectedPage = false;
     const hadFocus = !!shadow.activeElement && ui.pop.contains(shadow.activeElement);
     if (hadFocus && returnFocus?.isConnected) { try { returnFocus.focus({ preventScroll: true }); } catch {} }
     returnFocus = null;
@@ -1350,7 +1484,7 @@
   ui.text.addEventListener("keydown", (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
-      submit();
+      submit({ draft: e.shiftKey });
     }
     // Widen or narrow without leaving the keyboard. Alt is the modifier because the plain arrows
     // belong to the textarea.
@@ -1375,7 +1509,8 @@
     e.preventDefault();
     next.focus();
   });
-  ui.send.addEventListener("click", submit);
+  ui.send.addEventListener("click", () => submit());
+  ui.draft.addEventListener("click", () => submit({ draft: true }));
   ui.copy.addEventListener("click", async () => {
     if (!selected) return;
     const a = await buildAnnotation(selected, ui.text.value.trim());
@@ -1386,7 +1521,7 @@
     if (!pendingResume) return;
     pendingResume = false;
     startPicking();
-    toast("Sent ✓ — still picking, Esc when you're done", 1800);
+    toast(`${lastWasDraft ? "Saved as a draft" : "Sent ✓"} — still picking, Esc when you're done`, 1800);
   }
 
   function setStatus(msg, cls) {
@@ -1485,8 +1620,8 @@
     return lines.join("\n");
   }
 
-  let sending = false;
-  async function submit() {
+  let sending = false, lastWasDraft = false;
+  async function submit({ draft = false } = {}) {
     if (!selected || sending) return;
     const comment = ui.text.value.trim();
     if (!comment) {
@@ -1500,8 +1635,12 @@
     ui.send.disabled = true;
     try {
       const region = selectedRegion;
+      const page = selectedPage;
       const a = await buildAnnotation(el, comment, region ? { region } : {});
-      const capture = await captureRect(el, region);
+      if (draft) a.status = "draft";
+      if (page) a.kind = "page";
+      // A page note is cropped to the window: the whole visible page, not the <body> box.
+      const capture = await captureRect(el, page ? { x: window.scrollX, y: window.scrollY, width: window.innerWidth, height: window.innerHeight } : region);
       if (capture) hideOverlayForCapture();
       // The worker stores the comment first and answers immediately, then takes and attaches the
       // crop on its own. Nothing here is on the page's lifetime.
@@ -1514,8 +1653,10 @@
         if ((await startBridge())?.ok) { res = await sendIt(); refreshDock(); }
       }
       if (!res || res.error) { showOverlay(); throw new Error(res?.error || "no response"); }
-      addPin({ id: a.id, number: res.number || pins.length + 1, selector: a.element.selector, comment, el, fp: a.element.fingerprint, region, fresh: true });
-      setStatus("Sent ✓", "ok");
+      addPin({ id: a.id, number: res.number || pins.length + 1, selector: a.element.selector, comment, el, fp: a.element.fingerprint, region, fresh: true,
+               status: draft ? "draft" : "pending", kind: page ? "page" : null });
+      setStatus(draft ? "Saved as a draft" : "Sent ✓", "ok");
+      lastWasDraft = draft;
       // The overlay stays hidden until the worker has taken its picture ("captureDone"), which
       // reads as the popover closing the moment you hit send.
       hidePopover();
@@ -1542,7 +1683,7 @@
   // ---------- pins ----------
   function addPin(p) {
     const node = document.createElement("div");
-    node.className = "pin";
+    node.className = "pin" + (p.status === "draft" ? " draft" : p.status === "waiting" ? " waiting" : "");
     node.textContent = p.number;
     node.setAttribute("role", "button");
     node.setAttribute("aria-label", `Note ${p.number}: ${p.comment}`);
@@ -1576,6 +1717,16 @@
   }
 
   function positionPin(p, taken) {
+    if (p.kind === "page") {
+      // About the page, not an element: it lives at the window's top-left, below any others there.
+      delete p.node.dataset.orphan;
+      p.node.style.display = "block";
+      let y = 24;
+      if (taken) { while (taken.has("page:" + y)) y += 26; taken.add("page:" + y); }
+      p.node.style.left = "24px";
+      p.node.style.top = y + "px";
+      return;
+    }
     if (p.el && (!p.el.isConnected || (p.fp && !fingerprintMatches(p.el, p.fp)))) p.el = null;
     const el = p.el || (p.el = findElement(p.selector, p.fp));
     if (!el) {
@@ -1708,11 +1859,13 @@
   // Re-render pending pins for this page on load (they live in the bridge, not the page).
   async function loadPins() {
     try {
-      const res = await chrome.runtime.sendMessage({ type: "list", url: location.href.split("#")[0] });
+      const res = await chrome.runtime.sendMessage({ type: "list", status: "open", url: location.href.split("#")[0] });
       if (!res || !res.annotations) return;
       pins.forEach((p) => p.node.remove());
       pins = [];
-      for (const a of res.annotations) addPin({ id: a.id, number: a.number, selector: a.element.selector, comment: a.comment, fp: a.element.fingerprint, region: a.region || null });
+      for (const a of res.annotations) addPin({ id: a.id, number: a.number, selector: a.element.selector, comment: a.comment, fp: a.element.fingerprint,
+                                               region: a.region || null, status: a.status, kind: a.kind || null, thread: a.thread || [] });
+      noticeQuestions();
       positionAll();
       paintDock();
       setAgent(res.agent ? { ...res.agent, seenAt: Date.now() } : null);
@@ -1726,6 +1879,21 @@
   // Reply ids already known on this page. null until the first load: what was finished before the
   // page opened is history, not news.
   let seenReplies = null;
+  // A question from the agent is news the first time it is seen, never again — and what was already
+  // asked when the page opened is not news at all.
+  let seenAsks = null;
+  function noticeQuestions() {
+    const asks = new Map(pins.filter((p) => p.status === "waiting").map((p) => [p.id + ":" + p.thread.length, p]));
+    if (seenAsks && isTop) {
+      const fresh = [...asks].filter(([k]) => !seenAsks.has(k)).map(([, p]) => p);
+      if (fresh.length) {
+        unread = true;
+        const p = fresh[0], q = [...p.thread].reverse().find((m) => m.by === "agent");
+        toast(`#${p.number}: ${q?.name || "Your agent"} asks — ${clip(q?.text || "", 90)}`, 8000, () => togglePanel(true));
+      }
+    }
+    seenAsks = new Set(asks.keys());
+  }
   async function loadReplies() {
     try {
       const res = await chrome.runtime.sendMessage({ type: "list", status: "resolved", url: location.href.split("#")[0] });

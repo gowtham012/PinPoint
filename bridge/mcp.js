@@ -171,6 +171,34 @@ export function createMcpServer(api) {
   );
 
   server.registerTool(
+    "reply_annotation",
+    {
+      title: "Ask the developer about a note",
+      description:
+        "Ask the developer a question about an annotation instead of resolving it — when the request is ambiguous, or you need a decision before you change code. " +
+        "They read your message on the pin in their browser and answer there; the note then comes back to you as pending with the whole conversation attached " +
+        "(it reaches wait_for_annotation and the Claude Code hook like a new note). Until they answer it is off the pending list. " +
+        "Never use this to report a finished change — that is resolve_annotation.",
+      inputSchema: {
+        id: z.string(),
+        message: z.string().min(1).describe("Your question or message, shown to the developer on the pin"),
+      },
+    },
+    async ({ id, message }) => {
+      const me = who();
+      const before = findAnnotation(await api.db(), id);
+      const r = await api.reply(id, message, me?.name);
+      if (r) api.touch?.("ask", before?.id || null, `asked about #${before?.number ?? id}`, me);
+      return {
+        content: [{ type: "text", text: r
+          ? `Asked. #${before?.number ?? id} now waits on the developer; their answer comes back as pending, with this conversation.`
+          : `No open annotation ${id} (it may be resolved, a draft, or gone).` }],
+        isError: !r,
+      };
+    }
+  );
+
+  server.registerTool(
     "wait_for_annotation",
     {
       title: "Wait for the next annotation",

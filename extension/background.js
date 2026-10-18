@@ -507,12 +507,25 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         });
       }
       case "list": {
-        const status = msg.status === "resolved" ? "resolved" : "pending";
+        const status = ["resolved", "open"].includes(msg.status) ? msg.status : "pending";
         const q = msg.url ? `?status=${status}&url=${encodeURIComponent(msg.url)}` : `?status=${status}`;
         return bridgeFetch(`/annotations${q}`);
       }
       case "delete": {
         const r = await bridgeFetch(`/annotations/${encodeURIComponent(msg.id)}`, { method: "DELETE" });
+        refreshBadge();
+        return r;
+      }
+      // You answering the agent, or reopening a finished note with a follow-up.
+      case "answer": {
+        return bridgeFetch(`/annotations/${encodeURIComponent(msg.id)}/answer`, {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: String(msg.text || "") }),
+        });
+      }
+      case "sendDrafts": {
+        const r = await bridgeFetch("/annotations/send-drafts", {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: msg.url || null }),
+        });
         refreshBadge();
         return r;
       }
