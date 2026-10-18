@@ -110,10 +110,11 @@ async function waitForExtension(rl, port, name) {
   return false;
 }
 
-// "mobile" and "native" are what people say; the Simulator picker is iOS-only for now.
+// "mobile" and "native" are what people say; they still mean iOS, which came first. "both" is web + iOS.
 export function normTarget(a) {
   const t = String(a || "").toLowerCase().trim();
   if (/^(both|all)$/.test(t)) return "both";
+  if (/^(android|emulator)$/.test(t)) return "android";
   if (/^(ios|mobile|native|iphone|simulator)$/.test(t)) return "ios";
   return "web";
 }
@@ -141,13 +142,20 @@ export async function runSetup({ project = null, port = DEFAULT_PORT, yes = fals
 
     // 1b. what it is. A web app gets the browser extension; a native iOS app gets the Simulator
     //     picker at /ios instead, which needs no extension at all but does need Xcode and Maestro.
-    target = normTarget(target ?? (await ask(rl, "Is it a web app or a native iOS app? (web, ios, both)", "web")));
-    const web = target !== "ios", ios = target !== "web";
+    //     An Android app gets the same picker at /android, which needs only adb.
+    target = normTarget(target ?? (await ask(rl, "Is it a web app or a native iOS or Android app? (web, ios, android, both)", "web")));
+    const web = target === "web" || target === "both", ios = target === "ios" || target === "both", android = target === "android";
     if (ios) {
       const { iosReadiness } = await import("./ios.js");
       const missing = iosReadiness();
       if (!missing.length) say("iOS Simulator: Xcode, Maestro and Java are all here.");
       for (const m of missing) say(`iOS Simulator needs ${m}`);
+    }
+    if (android) {
+      const { androidReadiness } = await import("./android.js");
+      const missing = androidReadiness();
+      if (!missing.length) say("Android: adb is here.");
+      for (const m of missing) say(`Android emulator needs ${m}`);
     }
 
     // 2. a port nothing else owns. The extension popup has to agree, so this is worth saying out loud.
@@ -230,14 +238,15 @@ export async function runSetup({ project = null, port = DEFAULT_PORT, yes = fals
     console.error("");
     if (wanted.includes("claude")) say("Restart Claude Code once — it reads MCP servers and hooks at session start.");
     if (web) say(`Then open your dev site and press ${process.platform === "darwin" ? "⌥⇧A" : "Alt+Shift+A"}.`);
-    const picker = `http://127.0.0.1:${port}/ios`;
+    const picker = `http://127.0.0.1:${port}/${android ? "android" : "ios"}`;
     if (ios) say(`${web ? "For the iOS app" : "Then"}: run it in the Simulator and open ${picker}`);
+    if (android) say(`Then: run it in the Android emulator and open ${picker}`);
     console.error("");
 
     if (start) {
       const { startDaemon } = await import("./daemon.js");
       await startDaemon({ port, project, restartable: true });
-      if (ios && !web && interactive && process.platform === "darwin") spawnSync("open", [picker], { stdio: "ignore" });
+      if (!web && interactive && process.platform === "darwin") spawnSync("open", [picker], { stdio: "ignore" });
       if (chosen && (await waitForExtension(rl, port, chosen.name))) say(`✓ Pinpoint is live in ${chosen.name}.`);
     }
   } finally {

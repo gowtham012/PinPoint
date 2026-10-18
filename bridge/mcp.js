@@ -17,7 +17,7 @@ export function createMcpServer(api) {
     { name: "pinpoint", version: VERSION },
     {
       instructions:
-        "Pinpoint delivers change requests the developer made by pointing at an element in their running app — a page in their browser, or a native app in the iOS Simulator — and saying, in their own words, what should change. " +
+        "Pinpoint delivers change requests the developer made by pointing at an element in their running app — a page in their browser, or a native app in the iOS Simulator or an Android emulator — and saying, in their own words, what should change. " +
         "A request may be about how the element looks or about what it does (behaviour, validation, state, data, API calls): the comment is the full instruction, and the element is where to start in the code, not the limit of the change. " +
         "Call get_pending_annotations at the start of any UI, styling or feature task, whenever the developer refers to something they marked, clicked, pinned or annotated, and whenever they mention a change to a page or screen they are looking at. " +
         "Each annotation has the comment, a CSS selector, DOM path, computed styles, a component/source-file hint and a cropped screenshot. " +
