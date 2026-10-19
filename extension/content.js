@@ -1457,6 +1457,10 @@
   );
 
   let escArmed = false;
+  // The same Alt+Shift+A can reach us twice: here, and as the extension command the worker turns
+  // into "togglePicker" a moment later. Where Chrome delivers both, the second toggle undid the
+  // first — picking went off under the pointer, or tried to come back over a half-written note.
+  let keyToggledAt = 0;
   document.addEventListener("keydown", (e) => {
     if (!e.isTrusted) return;
     const took = () => { e.preventDefault(); e.stopImmediatePropagation(); };
@@ -1491,6 +1495,7 @@
     if (e.altKey && e.shiftKey && !e.metaKey && !e.ctrlKey && e.code === "KeyA") {
       e.preventDefault();
       e.stopImmediatePropagation();
+      keyToggledAt = Date.now();
       togglePicking();
     }
   }, true);
@@ -2210,7 +2215,7 @@
 
   // ---------- messages from popup / background ----------
   chrome.runtime.onMessage.addListener((msg, _s, reply) => {
-    if (msg.type === "togglePicker") { togglePicking(); reply({ picking }); }
+    if (msg.type === "togglePicker") { if (Date.now() - keyToggledAt > 2000) togglePicking(); reply({ picking }); }
     else if (msg.type === "startPicker") { startPicking(); reply({ picking }); }
     else if (msg.type === "setPicking") {
       if (msg.picking !== picking) msg.picking ? startPicking(true) : stopPicking(true);

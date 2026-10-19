@@ -213,6 +213,15 @@ afterEach(async () => {
   await ctx.serviceWorkers()[0]?.evaluate((port) => chrome.storage.sync.set({ port }), PORT).catch(() => {});
 }, { timeout: 60000 });
 
+test("DIAG shortcut", async () => {
+  const sw = ctx.serviceWorkers()[0];
+  await sw.evaluate(() => { globalThis.__cmds = 0; chrome.commands.onCommand.addListener(() => { globalThis.__cmds++; }); });
+  const page = await openPage("/");
+  await page.keyboard.press("Alt+Shift+A");
+  await page.waitForTimeout(2500);
+  console.log("DIAG", JSON.stringify({ cmds: await sw.evaluate(() => globalThis.__cmds), picking: (await S(page)).picking }));
+});
+
 test("Esc cancels picking; highlight hidden; Esc/Cancel close popover without sending", async () => {
   await clearAll();
   const page = await openPage("/");
@@ -234,7 +243,7 @@ test("Esc cancels picking; highlight hidden; Esc/Cancel close popover without se
   let s = await S(page);
   assert.equal(s.picking, false); assert.equal(s.hl, "none");
   await arm(page); await page.locator("h1").click();
-  assert.equal((await S(page)).popOpen, true);
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pop").style.display === "block", null, { timeout: 5000 });
   await page.keyboard.press("Escape");
   assert.equal((await S(page)).popOpen, false);
   await arm(page); await page.locator("h1").click();
@@ -654,13 +663,15 @@ test("popup shows which page each annotation belongs to and confirms before clea
   // clearing asks first; declining keeps everything. The confirm comes after a round trip to the
   // worker, so wait for it: on a slow runner a fixed 300ms ended before it was even asked, and the
   // decline then answered the second confirm too.
-  let asked = popup.waitForEvent("dialog");
+  // (Answered from the listener: until it is, the dialog blocks the click from returning.)
+  const answer = (how) => new Promise((r) => popup.once("dialog", (d) => r(d[how]())));
+  let answered = answer("dismiss");
   await popup.locator("#clear").click();
-  await (await asked).dismiss();
+  await answered;
   assert.equal((await pending()).length, 2, "declining the confirm keeps the annotations");
-  asked = popup.waitForEvent("dialog");
+  answered = answer("accept");
   await popup.locator("#clear").click();
-  await (await asked).accept();
+  await answered;
   await popup.waitForFunction(() => document.querySelectorAll("#list li").length === 0);
   assert.equal((await pending()).length, 0);
   await popup.close(); await other.close(); await page.close();
