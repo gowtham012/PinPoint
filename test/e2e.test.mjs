@@ -159,7 +159,10 @@ async function openPage(p) {
 }
 async function arm(page) {
   if (!(await S(page)).picking) await page.keyboard.press("Alt+Shift+A");
-  await page.waitForFunction(() => document.documentElement.classList.contains("pinpoint-picking"));
+  // Every frame, not just the top: an iframe hears "picking on" a worker round trip later, and on a
+  // slow runner a click sent the moment the top frame armed landed in a frame that wasn't picking yet.
+  await Promise.all(page.frames().filter((f) => /^https?:/.test(f.url())).map((f) =>
+    f.waitForFunction(() => document.documentElement.classList.contains("pinpoint-picking"))));
 }
 async function disarm(page) {
   if ((await S(page)).picking) await page.keyboard.press("Escape");
