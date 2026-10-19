@@ -1225,7 +1225,11 @@
   // Frames each run their own copy of this script, so picking has to be told to all of them — or an
   // element in an iframe could be clicked while the top frame thought it had stopped. `fromMirror`
   // is the message coming back; it must not be sent on again.
-  const mirror = (on) => { try { chrome.runtime.sendMessage({ type: "mirrorPicking", picking: on }); } catch {} };
+  // The worker sends this to every frame of the tab, which includes this one. Ours comes back after
+  // whatever happened since: on a slow machine "picking on" arrived after the click that turned it
+  // off, and picking came back over the comment box. A frame never takes its own echo.
+  const frameKey = Math.random().toString(36).slice(2);
+  const mirror = (on) => { try { chrome.runtime.sendMessage({ type: "mirrorPicking", picking: on, src: frameKey }); } catch {} };
   function startPicking(fromMirror = false) {
     if (picking) return;
     // The shortcut while a comment is half-written would otherwise wipe it without a word. Once the
@@ -1457,10 +1461,6 @@
   );
 
   let escArmed = false;
-  // The same Alt+Shift+A can reach us twice: here, and as the extension command the worker turns
-  // into "togglePicker" a moment later. Where Chrome delivers both, the second toggle undid the
-  // first — picking went off under the pointer, or tried to come back over a half-written note.
-  let keyToggledAt = 0;
   document.addEventListener("keydown", (e) => {
     if (!e.isTrusted) return;
     const took = () => { e.preventDefault(); e.stopImmediatePropagation(); };
@@ -1495,7 +1495,6 @@
     if (e.altKey && e.shiftKey && !e.metaKey && !e.ctrlKey && e.code === "KeyA") {
       e.preventDefault();
       e.stopImmediatePropagation();
-      keyToggledAt = Date.now();
       togglePicking();
     }
   }, true);
@@ -2215,10 +2214,10 @@
 
   // ---------- messages from popup / background ----------
   chrome.runtime.onMessage.addListener((msg, _s, reply) => {
-    if (msg.type === "togglePicker") { if (Date.now() - keyToggledAt > 2000) togglePicking(); reply({ picking }); }
+    if (msg.type === "togglePicker") { togglePicking(); reply({ picking }); }
     else if (msg.type === "startPicker") { startPicking(); reply({ picking }); }
     else if (msg.type === "setPicking") {
-      if (msg.picking !== picking) msg.picking ? startPicking(true) : stopPicking(true);
+      if (msg.src !== frameKey && msg.picking !== picking) msg.picking ? startPicking(true) : stopPicking(true);
       reply({ picking });
     }
     else if (msg.type === "captureDone") { showOverlay(); resumePicking(); reply({ ok: true }); }

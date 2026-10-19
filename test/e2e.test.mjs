@@ -213,15 +213,6 @@ afterEach(async () => {
   await ctx.serviceWorkers()[0]?.evaluate((port) => chrome.storage.sync.set({ port }), PORT).catch(() => {});
 }, { timeout: 60000 });
 
-test("DIAG shortcut", async () => {
-  const sw = ctx.serviceWorkers()[0];
-  await sw.evaluate(() => { globalThis.__cmds = 0; chrome.commands.onCommand.addListener(() => { globalThis.__cmds++; }); });
-  const page = await openPage("/");
-  await page.keyboard.press("Alt+Shift+A");
-  await page.waitForTimeout(2500);
-  console.log("DIAG", JSON.stringify({ cmds: await sw.evaluate(() => globalThis.__cmds), picking: (await S(page)).picking }));
-});
-
 test("Esc cancels picking; highlight hidden; Esc/Cancel close popover without sending", async () => {
   await clearAll();
   const page = await openPage("/");
