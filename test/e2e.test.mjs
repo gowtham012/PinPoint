@@ -2539,3 +2539,33 @@ test("X2: a re-check never blinks the panel you are using: no fresh crop instead
   assert.equal(await hidden, false, "the overlay stayed up");
   await page.close();
 });
+
+// ============ known issues: Esc after Send, after-crop when the agent renames a button ============
+test("K1: Esc right after Send keeps picking off, even when the crop finishes later", async () => {
+  await clearAll();
+  const sw = ctx.serviceWorkers()[0];
+  // Hold the worker's "captureDone" back, so the Esc lands inside the window it reopens picking in.
+  await sw.evaluate(() => {
+    const t = chrome.tabs, orig = t.sendMessage;
+    globalThis.__ppOrigSend = orig;
+    t.sendMessage = (...a) => (a[1]?.type === "captureDone"
+      ? new Promise((r) => setTimeout(() => r(orig.apply(t, a)), 1500)) : orig.apply(t, a));
+  });
+  try {
+    const page = await openPage("/");
+    await arm(page);
+    await page.locator("h1").click();
+    await waitShadow(page, () => __pinpointShadow.querySelector(".pop").style.display === "block");
+    await inShadow(page, () => { const r = __pinpointShadow; r.querySelector("textarea").value = "esc race"; r.querySelector(".send").click(); });
+    await waitShadow(page, () => /Sent/.test(__pinpointShadow.querySelector(".pop .status").textContent));
+    assert.equal((await S(page)).picking, false, "picking is still waiting for the crop");
+    await page.keyboard.press("Escape");
+    await pendingWithShots(1);
+    await page.waitForTimeout(2000);   // well past the held-back captureDone
+    assert.equal((await S(page)).picking, false, "Esc won: picking did not come back");
+    assert.equal(await inShadow(page, () => document.querySelector("pinpoint-root").style.display), "", "the overlay is back");
+    await page.close();
+  } finally {
+    await sw.evaluate(() => { chrome.tabs.sendMessage = globalThis.__ppOrigSend; });
+  }
+});

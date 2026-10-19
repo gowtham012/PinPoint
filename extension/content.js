@@ -1477,6 +1477,8 @@
       }
     }
     if (e.key === "Escape") {
+      // Just after Send, picking is off only until the crop is taken; Esc then means "stay off".
+      pendingResume = false;
       if (recording && !picking && ui.pop.style.display !== "block") { took(); return stopRecording(); }
       if (tipPinned && !picking && ui.pop.style.display !== "block") { took(); return hideTip(); }
       if (ui.panel.style.display === "flex" && !picking && ui.pop.style.display !== "block") { took(); return togglePanel(false); }
@@ -2218,7 +2220,8 @@
     if (msg.type === "togglePicker") { togglePicking(); reply({ picking }); }
     else if (msg.type === "startPicker") { startPicking(); reply({ picking }); }
     else if (msg.type === "setPicking") {
-      if (msg.src !== frameKey && msg.picking !== picking) msg.picking ? startPicking(true) : stopPicking(true);
+      // An "off" from another frame also cancels a resume this frame is still waiting to make.
+      if (msg.src !== frameKey && (msg.picking !== picking || (!msg.picking && pendingResume))) msg.picking ? startPicking(true) : stopPicking(true);
       reply({ picking });
     }
     else if (msg.type === "captureDone") { showOverlay(); resumePicking(); reply({ ok: true }); }
