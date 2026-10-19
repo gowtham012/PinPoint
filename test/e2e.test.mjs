@@ -2569,3 +2569,29 @@ test("K1: Esc right after Send keeps picking off, even when the crop finishes la
     await sw.evaluate(() => { chrome.tabs.sendMessage = globalThis.__ppOrigSend; });
   }
 });
+
+test("K2: an agent that renames a button still gets its after crop, and re-check says changed", async () => {
+  await clearAll();
+  const page = await openPage("/plain.html");
+  // No id, no data-*: the button is known by where it sits and what it says.
+  await page.evaluate(() => document.body.insertAdjacentHTML("afterbegin",
+    '<div class="toolbar"><button class="btn">Save</button> <button class="btn">Cancel</button></div>'));
+  await annotate(page, page.locator(".toolbar .btn").first(), "say what it saves");
+  const [a] = await pendingWithShots(1);
+  await disarm(page);
+  // The agent's edit, as a framework re-render would apply it: new nodes, new label.
+  await page.evaluate(() => { document.querySelector(".toolbar").innerHTML = '<button class="btn">Save changes</button> <button class="btn">Cancel</button>'; });
+  await resolveVia(a.id, "renamed it to Save changes");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".toast .ok")?.offsetParent, null, { timeout: 8000 });
+  let got = null;
+  for (let i = 0; i < 80; i++) { got = (await (await fetch(`${BASE}/annotations/${a.id}`)).json()).annotation; if (got.after) break; await page.waitForTimeout(100); }
+  assert.ok(got.after?.screenshot?.base64, `after crop taken, not missing: ${JSON.stringify(got.after)}`);
+  const c = new Client({ name: "t", version: "0" });
+  await c.connect(new StreamableHTTPClientTransport(new URL(BASE + "/mcp")));
+  const r = await c.callTool({ name: "recheck_annotation", arguments: { id: a.id, timeoutSeconds: 15 } });
+  const text = r.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
+  assert.match(text, /Verdict: changed/, text);
+  assert.match(text, /Save changes/, text);
+  await c.close();
+  await page.close();
+});

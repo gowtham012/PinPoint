@@ -692,7 +692,28 @@
       const v = el.getAttribute?.(a);
       if (v) attrs[a] = v.slice(0, 80);
     }
-    return { tag: el.tagName.toLowerCase(), text: clip(el.textContent, 60), attrs };
+    return { tag: el.tagName.toLowerCase(), text: clip(el.textContent, 60), attrs, ctx: around(el) };
+  }
+  // The text next to the element, from the nearest of three ancestors that has any. An element the
+  // agent renamed keeps its neighbours; a stranger re-rendered into the same spot (the next step's
+  // chip, the next row) comes with new ones.
+  // ponytail: first-occurrence removal of the element's own text; a sibling with the very same text
+  // earlier on only makes this stricter.
+  function around(el) {
+    const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
+    const own = norm(el.textContent);
+    for (let p = el.parentElement, i = 0; p && i < 3; p = p.parentElement, i++) {
+      const t = norm(norm(p.textContent).replace(own, " "));
+      if (t) return t.slice(0, 120);
+    }
+    return "";
+  }
+  // Same spot, same kind, same attributes, same neighbours: the element itself, only its text has
+  // changed. Used only where the selector already points at it — never to go looking elsewhere.
+  function renamed(el, fp) {
+    if (!fp?.ctx || !el || el.tagName.toLowerCase() !== fp.tag) return false;
+    if (!Object.keys(fp.attrs).every((k) => (el.getAttribute(k) || "") === fp.attrs[k])) return false;
+    return around(el) === fp.ctx;
   }
   function fingerprintMatches(el, fp) {
     if (!fp || !el || el.tagName.toLowerCase() !== fp.tag) return false;
@@ -704,7 +725,7 @@
   function findElement(selector, fp) {
     const bySelector = safeQuery(selector);
     if (!fp) return bySelector;
-    if (bySelector && fingerprintMatches(bySelector, fp)) return bySelector;
+    if (bySelector && (fingerprintMatches(bySelector, fp) || renamed(bySelector, fp))) return bySelector;
     let found = null;
     try {
       for (const el of document.getElementsByTagName(fp.tag)) {
@@ -1992,7 +2013,7 @@
       p.node.style.top = y + "px";
       return;
     }
-    if (p.el && (!p.el.isConnected || (p.fp && !fingerprintMatches(p.el, p.fp)))) p.el = null;
+    if (p.el && (!p.el.isConnected || (p.fp && !fingerprintMatches(p.el, p.fp) && !renamed(p.el, p.fp)))) p.el = null;
     const el = p.el || (p.el = findElement(p.selector, p.fp));
     if (!el) {
       p.node.style.display = "none";
