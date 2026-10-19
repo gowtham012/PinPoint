@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pinpoint: point at your app, your coding agent gets it</title>
+<meta name="description" content="Click an element on your local dev site, say what should change, and Claude Code, Cursor or Codex gets it with the selector, styles, component chain, source hint and a crop. Open source, runs on your machine.">
+<meta name="color-scheme" content="dark light">
+<meta property="og:title" content="Pinpoint">
+<meta property="og:description" content="Point at your running app. Say what should change. Your coding agent gets it.">
+<meta property="og:image" content="https://gowtham012.github.io/PinPoint/demo.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23121212'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%23c6f432'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* Ink + lime, the extension's own look. Dark is the default; a light system gets paper with
+     ink-edged lime, the way the extension marks a white page. */
+  :root {
+    --ink: #121212;
+    --ink-2: #1c1c1c;
+    --ink-3: #2d2d2d;
+    --lime: #c6f432;
+    --on-lime: #121212;
+    --sky: #5cc8ff;
+    --bg: var(--ink);
+    --bg-2: var(--ink-2);
+    --rule: var(--ink-3);
+    --fg: #f2f3ee;
+    --fg-2: #a6aaa0;
+    --mark: var(--lime);          /* lime as text or line */
+    --mark-edge: transparent;
+    --sky-text: var(--sky);
+    --sans: "Schibsted Grotesk", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    --wrap: 1120px;
+    color-scheme: dark;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f6f7f3; --bg-2: #eceee6; --rule: #d6d9cf;
+      --fg: #121212; --fg-2: #50544b;
+      --mark: #121212; --mark-edge: #121212;
+      --sky-text: #0b6c9c;
+      color-scheme: light;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 400 17px/1.6 var(--sans); -webkit-font-smoothing: antialiased; }
+  a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+  a:hover { text-decoration-color: var(--lime); }
+  :focus-visible { outline: 3px solid var(--lime); outline-offset: 3px; border-radius: 4px; }
+  @media (prefers-color-scheme: light) { :focus-visible { outline-color: var(--ink); } }
+  code, pre, kbd { font-family: var(--mono); }
+  .wrap { max-width: var(--wrap); margin: 0 auto; padding: 0 28px; }
+  .skip { position: absolute; left: -999px; }
+  .skip:focus { left: 16px; top: 16px; z-index: 10; background: var(--lime); color: var(--on-lime); padding: 8px 12px; }
+
+  /* ---------- top ---------- */
+  .top { display: flex; align-items: center; gap: 24px; padding-top: 22px; padding-bottom: 22px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; text-decoration: none; }
+  .brand .dot { width: 22px; height: 22px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); background: var(--lime); box-shadow: inset 0 0 0 1.5px var(--mark-edge); display: grid; place-items: center; }
+  .brand .dot::after { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ink); }
+  .top nav { margin-left: auto; display: flex; gap: 22px; font-size: 15px; color: var(--fg-2); }
+  .top nav a { text-decoration: none; }
+  .top nav a:hover { color: var(--fg); }
+
+  /* ---------- hero: the headline is the thing being picked ---------- */
+  .hero { padding-top: 56px; padding-bottom: 40px; }
+  .picked { position: relative; display: inline-block; margin: 28px 0 0 -18px; padding: 10px 18px 14px; }
+  .picked h1 { margin: 0; font-weight: 900; font-size: clamp(44px, 8.4vw, 112px); line-height: .94; letter-spacing: -.035em; max-width: 11ch; }
+  .picked .c { position: absolute; width: 22px; height: 22px; border: 0 solid var(--mark); }
+  .picked .c:nth-of-type(1) { left: 0; top: 0; border-width: 3px 0 0 3px; }
+  .picked .c:nth-of-type(2) { right: 0; top: 0; border-width: 3px 3px 0 0; }
+  .picked .c:nth-of-type(3) { left: 0; bottom: 0; border-width: 0 0 3px 3px; }
+  .picked .c:nth-of-type(4) { right: 0; bottom: 0; border-width: 0 3px 3px 0; }
+  .picked .tag { position: absolute; left: 0; top: -30px; font: 500 12.5px/1 var(--mono); background: var(--ink); color: #a6aaa0; padding: 6px 9px; border-radius: 6px; white-space: nowrap; }
+  .picked .tag b { color: var(--lime); font-weight: 500; }
+  .picked .pin { position: absolute; right: -14px; top: -14px; width: 30px; height: 30px; border-radius: 50%; background: var(--lime); color: var(--on-lime); font: 700 14px/30px var(--sans); text-align: center; box-shadow: 0 0 0 2px var(--ink); }
+  .note { position: absolute; right: -14px; top: 26px; transform: translateX(100%); width: 230px; background: var(--ink-2); border: 1px solid var(--ink-3); color: #f2f3ee; border-radius: 12px; padding: 12px 14px; font-size: 14.5px; line-height: 1.45; box-shadow: 0 16px 40px rgba(0,0,0,.35); }
+  .note small { display: block; color: var(--sky); font-size: 12.5px; margin-top: 8px; }
+  .lede { max-width: 34em; font-size: 20px; line-height: 1.55; color: var(--fg-2); margin: 34px 0 0; }
+  .lede strong { color: var(--fg); font-weight: 500; }
+  .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
+  .btn { display: inline-flex; align-items: center; gap: 10px; padding: 13px 20px; border-radius: 10px; font-weight: 700; font-size: 16px; text-decoration: none; }
+  .btn.go { background: var(--lime); color: var(--on-lime); box-shadow: inset 0 0 0 1.5px var(--mark-edge); }
+  .btn.go:hover { filter: brightness(1.06); }
+  .btn.quiet { box-shadow: inset 0 0 0 1.5px var(--rule); }
+  .btn.quiet:hover { box-shadow: inset 0 0 0 1.5px var(--fg-2); }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .picked .c { animation: snap .5s cubic-bezier(.2,.9,.3,1.2) both .25s; }
+    .picked .tag { animation: fade .3s ease-out both .6s; }
+    .picked .pin { animation: drop .45s cubic-bezier(.2,.9,.3,1.4) both 1s; }
+    .note { animation: fade .4s ease-out both 1.35s; }
+    @keyframes snap { from { opacity: 0; scale: 1.25; } }
+    @keyframes fade { from { opacity: 0; translate: 0 6px; } }
+    @keyframes drop { from { opacity: 0; translate: 0 -18px; } }
+  }
+
+  .film { margin-top: 56px; border-radius: 14px; overflow: hidden; background: var(--ink-2); box-shadow: 0 0 0 1px var(--rule), 0 30px 80px rgba(0,0,0,.35); aspect-ratio: 1280 / 800; }
+  .film video { display: block; width: 100%; height: 100%; }
+  .film-cap { margin-top: 12px; font-size: 14px; color: var(--fg-2); }
+
+  /* ---------- sections: heading in the margin, content beside it ---------- */
+  section { border-top: 1px solid var(--rule); padding: 72px 0; }
+  .sec { display: grid; grid-template-columns: 260px 1fr; gap: 40px; }
+  .sec > * { min-width: 0; } /* or a long command line widens the column past the screen */
+  .sec > h2 { margin: 0; font-size: 28px; line-height: 1.15; letter-spacing: -.02em; font-weight: 700; align-self: start; position: sticky; top: 28px; }
+  .body > p:first-child { margin-top: 0; }
+  .body p { max-width: 36em; }
+  .big { font-size: 24px; line-height: 1.45; letter-spacing: -.01em; max-width: 30em; margin: 0 0 28px; }
+
+  /* what a note carries: the real fields, in the order the agent reads them */
+  .carry { margin: 0; padding: 0; list-style: none; border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; }
+  .carry li { display: grid; grid-template-columns: 190px 1fr; gap: 18px; padding: 13px 18px; border-top: 1px solid var(--rule); }
+  .carry li:first-child { border-top: 0; }
+  .carry b { font-weight: 500; }
+  .carry span { color: var(--fg-2); }
+  .carry code { font-size: 14px; color: var(--fg); }
+
+  .steps { list-style: none; margin: 0; padding: 0; counter-reset: s; display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; }
+  .steps li { counter-increment: s; }
+  .steps li::before { content: counter(s); display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: var(--lime); color: var(--on-lime); font-weight: 700; box-shadow: inset 0 0 0 1.5px var(--mark-edge); margin-bottom: 16px; }
+  .steps h3 { margin: 0 0 6px; font-size: 20px; letter-spacing: -.01em; }
+  .steps p { margin: 0; color: var(--fg-2); }
+  kbd { font-size: 13px; padding: 2px 6px; border-radius: 5px; background: var(--bg-2); border: 1px solid var(--rule); white-space: nowrap; }
+
+  .feats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 48px; margin: 0; }
+  .feats div { padding: 16px 0; border-top: 1px solid var(--rule); }
+  .feats dt { font-weight: 700; margin-bottom: 4px; }
+  .feats dd { margin: 0; color: var(--fg-2); }
+  .feats .agent dt::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--sky); margin-right: 9px; vertical-align: 2px; }
+
+  .with { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; }
+  .with h3 { margin: 0 0 10px; font-size: 15px; font-weight: 500; color: var(--fg-2); }
+  .with ul { margin: 0; padding: 0; list-style: none; font-size: 19px; line-height: 1.75; }
+  .with ul small { font-size: 14px; color: var(--fg-2); }
+
+  .cmd { position: relative; margin: 14px 0 26px; }
+  .cmd pre { margin: 0; padding: 18px 64px 18px 20px; background: var(--ink-2); box-shadow: inset 0 0 0 1px var(--ink-3); color: #f2f3ee; border-radius: 12px; overflow-x: auto; font-size: 15px; line-height: 1.7; }
+  .cmd pre .p { color: #6f746a; user-select: none; }
+  .cmd button { position: absolute; top: 10px; right: 10px; font: 500 13px var(--sans); background: var(--ink-3); color: #f2f3ee; border: 0; border-radius: 8px; padding: 7px 11px; cursor: pointer; }
+  .cmd button:hover { background: #3a3a3a; }
+  .cmd button.done { background: var(--lime); color: var(--on-lime); }
+  .body h3 { margin: 0; font-size: 18px; }
+  .body .hint { color: var(--fg-2); margin: 4px 0 0; font-size: 15.5px; }
+
+  .private { font-size: 22px; line-height: 1.5; max-width: 30em; margin: 0 0 22px; letter-spacing: -.01em; }
+  .private code { font-size: .85em; }
+
+  footer { border-top: 1px solid var(--rule); padding: 40px 0 56px; color: var(--fg-2); font-size: 15px; }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: center; }
+  footer nav { display: flex; flex-wrap: wrap; gap: 10px 22px; }
+  footer .lic { margin-left: auto; }
+
+  @media (max-width: 1180px) { .note { display: none; } }
+  @media (max-width: 860px) {
+    .sec { grid-template-columns: 1fr; gap: 22px; }
+    .sec > * { min-width: 0; } /* or a long command line widens the column past the screen */
+  .sec > h2 { position: static; }
+    .steps, .with { grid-template-columns: 1fr; }
+    .feats { grid-template-columns: 1fr; }
+    .carry li { grid-template-columns: 1fr; gap: 2px; }
+    section { padding: 56px 0; }
+  }
+  @media (max-width: 560px) {
+    .wrap { padding: 0 16px; }
+    body { font-size: 16px; }
+    .top nav a:not(.gh) { display: none; }
+    .hero { padding-top: 28px; }
+    .picked { margin-left: -10px; padding: 8px 10px 10px; }
+    .picked .tag { font-size: 11px; }
+    .picked .pin { right: -8px; top: -12px; width: 26px; height: 26px; line-height: 26px; font-size: 13px; }
+    .lede { font-size: 18px; }
+    .big, .private { font-size: 20px; }
+    .film { margin-top: 36px; border-radius: 10px; }
+    .cmd pre { font-size: 13px; padding-right: 20px; padding-top: 48px; }
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="wrap top">
+  <a class="brand" href="./" aria-label="Pinpoint home"><span class="dot" aria-hidden="true"></span>Pinpoint</a>
+  <nav aria-label="Site">
+    <a href="#how">How it works</a>
+    <a href="#install">Install</a>
+    <a class="gh" href="https://github.com/gowtham012/PinPoint">GitHub</a>
+  </nav>
+</header>
+
+<main id="main">
+  <div class="wrap hero">
+    <div class="picked">
+      <span class="c" aria-hidden="true"></span><span class="c" aria-hidden="true"></span><span class="c" aria-hidden="true"></span><span class="c" aria-hidden="true"></span>
+      <span class="tag" aria-hidden="true"><b>h1</b>.hero  1040×212</span>
+      <h1>Point at it. Say it. Your agent gets it.</h1>
+      <span class="pin" aria-hidden="true">1</span>
+      <div class="note" aria-hidden="true">Make the headline say what it does, not what it is.<small>claude-code: done, rewrote it in site/index.html</small></div>
+    </div>
+    <p class="lede">Click an element on your local dev site and type what should change. <strong>Claude Code, Cursor or Codex</strong> gets your words with the selector, the styles, the component behind it, a source-file hint and a crop of what you saw.</p>
+    <div class="cta">
+      <a class="btn go" href="#install">Install it</a>
+      <a class="btn quiet" href="https://github.com/gowtham012/PinPoint">Read the code on GitHub</a>
+    </div>
+
+    <figure class="film" style="margin-left:0;margin-right:0">
+      <video src="demo.mp4" poster="demo.jpg" autoplay muted loop playsinline preload="metadata"
+             aria-label="Recording: a button on a local page is picked, a comment is sent, the agent asks a question, the answer goes back, the agent changes the button and the before and after crops are shown"></video>
+    </figure>
+    <p class="film-cap">One note from start to finish, recorded from the real extension. The agent's side is played through the bridge's API.</p>
+  </div>
+
+  <section aria-labelledby="what">
+    <div class="wrap sec">
+      <h2 id="what">What it does</h2>
+      <div class="body">
+        <p class="big">No more screenshots piling up in Downloads, or describing “the third button on the left”. You point; the agent knows exactly which element you mean and where to start in the code.</p>
+        <ul class="carry" aria-label="What a note carries">
+          <li><b>Your comment</b><span>The only part treated as an instruction. Looks or behaviour: “disable this until the form is valid” is fine.</span></li>
+          <li><b>Selector and DOM path</b><span><code>.hero .cta .btn.primary</code></span></li>
+          <li><b>Computed styles</b><span>What the browser actually rendered, not what the CSS meant.</span></li>
+          <li><b>Component chain</b><span>React and Vue, from the root down to the component you clicked.</span></li>
+          <li><b>Source hint</b><span>The file the component lives in, when the dev build knows it.</span></li>
+          <li><b>A crop</b><span>The element as you saw it, plus page errors and failed requests from the minute before.</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="how" aria-labelledby="how-h">
+    <div class="wrap sec">
+      <h2 id="how-h">How it works</h2>
+      <ol class="steps">
+        <li><h3>Point</h3><p>Press <kbd>⌥⇧A</kbd> on your dev site and click an element, or drag a box around a group.</p></li>
+        <li><h3>Say it</h3><p>Type what should change and press <kbd>⌘↩</kbd>. Type, or dictate. Mark the next thing straight away.</p></li>
+        <li><h3>Your agent gets it</h3><p>Over MCP or a hook, with your next message. It changes the code and replies on the page.</p></li>
+      </ol>
+    </div>
+  </section>
+
+  <section aria-labelledby="feat">
+    <div class="wrap sec">
+      <h2 id="feat">A note is a conversation</h2>
+      <dl class="feats">
+        <div class="agent"><dt>The agent can ask back</dt><dd>When a request is ambiguous it asks instead of guessing. You answer on the page.</dd></div>
+        <div class="agent"><dt>Accept or Not quite</dt><dd>When it finishes, a card shows its reply. Not quite sends the note back with what is still wrong.</dd></div>
+        <div class="agent"><dt>Before and after</dt><dd>A fresh crop of the element after the change, next to the one you marked.</dd></div>
+        <div><dt>Record steps</dt><dd>Click through a bug as you normally would. Each click becomes a step to reproduce.</dd></div>
+        <div><dt>Page errors come along</dt><dd>Uncaught errors and failed requests from the minute before, redacted in the browser first.</dd></div>
+        <div><dt>Pins that stay put</dt><dd>Pins follow their element through re-renders, and hide rather than sit on the wrong one.</dd></div>
+        <div><dt>Drafts and whole-page notes</dt><dd>Mark several things and send them together, or say something about the page itself.</dd></div>
+        <div><dt>Native apps too</dt><dd>The same pick-and-comment on the iOS Simulator and the Android emulator.</dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <section aria-labelledby="with">
+    <div class="wrap sec">
+      <h2 id="with">Works with</h2>
+      <div class="with">
+        <div><h3>Agents</h3><ul><li>Claude Code</li><li>Cursor</li><li>Codex</li><li>Any MCP client <small>(Windsurf, Cline, Zed…)</small></li></ul></div>
+        <div><h3>Browsers</h3><ul><li>Chrome, Edge, Brave, Arc</li><li>Firefox 140+</li><li>Safari</li></ul></div>
+        <div><h3>Native</h3><ul><li>iOS Simulator</li><li>Android emulator</li></ul></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="install" aria-labelledby="install-h">
+    <div class="wrap sec">
+      <h2 id="install-h">Install</h2>
+      <div class="body">
+        <h3>For web apps</h3>
+        <p class="hint">Needs Node 18+. Setup wires up your agents, installs the hooks, starts the bridge and walks you through loading the extension.</p>
+        <div class="cmd"><pre><code><span class="p">$ </span>git clone https://github.com/gowtham012/PinPoint pinpoint
+<span class="p">$ </span>node pinpoint/bridge/cli.js setup</code></pre><button type="button" data-copy="git clone https://github.com/gowtham012/PinPoint pinpoint&#10;node pinpoint/bridge/cli.js setup">Copy</button></div>
+        <h3>Only a native iOS or Android app</h3>
+        <p class="hint">No clone needed: run the bridge from npm and add it to your agent.</p>
+        <div class="cmd"><pre><code><span class="p">$ </span>npx -y pinpoint-bridge
+<span class="p">$ </span>claude mcp add pinpoint -s user -- npx -y pinpoint-bridge mcp</code></pre><button type="button" data-copy="npx -y pinpoint-bridge&#10;claude mcp add pinpoint -s user -- npx -y pinpoint-bridge mcp">Copy</button></div>
+        <p class="hint">Every step spelled out: <a href="https://github.com/gowtham012/PinPoint/blob/main/docs/quick-install.md">the quick install guide</a>.</p>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="priv">
+    <div class="wrap sec">
+      <h2 id="priv">Stays on your machine</h2>
+      <div class="body">
+        <p class="private">The bridge listens on <code>127.0.0.1</code> and nowhere else. Notes and crops are kept in <code>~/.pinpoint</code>. The one place they go is the coding agent you connect.</p>
+        <p>The extension runs only on local development pages unless you turn it on for a tab, needs a token only your machine has, and labels everything scraped from a page as untrusted when it reaches your agent. No account, no analytics. Read the <a href="https://github.com/gowtham012/PinPoint/blob/main/PRIVACY.md">privacy policy</a> and the <a href="https://github.com/gowtham012/PinPoint/blob/main/SECURITY.md">security notes</a>.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <a class="brand" href="./"><span class="dot" aria-hidden="true"></span>Pinpoint</a>
+    <nav aria-label="Elsewhere">
+      <a href="https://github.com/gowtham012/PinPoint">GitHub</a>
+      <a href="https://www.npmjs.com/package/pinpoint-bridge">npm</a>
+      <a href="https://registry.modelcontextprotocol.io/v0/servers?search=io.github.gowtham012/pinpoint">MCP Registry</a>
+      <a href="https://github.com/gowtham012/PinPoint#readme">Docs</a>
+      <a href="https://github.com/gowtham012/PinPoint/blob/main/CHANGELOG.md">Changelog</a>
+    </nav>
+    <span class="lic">Open source, MIT licence</span>
+  </div>
+</footer>
+
+<script>
+  // Copy buttons. Clipboard needs a secure context; the Pages site is https.
+  for (const b of document.querySelectorAll("[data-copy]")) {
+    b.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(b.dataset.copy); b.textContent = "Copied"; b.classList.add("done"); }
+      catch { b.textContent = "Select and copy"; }
+      setTimeout(() => { b.textContent = "Copy"; b.classList.remove("done"); }, 1800);
+    });
+  }
+  // Respect reduced motion for the film too: show the first frame, let people press play.
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    const v = document.querySelector("video"); v.removeAttribute("autoplay"); v.controls = true; v.pause();
+  }
+</script>
+</body>
+</html>
