@@ -179,6 +179,9 @@ async function annotate(page, locator, comment, { submit = "click", sent = true 
   const { status } = await S(page);
   // Say why here: a test that goes on to look for the pin only reports a missing node.
   if (sent) assert.match(status, /Sent/, `the note was not sent: ${status}`);
+  // A sent note brings picking back once the worker has taken its crop, which on a slow runner was
+  // after disarm() had looked and found nothing to stop — the test's next click got picked instead.
+  if (/Sent/.test(status)) await page.waitForFunction(() => document.documentElement.classList.contains("pinpoint-picking"), null, { timeout: 15000 });
   return status;
 }
 // The popover focuses its textarea a tick after it opens; Playwright types faster than any person,
