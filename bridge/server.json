@@ -4,11 +4,11 @@
   "title": "Pinpoint",
   "description": "Click an element in your running app or iOS Simulator, say what should change; your agent gets it.",
   "repository": {
-    "url": "https://github.com/gowtham012/pinpoint",
+    "url": "https://github.com/gowtham012/PinPoint",
     "source": "github",
     "subfolder": "bridge"
   },
-  "websiteUrl": "https://github.com/gowtham012/pinpoint#readme",
+  "websiteUrl": "https://github.com/gowtham012/PinPoint#readme",
   "version": "0.7.0",
   "packages": [
     {

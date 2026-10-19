@@ -33,13 +33,13 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/gowtham012/pinpoint.git",
+    "url": "git+https://github.com/gowtham012/PinPoint.git",
     "directory": "bridge"
   },
   "bugs": {
-    "url": "https://github.com/gowtham012/pinpoint/issues"
+    "url": "https://github.com/gowtham012/PinPoint/issues"
   },
-  "homepage": "https://github.com/gowtham012/pinpoint#readme",
+  "homepage": "https://github.com/gowtham012/PinPoint#readme",
   "files": [
     "*.js",
     "*.html",
