@@ -2,6 +2,8 @@
 // Every element carries an accessibilityIdentifier, the way a real app's testIDs would, so a note
 // made on it names something an agent can grep for. Built without an Xcode project:
 //   bash demo/ios/run.sh
+// The "after" of the demo note — Book pinned to the bottom — is the same app launched with
+// --sticky-book:  xcrun simctl launch booted dev.pinpoint.trailhead --sticky-book
 import SwiftUI
 
 @main
@@ -13,6 +15,7 @@ struct TripScreen: View {
     @State private var day = 1
     @State private var guests = 2
     private let days = ["Fri 24", "Sat 25", "Sun 26"]
+    private let sticky = ProcessInfo.processInfo.arguments.contains("--sticky-book")
 
     var body: some View {
         ScrollView {
@@ -54,13 +57,25 @@ struct TripScreen: View {
                     Spacer()
                 }
 
-                Button(action: {}) {
-                    Text("Book this trip").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 14)
-                }
-                .buttonStyle(.borderedProminent).tint(Color(red: 0.16, green: 0.42, blue: 0.33))
-                .accessibilityIdentifier("book-button")
+                if !sticky { bookButton }
             }
             .padding(20)
         }
+        .safeAreaInset(edge: .bottom) {
+            if sticky {
+                bookButton
+                    .shadow(color: .black.opacity(0.25), radius: 12, y: 6)
+                    .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 8)
+                    .background(.regularMaterial)
+            }
+        }
+    }
+
+    private var bookButton: some View {
+        Button(action: {}) {
+            Text("Book this trip").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 14)
+        }
+        .buttonStyle(.borderedProminent).tint(Color(red: 0.16, green: 0.42, blue: 0.33))
+        .accessibilityIdentifier("book-button")
     }
 }
