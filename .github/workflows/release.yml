@@ -83,6 +83,11 @@ jobs:
           if curl -fsS -o /dev/null "https://registry.modelcontextprotocol.io/v0.1/servers/io.github.gowtham012%2Fpinpoint/versions/$V"; then
             echo "already on the MCP Registry"; exit 0
           fi
+          # npm takes a few minutes to serve a new version, and the registry checks npm for it.
+          for i in $(seq 1 40); do
+            npm view "pinpoint-bridge@$V" version >/dev/null 2>&1 && break
+            echo "waiting for npm to serve $V ($i)"; sleep 15
+          done
           mcp-publisher login github-oidc
           mcp-publisher publish
 
