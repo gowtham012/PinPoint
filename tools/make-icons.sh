@@ -1,13 +1,10 @@
 #!/usr/bin/env bash
-# Regenerate the extension icons, and the in-page bar's mark, from tools/logo/mark.png.
+# Render every logo asset from tools/logo/mark.svg: the extension icons, the in-page bar's two
+# marks (inlined into content.js), and docs/logo/ (all sizes, favicons, wordmarks, store tiles).
 #
 #   bash tools/make-icons.sh
 #
-# The source is a black drawing on white with no alpha, so white becomes transparency: the
-# toolbar and the page bar both sit on backgrounds we do not control. The bar mark is written
-# as an alpha-only data URI into content.js, where it is used as a CSS mask so the shape can
-# still take the accent colour and turn white while armed, exactly as the old dot did.
+# Needs the test dependencies (cd test && npm install && npx playwright install chromium) and ffmpeg.
 set -euo pipefail
 cd "$(cd "$(dirname "$0")/.." && pwd)"
-python3 tools/logo/make-icons.py
-echo "▸ icons written to extension/"
+node tools/logo/make-logos.mjs

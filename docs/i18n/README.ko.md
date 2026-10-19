@@ -1,6 +1,6 @@
 <div align="center">
 
-# 📍 Pinpoint
+# <img src="../logo/pinpoint-mark.svg" alt="" width="40" align="top"> Pinpoint
 
 **실행 중인 앱을 가리키고, 바꿀 내용을 말하세요. 코딩 에이전트가 알아서 받아 갑니다.**
 

@@ -1,6 +1,6 @@
 <div align="center">
 
-# 📍 Pinpoint
+# <img src="../logo/pinpoint-mark.svg" alt="" width="40" align="top"> Pinpoint
 
 **Укажите на элемент в запущенном приложении. Скажите, что поменять. Ваш coding-агент получит всё нужное.**
 

@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **A new logo: the lime drop pin.** The toolbar icons (now with a 32 px size), the on-page bar,
+  the site's favicon and the README use it; the bar shows it in colour, and inverted (ink pin, lime
+  dot) while picking. `docs/logo/` has every size, wordmarks, an app icon, favicon.ico, the social
+  preview and Chrome Web Store tiles, all rendered from `tools/logo/mark.svg` by
+  `bash tools/make-icons.sh`. `node tools/make-bar-shots.mjs` recaptures the README's bar screenshots.
+
 ### Fixed
 - **Picker races on slow machines.** A frame no longer takes back its own mirrored picking state, so
   picking stops coming back over the comment box; an answer older than a note just sent no longer wipes
