@@ -1,6 +1,6 @@
 <div align="center">
 
-# 📍 Pinpoint
+# <img src="docs/logo/pinpoint-mark.svg" alt="" width="40" align="top"> Pinpoint
 
 **Point at your running app. Say what should change. Your coding agent gets it.**
 

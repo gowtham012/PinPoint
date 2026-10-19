@@ -2,7 +2,7 @@
 
 <div align="center">
 
-# 📍 Pinpoint
+# <img src="../logo/pinpoint-mark.svg" alt="" width="40" align="top"> Pinpoint
 
 **أشِر إلى تطبيقك وهو يعمل. قل ما الذي يجب أن يتغيّر. وسيصل طلبك إلى الـ coding agent.**
 
