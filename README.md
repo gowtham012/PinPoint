@@ -11,6 +11,8 @@
 [![Mentioned in Awesome Claude Code](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
 [![stars](https://img.shields.io/github/stars/gowtham012/pinpoint?style=flat)](https://github.com/gowtham012/pinpoint/stargazers)
 
+**[gowtham012.github.io/PinPoint](https://gowtham012.github.io/PinPoint/)**
+
 **English** ·
 [తెలుగు](docs/i18n/README.te.md) ·
 [हिन्दी](docs/i18n/README.hi.md) ·
