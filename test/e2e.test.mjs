@@ -1,5 +1,5 @@
 // Browser scenario suite. Run: node --test e2e.test.mjs   (spawns its own bridge on port 7399)
-import { test, before, after, afterEach } from "node:test";
+import { test as nodeTest, before, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
 import { spawn } from "node:child_process";
@@ -10,6 +10,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "../bridge/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js";
 import { StreamableHTTPClientTransport } from "../bridge/node_modules/@modelcontextprotocol/sdk/dist/esm/client/streamableHttp.js";
+
+// Three minutes for any one test: a page that never answers fails its own test instead of hanging
+// the job until GitHub cancels it. (--test-timeout would also time the whole file as one test.)
+const test = (name, opts, fn) => (typeof opts === "function" ? nodeTest(name, { timeout: 180000 }, opts) : nodeTest(name, { timeout: 180000, ...opts }, fn));
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const EXT = path.resolve(here, "../extension");
@@ -160,7 +164,7 @@ async function arm(page) {
 async function disarm(page) {
   if ((await S(page)).picking) await page.keyboard.press("Escape");
 }
-async function annotate(page, locator, comment, { submit = "click" } = {}) {
+async function annotate(page, locator, comment, { submit = "click", sent = true } = {}) {
   await arm(page);
   await locator.hover();
   await locator.click();
@@ -169,7 +173,10 @@ async function annotate(page, locator, comment, { submit = "click" } = {}) {
   if (submit === "click") await inShadow(page, () => __pinpointShadow.querySelector(".send").click());
   else await page.keyboard.press(submit);
   await waitShadow(page, () => /Sent|offline|Failed|first/.test(__pinpointShadow.querySelector(".pop .status").textContent), null, { timeout: 15000 });
-  return (await S(page)).status;
+  const { status } = await S(page);
+  // Say why here: a test that goes on to look for the pin only reports a missing node.
+  if (sent) assert.match(status, /Sent/, `the note was not sent: ${status}`);
+  return status;
 }
 // The popover focuses its textarea a tick after it opens; Playwright types faster than any person,
 // so wait for focus first or the first characters go to the page.
@@ -244,7 +251,7 @@ test("Esc cancels picking; highlight hidden; Esc/Cancel close popover without se
 
 test("empty comment is rejected and nothing is posted", async () => {
   const page = await openPage("/");
-  const status = await annotate(page, page.locator("h1"), "");
+  const status = await annotate(page, page.locator("h1"), "", { sent: false });
   assert.match(status, /Write a comment first/);
   assert.equal((await pending()).length, 0);
   await page.close();
@@ -291,7 +298,7 @@ test("bridge offline: Send falls back to clipboard, no pin, then recovers when b
   await clearAll();
   await stopDaemon();
   const page = await openPage("/");
-  const status = await annotate(page, page.locator("h1"), "offline change");
+  const status = await annotate(page, page.locator("h1"), "offline change", { sent: false });
   assert.match(status, /Bridge offline/);
   const clip = await page.evaluate(() => navigator.clipboard.readText());
   assert.match(clip, /offline change/);
@@ -579,7 +586,9 @@ test("Bug 6: navigating immediately after Send still keeps the annotation", asyn
   // leave at once — before any screenshot could finish
   await page.goto(url("/plain.html"));
   await page.waitForFunction(() => !!document.querySelector("pinpoint-root"));
-  const items = await pending();
+  // The worker posts it after the page has gone; a slow runner can load the next page first.
+  let items = [];
+  for (let i = 0; i < 100 && !items.length; i++) { items = await pending(); if (!items.length) await new Promise((r) => setTimeout(r, 100)); }
   assert.equal(items.length, 1, "the comment survived the navigation");
   assert.equal(items[0].comment, "typed then fled");
   assert.equal(items[0].element.selector, "#get-started");
@@ -642,13 +651,16 @@ test("popup shows which page each annotation belongs to and confirms before clea
   await popup.waitForFunction(() => document.querySelectorAll("#list li").length === 2);
   const urls = await popup.evaluate(() => [...document.querySelectorAll("#list li .u")].map((u) => u.textContent));
   assert.ok(urls.some((u) => u.endsWith("/plain.html")), `got ${JSON.stringify(urls)}`);
-  // clearing asks first; declining keeps everything
-  popup.once("dialog", (d) => d.dismiss());
+  // clearing asks first; declining keeps everything. The confirm comes after a round trip to the
+  // worker, so wait for it: on a slow runner a fixed 300ms ended before it was even asked, and the
+  // decline then answered the second confirm too.
+  let asked = popup.waitForEvent("dialog");
   await popup.locator("#clear").click();
-  await popup.waitForTimeout(300);
+  await (await asked).dismiss();
   assert.equal((await pending()).length, 2, "declining the confirm keeps the annotations");
-  popup.once("dialog", (d) => d.accept());
+  asked = popup.waitForEvent("dialog");
   await popup.locator("#clear").click();
+  await (await asked).accept();
   await popup.waitForFunction(() => document.querySelectorAll("#list li").length === 0);
   assert.equal((await pending()).length, 0);
   await popup.close(); await other.close(); await page.close();

@@ -1912,6 +1912,7 @@
       if (!res || res.error) { showOverlay(); throw new Error(res?.error || "no response"); }
       addPin({ id: a.id, number: res.number || pins.length + 1, selector: a.element.selector, comment, el, fp: a.element.fingerprint, region, fresh: true,
                status: draft ? "draft" : "pending", kind: a.kind || null, steps: steps?.length || 0 });
+      pinsChangedHere();
       setStatus(draft ? "Saved as a draft" : "Sent ✓", "ok");
       lastWasDraft = draft;
       // The overlay stays hidden until the worker has taken its picture ("captureDone"), which
@@ -2088,6 +2089,7 @@
     if (i >= 0) {
       pins[i].node.remove();
       pins.splice(i, 1);
+      pinsChangedHere();
       paintDock();
       if (ui.panel.style.display === "flex") renderPanel();
     }
@@ -2114,9 +2116,18 @@
   }
 
   // Re-render pending pins for this page on load (they live in the bridge, not the page).
+  // Loads overlap (a focus, a visibility change and the worker's "reloadPins" can all land at once),
+  // and a note can be sent or removed here while one is on its way. An answer that is older than
+  // either must not repaint: it wiped the pin of a note sent a moment after the page opened.
+  let pinLoads = 0, pinsLoading = false;
+  const pinsChangedHere = () => { if (pinsLoading) loadPins(); };
   async function loadPins() {
+    const seq = ++pinLoads;
+    pinsLoading = true;
     try {
       const res = await chrome.runtime.sendMessage({ type: "list", status: "open", url: location.href.split("#")[0] });
+      if (seq !== pinLoads) return;
+      pinsLoading = false;
       if (!res || !res.annotations) return;
       pins.forEach((p) => p.node.remove());
       pins = [];
@@ -2129,7 +2140,7 @@
       await loadReplies();
       paintDock();
       if (ui.panel.style.display === "flex") renderPanel();
-    } catch {}
+    } catch { if (seq === pinLoads) pinsLoading = false; }
   }
 
   // What the agent has already finished on this page, newest first.
