@@ -305,7 +305,11 @@ async function tabState(tab, expectedUrl) {
   try {
     const t = await api.tabs.get(tab.id);
     if (!t) return "gone";
-    if ((t.url || "").split("#")[0] !== (expectedUrl || "").split("#")[0]) return "navigated";
+    const want = (expectedUrl || "").split("#")[0];
+    if ((t.url || "").split("#")[0] !== want) return "navigated";
+    // Leaving, not yet gone (Chrome's pendingUrl): the next page can land mid-capture. Whether the
+    // picture came out right depended on how fast the machine was; now leaving always skips it.
+    if (t.pendingUrl && t.pendingUrl.split("#")[0] !== want) return "navigated";
     return t.active ? "ready" : "hidden";
   } catch {
     return "gone";
@@ -697,7 +701,7 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       // A content script that handled the shortcut itself asks us to mirror it into sibling frames.
       case "mirrorPicking": {
         if (sender.tab?.id) {
-          api.tabs.sendMessage(sender.tab.id, { type: "setPicking", picking: msg.picking, from: sender.frameId ?? 0 }).catch(() => {});
+          api.tabs.sendMessage(sender.tab.id, { type: "setPicking", picking: msg.picking, from: sender.frameId ?? 0, src: msg.src }).catch(() => {});
         }
         return { ok: true };
       }

@@ -1,5 +1,5 @@
 // Browser scenario suite. Run: node --test e2e.test.mjs   (spawns its own bridge on port 7399)
-import { test, before, after } from "node:test";
+import { test as nodeTest, before, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
 import { spawn } from "node:child_process";
@@ -10,6 +10,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "../bridge/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js";
 import { StreamableHTTPClientTransport } from "../bridge/node_modules/@modelcontextprotocol/sdk/dist/esm/client/streamableHttp.js";
+
+// Three minutes for any one test: a page that never answers fails its own test instead of hanging
+// the job until GitHub cancels it. (--test-timeout would also time the whole file as one test.)
+const test = (name, opts, fn) => (typeof opts === "function" ? nodeTest(name, { timeout: 180000 }, opts) : nodeTest(name, { timeout: 180000, ...opts }, fn));
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const EXT = path.resolve(here, "../extension");
@@ -49,7 +53,16 @@ async function startDaemon() {
   for (let i = 0; i < 50; i++) { try { await fetch(BASE + "/health"); return; } catch { await new Promise((r) => setTimeout(r, 100)); } }
   throw new Error("daemon did not start");
 }
-async function stopDaemon() { if (!daemon) return; daemon.kill(); await new Promise((r) => daemon.once("exit", r)); daemon = null; }
+// A daemon that already exited never fires "exit" again: waiting on it hung the suite until the job
+// timeout. SIGKILL if it has not gone in 5s.
+async function stopDaemon() {
+  const d = daemon; daemon = null;
+  if (!d || d.exitCode !== null || d.signalCode !== null) return;
+  const gone = new Promise((r) => d.once("exit", r));
+  d.kill();
+  const t = setTimeout(() => d.kill("SIGKILL"), 5000);
+  await gone; clearTimeout(t);
+}
 
 async function launch(extra = {}) {
   const c = await chromium.launchPersistentContext("", {
@@ -146,12 +159,15 @@ async function openPage(p) {
 }
 async function arm(page) {
   if (!(await S(page)).picking) await page.keyboard.press("Alt+Shift+A");
-  await page.waitForFunction(() => document.documentElement.classList.contains("pinpoint-picking"));
+  // Every frame, not just the top: an iframe hears "picking on" a worker round trip later, and on a
+  // slow runner a click sent the moment the top frame armed landed in a frame that wasn't picking yet.
+  await Promise.all(page.frames().filter((f) => /^https?:/.test(f.url())).map((f) =>
+    f.waitForFunction(() => document.documentElement.classList.contains("pinpoint-picking"))));
 }
 async function disarm(page) {
   if ((await S(page)).picking) await page.keyboard.press("Escape");
 }
-async function annotate(page, locator, comment, { submit = "click" } = {}) {
+async function annotate(page, locator, comment, { submit = "click", sent = true } = {}) {
   await arm(page);
   await locator.hover();
   await locator.click();
@@ -160,7 +176,13 @@ async function annotate(page, locator, comment, { submit = "click" } = {}) {
   if (submit === "click") await inShadow(page, () => __pinpointShadow.querySelector(".send").click());
   else await page.keyboard.press(submit);
   await waitShadow(page, () => /Sent|offline|Failed|first/.test(__pinpointShadow.querySelector(".pop .status").textContent), null, { timeout: 15000 });
-  return (await S(page)).status;
+  const { status } = await S(page);
+  // Say why here: a test that goes on to look for the pin only reports a missing node.
+  if (sent) assert.match(status, /Sent/, `the note was not sent: ${status}`);
+  // A sent note brings picking back once the worker has taken its crop, which on a slow runner was
+  // after disarm() had looked and found nothing to stop — the test's next click got picked instead.
+  if (/Sent/.test(status)) await page.waitForFunction(() => document.documentElement.classList.contains("pinpoint-picking"), null, { timeout: 15000 });
+  return status;
 }
 // The popover focuses its textarea a tick after it opens; Playwright types faster than any person,
 // so wait for focus first or the first characters go to the page.
@@ -187,7 +209,15 @@ before(async () => {
   await startDaemon();
   ({ c: ctx, id: extId } = await launch());
 });
-after(async () => { await ctx?.close(); await stopDaemon(); site.close(); fs.rmSync(HOME, { recursive: true, force: true, maxRetries: 10 }); });
+after(async () => { await ctx?.close(); await stopDaemon(); site.close(); fs.rmSync(HOME, { recursive: true, force: true, maxRetries: 10 }); }, { timeout: 60000 });
+// Every test shares one browser and one bridge. A test that fails half-way used to leave its tabs,
+// an unsent draft, a stopped bridge or a changed port behind, and every test after it failed too —
+// on a slow runner one timeout became twenty. Put the shared state back whatever happened.
+afterEach(async () => {
+  for (const p of ctx.pages()) await p.close().catch(() => {});
+  if (!daemon) { try { await fetch(BASE + "/health"); } catch { await startDaemon(); } }
+  await ctx.serviceWorkers()[0]?.evaluate((port) => chrome.storage.sync.set({ port }), PORT).catch(() => {});
+}, { timeout: 60000 });
 
 test("Esc cancels picking; highlight hidden; Esc/Cancel close popover without sending", async () => {
   await clearAll();
@@ -210,7 +240,7 @@ test("Esc cancels picking; highlight hidden; Esc/Cancel close popover without se
   let s = await S(page);
   assert.equal(s.picking, false); assert.equal(s.hl, "none");
   await arm(page); await page.locator("h1").click();
-  assert.equal((await S(page)).popOpen, true);
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pop").style.display === "block", null, { timeout: 5000 });
   await page.keyboard.press("Escape");
   assert.equal((await S(page)).popOpen, false);
   await arm(page); await page.locator("h1").click();
@@ -227,7 +257,7 @@ test("Esc cancels picking; highlight hidden; Esc/Cancel close popover without se
 
 test("empty comment is rejected and nothing is posted", async () => {
   const page = await openPage("/");
-  const status = await annotate(page, page.locator("h1"), "");
+  const status = await annotate(page, page.locator("h1"), "", { sent: false });
   assert.match(status, /Write a comment first/);
   assert.equal((await pending()).length, 0);
   await page.close();
@@ -274,7 +304,7 @@ test("bridge offline: Send falls back to clipboard, no pin, then recovers when b
   await clearAll();
   await stopDaemon();
   const page = await openPage("/");
-  const status = await annotate(page, page.locator("h1"), "offline change");
+  const status = await annotate(page, page.locator("h1"), "offline change", { sent: false });
   assert.match(status, /Bridge offline/);
   const clip = await page.evaluate(() => navigator.clipboard.readText());
   assert.match(clip, /offline change/);
@@ -467,15 +497,16 @@ test("selector property test: every element on a 2000-node stress page resolves 
 test("DPR 2 context: crop is device-pixel sized", async () => {
   await clearAll();
   const { c } = await launch({ deviceScaleFactor: 2 });
-  const page = await c.newPage();
-  await page.goto(url("/")); await page.waitForFunction(() => !!document.querySelector("pinpoint-root"));
-  const status = await annotate(page, page.locator("#get-started"), "retina");
-  assert.match(status, /Sent/);
-  const [a] = await pendingWithShots(1);
-  assert.equal(a.page.viewport.dpr, 2);
-  const expectedW = (a.element.rect.width + 16) * 2;
-  assert.ok(Math.abs(a.screenshot.width - expectedW) <= 4, `crop ${a.screenshot.width} ≈ ${expectedW}`);
-  await c.close();
+  try {
+    const page = await c.newPage();
+    await page.goto(url("/")); await page.waitForFunction(() => !!document.querySelector("pinpoint-root"));
+    const status = await annotate(page, page.locator("#get-started"), "retina");
+    assert.match(status, /Sent/);
+    const [a] = await pendingWithShots(1);
+    assert.equal(a.page.viewport.dpr, 2);
+    const expectedW = (a.element.rect.width + 16) * 2;
+    assert.ok(Math.abs(a.screenshot.width - expectedW) <= 4, `crop ${a.screenshot.width} ≈ ${expectedW}`);
+  } finally { await c.close(); }
 });
 
 test("heavy DOM churn while pins exist does not throw and keeps pins positioned", async () => {
@@ -561,7 +592,9 @@ test("Bug 6: navigating immediately after Send still keeps the annotation", asyn
   // leave at once — before any screenshot could finish
   await page.goto(url("/plain.html"));
   await page.waitForFunction(() => !!document.querySelector("pinpoint-root"));
-  const items = await pending();
+  // The worker posts it after the page has gone; a slow runner can load the next page first.
+  let items = [];
+  for (let i = 0; i < 100 && !items.length; i++) { items = await pending(); if (!items.length) await new Promise((r) => setTimeout(r, 100)); }
   assert.equal(items.length, 1, "the comment survived the navigation");
   assert.equal(items[0].comment, "typed then fled");
   assert.equal(items[0].element.selector, "#get-started");
@@ -624,13 +657,18 @@ test("popup shows which page each annotation belongs to and confirms before clea
   await popup.waitForFunction(() => document.querySelectorAll("#list li").length === 2);
   const urls = await popup.evaluate(() => [...document.querySelectorAll("#list li .u")].map((u) => u.textContent));
   assert.ok(urls.some((u) => u.endsWith("/plain.html")), `got ${JSON.stringify(urls)}`);
-  // clearing asks first; declining keeps everything
-  popup.once("dialog", (d) => d.dismiss());
+  // clearing asks first; declining keeps everything. The confirm comes after a round trip to the
+  // worker, so wait for it: on a slow runner a fixed 300ms ended before it was even asked, and the
+  // decline then answered the second confirm too.
+  // (Answered from the listener: until it is, the dialog blocks the click from returning.)
+  const answer = (how) => new Promise((r) => popup.once("dialog", (d) => r(d[how]())));
+  let answered = answer("dismiss");
   await popup.locator("#clear").click();
-  await popup.waitForTimeout(300);
+  await answered;
   assert.equal((await pending()).length, 2, "declining the confirm keeps the annotations");
-  popup.once("dialog", (d) => d.accept());
+  answered = answer("accept");
   await popup.locator("#clear").click();
+  await answered;
   await popup.waitForFunction(() => document.querySelectorAll("#list li").length === 0);
   assert.equal((await pending()).length, 0);
   await popup.close(); await other.close(); await page.close();
@@ -639,18 +677,19 @@ test("popup shows which page each annotation belongs to and confirms before clea
 test("popup refuses to show green for a foreign server on the bridge port (Bug 5)", async () => {
   const foreign = http.createServer((_q, r) => { r.writeHead(200, { "content-type": "application/json" }); r.end('{"ok":true}'); });
   await new Promise((r) => foreign.listen(PORT - 2, "127.0.0.1", r));
-  const popup = await ctx.newPage();
-  await popup.goto(`chrome-extension://${extId}/popup.html`);
-  await popup.locator("#port").fill(String(PORT - 2));
-  await popup.locator("#port").dispatchEvent("change");
-  await popup.waitForFunction(() => /offline/.test(document.querySelector("#status").textContent), null, { timeout: 5000 });
-  assert.equal(await popup.locator("#dot").getAttribute("class"), "dot off");
-  assert.match(await popup.locator("#hint").textContent(), /taken by something else/);
-  await popup.locator("#port").fill(String(PORT));
-  await popup.locator("#port").dispatchEvent("change");
-  await popup.waitForFunction(() => /bridge on/.test(document.querySelector("#status").textContent));
-  await popup.close();
-  await new Promise((r) => foreign.close(r));
+  try {
+    const popup = await ctx.newPage();
+    await popup.goto(`chrome-extension://${extId}/popup.html`);
+    await popup.locator("#port").fill(String(PORT - 2));
+    await popup.locator("#port").dispatchEvent("change");
+    await popup.waitForFunction(() => /offline/.test(document.querySelector("#status").textContent), null, { timeout: 5000 });
+    assert.equal(await popup.locator("#dot").getAttribute("class"), "dot off");
+    assert.match(await popup.locator("#hint").textContent(), /taken by something else/);
+    await popup.locator("#port").fill(String(PORT));
+    await popup.locator("#port").dispatchEvent("change");
+    await popup.waitForFunction(() => /bridge on/.test(document.querySelector("#status").textContent));
+    await popup.close();
+  } finally { foreign.closeAllConnections(); await new Promise((r) => foreign.close(r)); }
 });
 
 test("popup no longer advertises a command that does not exist (Bug 4)", async () => {
@@ -1930,20 +1969,23 @@ test("S7: re-checking a note made inside an iframe looks in that iframe", async 
 // ============ 0.6.0 batch 3: fewer clicks ============
 // A real click at the element's centre — once it is laid out and holding still. The bar takes its
 // corner from an async storage read and can jump there after we measure; on a slow runner (macOS CI)
-// the click then lands on the page instead.
+// the click then lands on the page instead. Cards also slide in (`rise`), and on a starved CPU two
+// samples 50ms apart can agree mid-slide, so wait for our own finite animations to end as well.
+const settledRect = (page, sel) => inShadow(page, async (s) => {
+  const at = () => { const r = __pinpointShadow.querySelector(s).getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };
+  const moving = () => __pinpointShadow.getAnimations().some((a) => a.playState === "running" && a.effect?.getComputedTiming().endTime !== Infinity);
+  let prev = at();
+  for (let i = 0; i < 100; i++) {
+    await new Promise((r) => setTimeout(r, 50));
+    const now = at();
+    if (now.width > 0 && now.x === prev.x && now.y === prev.y && !moving()) return now;
+    prev = now;
+  }
+  return prev;
+}, sel);
 const tapShadow = async (page, sel) => {
-  const b = await inShadow(page, async (s) => {
-    const at = () => { const r = __pinpointShadow.querySelector(s).getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width }; };
-    let prev = at();
-    for (let i = 0; i < 40; i++) {
-      await new Promise((r) => setTimeout(r, 50));
-      const now = at();
-      if (now.w > 0 && now.x === prev.x && now.y === prev.y) return now;
-      prev = now;
-    }
-    return prev;
-  }, sel);
-  await page.mouse.click(b.x, b.y);
+  const r = await settledRect(page, sel);
+  await page.mouse.click(r.x + r.width / 2, r.y + r.height / 2);
 };
 const SEND = process.platform === "darwin" ? "Meta+Enter" : "Control+Enter";
 
@@ -2022,7 +2064,9 @@ test("U3: an element can be picked and annotated with the keyboard alone", async
 test("U4: closing the comment box puts focus back where it was", async () => {
   await clearAll();
   const page = await openPage("/");
-  await page.keyboard.press("Alt+Shift+A");
+  // Picking must be on before the Tabs: focus that arrives earlier is not followed, and Enter on a
+  // page that is not picking yet just presses the button.
+  await arm(page);
   for (let i = 0; i < 20; i++) {
     if (await page.evaluate(() => document.activeElement?.id === "get-started")) break;
     await page.keyboard.press("Tab");
@@ -2264,8 +2308,8 @@ test("V3: the done card stays while the pointer is on it", async () => {
   await disarm(page);
   await resolveVia(a.id, "done");
   await waitShadow(page, () => __pinpointShadow.querySelector(".toast .ok")?.offsetParent, null, { timeout: 8000 });
-  const b = await inShadow(page, () => { const r = __pinpointShadow.querySelector(".toast .tm").getBoundingClientRect(); return { x: r.x + 4, y: r.y + r.height / 2 }; });
-  await page.mouse.move(b.x, b.y);
+  const r = await settledRect(page, ".toast .tm");
+  await page.mouse.move(r.x + 4, r.y + r.height / 2);
   await page.waitForTimeout(11000);
   assert.equal(await inShadow(page, () => __pinpointShadow.querySelector(".toast").style.display), "flex", "hovering holds it open");
   await page.mouse.move(5, 5);

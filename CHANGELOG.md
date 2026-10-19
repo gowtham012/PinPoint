@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Picker races on slow machines.** A frame no longer takes back its own mirrored picking state, so
+  picking stops coming back over the comment box; an answer older than a note just sent no longer wipes
+  its pin; and a capture skips a tab that is navigating away. The browser tests wait for every frame to
+  be picking and for the worker, and one failure no longer cascades, so macOS CI now blocks like Ubuntu.
+
 ## [0.7.0] — 2026-10-18
 
 ### Added

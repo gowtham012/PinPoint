@@ -13,10 +13,9 @@ on:
       macos-blocking:
         description: Fail the run when macOS fails
         type: boolean
-        default: false
-  # The release workflow runs the same suite before it publishes anything. Its gate is ubuntu:
-  # macOS and Windows run and report, but block only once macos-blocking / windows-blocking is true.
-  # ponytail: macOS stays advisory until its browser suite stops flaking; then default it to true.
+        default: true
+  # The release workflow runs the same suite before it publishes anything. Ubuntu and macOS gate it;
+  # Windows runs and reports, and blocks only when windows-blocking is true.
   workflow_call:
     inputs:
       windows-blocking:
@@ -24,7 +23,7 @@ on:
         default: false
       macos-blocking:
         type: boolean
-        default: false
+        default: true
 
 jobs:
   test:
@@ -34,7 +33,8 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
-    continue-on-error: ${{ (matrix.os == 'windows-latest' && !inputs.windows-blocking) || (matrix.os == 'macos-latest' && !inputs.macos-blocking) }}
+    # push and pull_request carry no inputs, so macOS is advisory only when a caller passes false.
+    continue-on-error: ${{ (matrix.os == 'windows-latest' && !inputs.windows-blocking) || (matrix.os == 'macos-latest' && format('{0}', inputs.macos-blocking) == 'false') }}
     # bash on Windows too (Git Bash), so the glob quoting and the scripts are the same everywhere.
     defaults:
       run:
@@ -65,8 +65,11 @@ jobs:
         run: node --test --test-reporter=spec --test-concurrency=1 '!(e2e*).test.mjs'
 
       # Loads the unpacked extension into a real headless Chromium and drives real pages.
+      # A test that hangs fails on its own after 3 minutes (see e2e.test.mjs); this step stops well
+      # before the job's 30, so a stuck browser reads as a failed step, not a cancelled run.
       - name: Browser tests
         working-directory: test
+        timeout-minutes: 20
         run: node --test --test-reporter=spec --test-concurrency=1 'e2e*.test.mjs'
 
       # The Firefox package AMO will review. Once is enough, and it needs zip/unzip.
