@@ -125,8 +125,9 @@ export const shadowPoint = (page, sel) => inShadow(page, async (s) => {
 }, sel);
 
 // ---------- our overlay: a caption bar ----------
-export const caption = (page, text, tone = "") =>
-  page.evaluate(([t, tone]) => {
+// `top`: a pill under the page's header instead of a bar along the bottom.
+export const caption = (page, text, tone = "", top = false) =>
+  page.evaluate(([t, tone, top]) => {
     let el = document.getElementById("__demo_caption");
     if (!el) {
       el = document.createElement("div");
@@ -134,8 +135,9 @@ export const caption = (page, text, tone = "") =>
       el.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:2147483646;padding:14px 20px;pointer-events:none;" +
         "font:15px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:#14181f;color:#e8eaee";
       document.documentElement.appendChild(el);
+      if (top) el.style.cssText += ";left:50%;right:auto;bottom:auto;top:78px;transform:translateX(-50%);border-radius:999px;padding:10px 22px;white-space:nowrap;box-shadow:0 10px 30px rgba(0,0,0,.25)";
     }
     el.style.display = t ? "block" : "none";
     el.style.color = tone === "good" ? "#7ee2a8" : tone === "bad" ? "#ffb4ab" : "#e8eaee";
     el.textContent = t;
-  }, [text, tone]);
+  }, [text, tone, top]);
