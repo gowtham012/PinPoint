@@ -26,8 +26,14 @@ function shortUrl(u) {
 
 // keepHint: a button just explained what went wrong; the refresh after it must not replace that with
 // the generic "start it in a terminal" line before anyone has read it.
+// Refreshes overlap: the one from opening the popup can still be waiting on the bridge when a port
+// change or a Clear starts another. Only the newest may paint, or a stale answer lands last and the
+// popup shows the old port's green dot, or notes that were just cleared.
+let refreshes = 0;
 async function refresh({ keepHint = false } = {}) {
+  const gen = ++refreshes;
   const where = await send({ type: "canRun" });
+  if (gen !== refreshes) return;
   const pick = $("#pick");
   if (where && !where.local) {
     // Not a local dev page. Say so plainly rather than failing when the button is pressed.
@@ -53,6 +59,7 @@ async function refresh({ keepHint = false } = {}) {
   // Chrome grants these at install, so there the button never shows; Safari may have no API.
   api.permissions?.contains({ origins: LOCAL }).then((ok) => { $("#grant").hidden = ok; }, () => {});
   const h = await send({ type: "health" });
+  if (gen !== refreshes) return;
   const needsToken = h.code === "token";
   $("#dot").className = "dot " + (h.ok ? "on" : "off");
   $("#status").textContent = h.ok ? `bridge on :${h.port}${h.project ? " · " + h.project.split("/").pop() : ""}` : needsToken ? "bridge needs its token" : "bridge offline";
@@ -75,6 +82,7 @@ async function refresh({ keepHint = false } = {}) {
       : `Or start it in a terminal: <code>node ${esc(cliPath || "<pinpoint>/bridge/cli.js")} --project &lt;your repo&gt;</code>`;
 
   const res = h.ok ? await send({ type: "list" }) : null;
+  if (gen !== refreshes) return;
   const list = $("#list");
   list.innerHTML = "";
   const items = res?.annotations || [];

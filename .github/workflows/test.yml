@@ -62,12 +62,15 @@ jobs:
       # non-browser test file (any *.test.mjs not starting with e2e).
       - name: Bridge and MCP tests
         working-directory: test
-        run: node --test --test-reporter=spec --test-concurrency=1 '!(e2e*).test.mjs'
+        run: node --test --test-reporter=spec --test-concurrency=1 --test-timeout=180000 '!(e2e*).test.mjs'
 
       # Loads the unpacked extension into a real headless Chromium and drives real pages.
+      # A test that hangs fails on its own after 3 minutes (--test-timeout); this step stops well
+      # before the job's 30, so a stuck browser reads as a failed step, not a cancelled run.
       - name: Browser tests
         working-directory: test
-        run: node --test --test-reporter=spec --test-concurrency=1 'e2e*.test.mjs'
+        timeout-minutes: 20
+        run: node --test --test-reporter=spec --test-concurrency=1 --test-timeout=180000 'e2e*.test.mjs'
 
       # The Firefox package AMO will review. Once is enough, and it needs zip/unzip.
       - name: Firefox package lint
