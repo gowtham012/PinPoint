@@ -103,6 +103,8 @@
   .film { margin-top: 56px; border-radius: 14px; overflow: hidden; background: var(--ink-2); box-shadow: 0 0 0 1px var(--rule), 0 30px 80px rgba(0,0,0,.35); aspect-ratio: 1280 / 800; }
   .film video { display: block; width: 100%; height: 100%; }
   .film-cap { margin-top: 12px; font-size: 14px; color: var(--fg-2); }
+  .sec > .side { grid-column: 2; }
+  .sec > .film.side { margin: 16px 0 0; }
 
   /* ---------- sections: heading in the margin, content beside it ---------- */
   section { border-top: 1px solid var(--rule); padding: 72px 0; }
@@ -162,6 +164,7 @@
     .sec > h2 { position: static; }
     .steps, .with { grid-template-columns: 1fr; }
     .feats { grid-template-columns: 1fr; }
+    .sec > .side { grid-column: auto; }
     .carry li { grid-template-columns: 1fr; gap: 2px; }
     section { padding: 56px 0; }
   }
@@ -255,6 +258,11 @@
         <div><dt>Drafts and whole-page notes</dt><dd>Mark several things and send them together, or say something about the page itself.</dd></div>
         <div><dt>Native apps too</dt><dd>The same pick-and-comment on the iOS Simulator and the Android emulator.</dd></div>
       </dl>
+      <figure class="film side">
+        <video src="demo-ios.mp4" poster="demo-ios.jpg" autoplay muted loop playsinline controls preload="metadata"
+               aria-label="Recording: in the iOS Simulator picker, elements are hovered to show their accessibility identifiers, the Book this trip button is picked and a comment sent, a numbered pin appears, the agent's copy of the note is shown, and after the agent resolves it the pin is gone on refresh"></video>
+      </figure>
+      <p class="film-cap side">The same on a native app: the iOS Simulator picker, recorded from the bridge's <code>/ios</code> page.</p>
     </div>
   </section>
 
@@ -322,7 +330,7 @@
   }
   // Respect reduced motion for the film too: show the first frame, let people press play.
   if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    const v = document.querySelector("video"); v.removeAttribute("autoplay"); v.pause();
+    for (const v of document.querySelectorAll("video")) { v.removeAttribute("autoplay"); v.pause(); }
   }
 </script>
 </body>
