@@ -9,8 +9,11 @@ Links to use everywhere:
 - npm: https://www.npmjs.com/package/pinpoint-bridge
 - Demo video: `docs/demo.mp4` (upload it to YouTube for the store listings; title and description below)
 
-Before posting: the install commands below still work from a clean machine, every store link in the
-README opens, PRIVACY.md matches the build you are pointing people at, and the issue tracker has a
+Store status: the Chrome Web Store, Edge Add-ons and addons.mozilla.org listings are in review and
+not live, and Safari is built locally with Xcode. None of the drafts below link a store or say
+"install from the store"; add store links only once a listing actually opens.
+
+Before posting: the install commands below still work from a clean machine, PRIVACY.md matches the build you are pointing people at, and the issue tracker has a
 couple of labels (`bug`, `browser`, `agent`) so first reports land somewhere.
 
 ---
@@ -72,8 +75,8 @@ couple of labels (`bug`, `browser`, `agent`) so first reports land somewhere.
 **Text:**
 
 > I kept losing time telling coding agents which element I meant. A screenshot shows the pixels but
-> not the code behind them, so the agent greps for a class name and edits the wrong button about a
-> third of the time.
+> not the code behind them, so the agent greps for a class name and too often edits the wrong
+> button.
 >
 > Pinpoint is a browser extension plus a small local bridge. On your local dev site you press
 > Alt+Shift+A, click an element (or drag a box around several) and type what should change. The note
@@ -86,7 +89,8 @@ couple of labels (`bug`, `browser`, `agent`) so first reports land somewhere.
 > The same picker works on the iOS Simulator (through the accessibility tree) and the Android
 > emulator (adb, uiautomator).
 >
-> All of it is open source under MIT: the extension (Chrome, Edge, Firefox, Safari), the bridge
+> All of it is open source under MIT: the extension (Chrome, Edge and Firefox load it from the repo
+> while the store listings are in review; Safari builds with Xcode), the bridge
 > and MCP server (`npx -y pinpoint-bridge`), and the test suite that drives the real extension in
 > headless Chromium. Nothing leaves your machine except to the agent you connect, and the extension
 > needs a token only the bridge has.
@@ -109,8 +113,8 @@ couple of labels (`bug`, `browser`, `agent`) so first reports land somewhere.
 3. It's a conversation. The agent can ask back ("bigger, or a stronger colour?") and you answer on
    the page. When it's done: its reply, a before/after crop, Accept or Not quite.
 
-4. Works with Claude Code, Cursor, Codex and any MCP client. Chrome, Edge, Firefox, Safari. Also the
-   iOS Simulator and the Android emulator.
+4. Works with Claude Code, Cursor, Codex and any MCP client. Chrome, Edge, Firefox, Safari (from
+   the repo for now, store listings are in review). Also the iOS Simulator and the Android emulator.
 
 5. Runs on your machine (bridge on 127.0.0.1), MIT licensed.
    git clone https://github.com/gowtham012/PinPoint pinpoint && node pinpoint/bridge/cli.js setup
@@ -142,7 +146,7 @@ couple of labels (`bug`, `browser`, `agent`) so first reports land somewhere.
 
 ## YouTube (for the store listings)
 
-**Title:** Pinpoint: point at your app, your coding agent gets it (45-second demo)
+**Title:** Pinpoint: point at your app, your coding agent gets it (42-second demo)
 
 **Description:**
 
