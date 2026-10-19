@@ -293,6 +293,10 @@ guesses.
 A native app has no DOM, so this path reads the **accessibility tree**. It works for SwiftUI, UIKit,
 React Native and Flutter apps, with nothing added to your app.
 
+<img src="docs/demo-ios.gif" alt="The iOS Simulator picker: hovering elements shows their accessibility identifiers, the Book this trip button is picked and a note sent, a numbered pin appears, and the pin is gone once the agent resolves it" width="760">
+
+<sub>Hover, click, say what should change; your agent gets the identifier, tree path, frame and a crop. · <a href="docs/demo-ios.mp4">full-speed video</a></sub>
+
 <table>
 <tr>
 <td width="50%"><img src="docs/images/ios-comment.png" alt="The iOS Simulator picker: the Book this trip button highlighted in the Trailhead demo app, with a note being typed"></td>
