@@ -896,7 +896,7 @@
     if (picking || recording) { clearTimeout(miniTimer); ui.dock.classList.remove("mini"); }
     else if (!ui.dock.classList.contains("mini")) expandDock();
     // While armed the Stop button carries the Esc affordance, so the hint just names the action.
-    ui.dockHint.innerHTML = picking ? `Click any element` : `<kbd>${MAC ? "\u2325\u21e7A" : "Alt+Shift+A"}</kbd>`;
+    ui.dockHint.replaceChildren(picking ? "Click any element" : elt("kbd", null, MAC ? "\u2325\u21e7A" : "Alt+Shift+A"));
     // The counter is the ONLY way into the notes panel. Hiding it at zero pending meant that the
     // moment an agent finished everything, its replies became unreachable — the note looked simply
     // deleted. Keep the door open while there is anything to read.
@@ -1090,10 +1090,10 @@
       x.addEventListener("click", (e) => { e.stopPropagation(); deleteNote(p.id); });
       li.querySelector(".n").textContent = p.number;
       li.querySelector(".c").textContent = p.comment;
-      li.querySelector(".s").innerHTML = p.kind === "page" ? "the whole page"
+      li.querySelector(".s").replaceChildren(p.kind === "page" ? "the whole page"
         : p.kind === "flow" ? `a recorded flow · ${Number(p.steps) || 0} steps`
-        : p.node.dataset.orphan === "1" ? `<span class="warn">not on this view</span>`
-        : escapeHtml(p.selector);
+        : p.node.dataset.orphan === "1" ? elt("span", { class: "warn" }, "not on this view")
+        : p.selector);
       appendThread(li.querySelector(".body"), p.thread);
       // The agent asked: the answer box is right here.
       if (p.status === "waiting") li.querySelector(".body").appendChild(answerForm(p.id, "Your answer", "Answer"));
@@ -1625,27 +1625,26 @@
   // repaint it without wiping whatever you have already typed.
   function paintMeta(el, region) {
     const hint = sourceHint(el);
-    const comp = hint.components[0] ? `<b>&lt;${hint.components[0]}&gt;</b> ` : "";
+    const comp = hint.components[0] ? [elt("b", null, `<${hint.components[0]}>`), " "] : [];
     const file = hint.file ? ` · ${hint.file}${hint.line ? ":" + hint.line : ""}` : "";
     if (flowSteps) {
-      ui.meta.innerHTML = `<div class="row"><b>Recorded flow</b>${flowSteps.length} step${flowSteps.length === 1 ? "" : "s"}</div><ol class="steps"></ol>`;
+      ui.meta.replaceChildren(elt("div", { class: "row" }, elt("b", null, "Recorded flow"), `${flowSteps.length} step${flowSteps.length === 1 ? "" : "s"}`), elt("ol", { class: "steps" }));
       const ol = ui.meta.querySelector(".steps");
       for (const st of flowSteps) { const li = document.createElement("li"); li.textContent = st.describe + (st.text ? ` “${st.text}”` : ""); ol.appendChild(li); }
       ui.scope.style.display = "none";
       return;
     }
     if (selectedPage) {
-      ui.meta.innerHTML = `<div class="row"><b>This page</b>${escapeHtml(clip(document.title || location.pathname, 60))}</div>` +
-        `<div class="picked">A note about the whole page — the screenshot is what is on screen now</div>`;
+      ui.meta.replaceChildren(elt("div", { class: "row" }, elt("b", null, "This page"), clip(document.title || location.pathname, 60)),
+        elt("div", { class: "picked" }, "A note about the whole page — the screenshot is what is on screen now"));
       ui.scope.style.display = "none";
       return;
     }
     const label = clip(el.innerText || el.getAttribute("aria-label") || el.getAttribute("placeholder") || "", 46);
-    ui.meta.innerHTML = region
-      ? `<div class="row"><b>Region</b> ${region.width}×${region.height} in ${escapeHtml(describe(el))}${escapeHtml(file)}</div>` +
-        `<div class="picked">${region.contains.length} element${region.contains.length === 1 ? "" : "s"} inside</div>`
-      : `<div class="row">${comp}${escapeHtml(describe(el))}${escapeHtml(file)}</div>` +
-        (label ? `<div class="picked">“${escapeHtml(label)}”</div>` : "");
+    ui.meta.replaceChildren(...(region
+      ? [elt("div", { class: "row" }, elt("b", null, "Region"), ` ${region.width}×${region.height} in ${describe(el)}${file}`),
+         elt("div", { class: "picked" }, `${region.contains.length} element${region.contains.length === 1 ? "" : "s"} inside`)]
+      : [elt("div", { class: "row" }, ...comp, describe(el) + file), label && elt("div", { class: "picked" }, `“${label}”`)]).filter(Boolean));
     const many = pickChain.length > 1;
     ui.scope.style.display = many ? "flex" : "none";
     ui.narrower.disabled = pickIndex <= 0;
@@ -2089,7 +2088,7 @@
   let tipTimer = 0;
   function showTip(p, node) {
     clearTimeout(tipTimer);
-    ui.tip.innerHTML = `<div><span class="num">#${p.number}</span> ${escapeHtml(p.comment)}</div><button class="del">Remove this note</button>`;
+    ui.tip.replaceChildren(elt("div", null, elt("span", { class: "num" }, `#${p.number}`), " " + p.comment), elt("button", { class: "del" }, "Remove this note"));
     ui.tip.querySelector(".del").onclick = () => deleteNote(p.id);
     ui.tip.style.display = "block";
     const r = node.getBoundingClientRect();
@@ -2139,8 +2138,12 @@
     return ok;
   }
 
-  function escapeHtml(s) {
-    return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  // DOM, not markup: whatever the page or the agent wrote stays text.
+  function elt(tag, attrs, ...kids) {
+    const e = document.createElement(tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    e.append(...kids);
+    return e;
   }
 
   // Re-render pending pins for this page on load (they live in the bridge, not the page).

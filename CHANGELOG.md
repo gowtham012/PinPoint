@@ -12,12 +12,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dot) while picking. `docs/logo/` has every size, wordmarks, an app icon, favicon.ico, the social
   preview and Chrome Web Store tiles, all rendered from `tools/logo/mark.svg` by
   `bash tools/make-icons.sh`. `node tools/make-bar-shots.mjs` recaptures the README's bar screenshots.
+- **No more `innerHTML` with values in the extension.** The bar, popover, notes list, hover tip and
+  popup build their dynamic parts with DOM calls, so text from a page, an agent or the bridge can
+  never become markup. `web-ext lint` on the Firefox package now reports no "Unsafe assignment to
+  innerHTML" warnings (was 11).
 
 ### Fixed
 - **Picker races on slow machines.** A frame no longer takes back its own mirrored picking state, so
   picking stops coming back over the comment box; an answer older than a note just sent no longer wipes
   its pin; and a capture skips a tab that is navigating away. The browser tests wait for every frame to
   be picking and for the worker, and one failure no longer cascades, so macOS CI now blocks like Ubuntu.
+- **Esc right after Send keeps picking off.** Picking comes back once the worker has taken the crop;
+  an Esc (or a stop from another frame) in that moment used to be overruled when it did. Now it wins.
+- **An agent renaming a button no longer loses it.** An element with no id or data attributes was
+  recognised by its text, so a fix that changed the label made the after crop "missing" and re-check
+  say gone. Where the selector still lands on the same tag, attributes and neighbouring text, the
+  element is found, its after crop is taken and re-check says changed. A different element
+  re-rendered into the old spot is still refused.
 
 ## [0.7.0] — 2026-10-18
 
