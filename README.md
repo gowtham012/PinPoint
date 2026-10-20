@@ -12,8 +12,7 @@
 [![Glama score](https://glama.ai/mcp/servers/gowtham012/pinpoint/badges/score.svg)](https://glama.ai/mcp/servers/gowtham012/pinpoint)
 [![Mentioned in Awesome Claude Code](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
 [![stars](https://img.shields.io/github/stars/gowtham012/pinpoint?style=flat)](https://github.com/gowtham012/pinpoint/stargazers)
-
-<a href="https://mcprush.com/to/pinpoint-mcp?ref=badge"><img width="300" src="https://mcprush.com/badge/pinpoint-mcp/card.svg" alt="Pinpoint MCP server on mcprush: grade A"></a>
+[![Pinpoint MCP on mcprush](https://mcprush.com/badge/pinpoint-mcp/score.svg)](https://mcprush.com/to/pinpoint-mcp?ref=badge)
 
 **[gowtham012.github.io/PinPoint](https://gowtham012.github.io/PinPoint/)**
 
