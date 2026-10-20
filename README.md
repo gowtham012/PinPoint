@@ -617,6 +617,15 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 - Native source hints for React Native and Flutter, via an optional dev-only package
 - CSS source mapping via `chrome.debugger` (which rule set this colour, and where)
 
+## ⭐ Star history
+
+<a href="https://star-history.com/#gowtham012/pinpoint&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=gowtham012/pinpoint&type=Date&theme=dark">
+    <img alt="Star history of gowtham012/PinPoint over time" src="https://api.star-history.com/svg?repos=gowtham012/pinpoint&type=Date" width="640">
+  </picture>
+</a>
+
 ## Contributing
 
 Issues and pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). There's no build step:
