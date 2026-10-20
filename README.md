@@ -1,7 +1,5 @@
 <div align="center">
 
-# <img src="docs/logo/pinpoint-social-preview-1280x640.png" alt="" width="140" align="top">
-
 # <img src="docs/logo/pinpoint-mark.svg" alt="" width="40" align="top"> Pinpoint
 
 **Point at your running app. Say what should change. Your coding agent gets it.**
