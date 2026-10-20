@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] — 2026-10-20
+
 ### Added
 - **The iOS and Android pickers hold the conversation.** A note waiting on you shows a **?** pin that
   opens the agent's question and an answer box; a finished note shows the agent's reply with
