@@ -2539,3 +2539,59 @@ test("X2: a re-check never blinks the panel you are using: no fresh crop instead
   assert.equal(await hidden, false, "the overlay stayed up");
   await page.close();
 });
+
+// ============ known issues: Esc after Send, after-crop when the agent renames a button ============
+test("K1: Esc right after Send keeps picking off, even when the crop finishes later", async () => {
+  await clearAll();
+  const sw = ctx.serviceWorkers()[0];
+  // Hold the worker's "captureDone" back, so the Esc lands inside the window it reopens picking in.
+  await sw.evaluate(() => {
+    const t = chrome.tabs, orig = t.sendMessage;
+    globalThis.__ppOrigSend = orig;
+    t.sendMessage = (...a) => (a[1]?.type === "captureDone"
+      ? new Promise((r) => setTimeout(() => r(orig.apply(t, a)), 1500)) : orig.apply(t, a));
+  });
+  try {
+    const page = await openPage("/");
+    await arm(page);
+    await page.locator("h1").click();
+    await waitShadow(page, () => __pinpointShadow.querySelector(".pop").style.display === "block");
+    await inShadow(page, () => { const r = __pinpointShadow; r.querySelector("textarea").value = "esc race"; r.querySelector(".send").click(); });
+    await waitShadow(page, () => /Sent/.test(__pinpointShadow.querySelector(".pop .status").textContent));
+    assert.equal((await S(page)).picking, false, "picking is still waiting for the crop");
+    await page.keyboard.press("Escape");
+    await pendingWithShots(1);
+    await page.waitForTimeout(2000);   // well past the held-back captureDone
+    assert.equal((await S(page)).picking, false, "Esc won: picking did not come back");
+    assert.equal(await inShadow(page, () => document.querySelector("pinpoint-root").style.display), "", "the overlay is back");
+    await page.close();
+  } finally {
+    await sw.evaluate(() => { chrome.tabs.sendMessage = globalThis.__ppOrigSend; });
+  }
+});
+
+test("K2: an agent that renames a button still gets its after crop, and re-check says changed", async () => {
+  await clearAll();
+  const page = await openPage("/plain.html");
+  // No id, no data-*: the button is known by where it sits and what it says.
+  await page.evaluate(() => document.body.insertAdjacentHTML("afterbegin",
+    '<div class="toolbar"><button class="btn">Save</button> <button class="btn">Cancel</button></div>'));
+  await annotate(page, page.locator(".toolbar .btn").first(), "say what it saves");
+  const [a] = await pendingWithShots(1);
+  await disarm(page);
+  // The agent's edit, as a framework re-render would apply it: new nodes, new label.
+  await page.evaluate(() => { document.querySelector(".toolbar").innerHTML = '<button class="btn">Save changes</button> <button class="btn">Cancel</button>'; });
+  await resolveVia(a.id, "renamed it to Save changes");
+  await waitShadow(page, () => __pinpointShadow.querySelector(".toast .ok")?.offsetParent, null, { timeout: 8000 });
+  let got = null;
+  for (let i = 0; i < 80; i++) { got = (await (await fetch(`${BASE}/annotations/${a.id}`)).json()).annotation; if (got.after) break; await page.waitForTimeout(100); }
+  assert.ok(got.after?.screenshot?.base64, `after crop taken, not missing: ${JSON.stringify(got.after)}`);
+  const c = new Client({ name: "t", version: "0" });
+  await c.connect(new StreamableHTTPClientTransport(new URL(BASE + "/mcp")));
+  const r = await c.callTool({ name: "recheck_annotation", arguments: { id: a.id, timeoutSeconds: 15 } });
+  const text = r.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
+  assert.match(text, /Verdict: changed/, text);
+  assert.match(text, /Save changes/, text);
+  await c.close();
+  await page.close();
+});

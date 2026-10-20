@@ -692,7 +692,28 @@
       const v = el.getAttribute?.(a);
       if (v) attrs[a] = v.slice(0, 80);
     }
-    return { tag: el.tagName.toLowerCase(), text: clip(el.textContent, 60), attrs };
+    return { tag: el.tagName.toLowerCase(), text: clip(el.textContent, 60), attrs, ctx: around(el) };
+  }
+  // The text next to the element, from the nearest of three ancestors that has any. An element the
+  // agent renamed keeps its neighbours; a stranger re-rendered into the same spot (the next step's
+  // chip, the next row) comes with new ones.
+  // ponytail: first-occurrence removal of the element's own text; a sibling with the very same text
+  // earlier on only makes this stricter.
+  function around(el) {
+    const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
+    const own = norm(el.textContent);
+    for (let p = el.parentElement, i = 0; p && i < 3; p = p.parentElement, i++) {
+      const t = norm(norm(p.textContent).replace(own, " "));
+      if (t) return t.slice(0, 120);
+    }
+    return "";
+  }
+  // Same spot, same kind, same attributes, same neighbours: the element itself, only its text has
+  // changed. Used only where the selector already points at it — never to go looking elsewhere.
+  function renamed(el, fp) {
+    if (!fp?.ctx || !el || el.tagName.toLowerCase() !== fp.tag) return false;
+    if (!Object.keys(fp.attrs).every((k) => (el.getAttribute(k) || "") === fp.attrs[k])) return false;
+    return around(el) === fp.ctx;
   }
   function fingerprintMatches(el, fp) {
     if (!fp || !el || el.tagName.toLowerCase() !== fp.tag) return false;
@@ -704,7 +725,7 @@
   function findElement(selector, fp) {
     const bySelector = safeQuery(selector);
     if (!fp) return bySelector;
-    if (bySelector && fingerprintMatches(bySelector, fp)) return bySelector;
+    if (bySelector && (fingerprintMatches(bySelector, fp) || renamed(bySelector, fp))) return bySelector;
     let found = null;
     try {
       for (const el of document.getElementsByTagName(fp.tag)) {
@@ -875,7 +896,7 @@
     if (picking || recording) { clearTimeout(miniTimer); ui.dock.classList.remove("mini"); }
     else if (!ui.dock.classList.contains("mini")) expandDock();
     // While armed the Stop button carries the Esc affordance, so the hint just names the action.
-    ui.dockHint.innerHTML = picking ? `Click any element` : `<kbd>${MAC ? "\u2325\u21e7A" : "Alt+Shift+A"}</kbd>`;
+    ui.dockHint.replaceChildren(picking ? "Click any element" : elt("kbd", null, MAC ? "\u2325\u21e7A" : "Alt+Shift+A"));
     // The counter is the ONLY way into the notes panel. Hiding it at zero pending meant that the
     // moment an agent finished everything, its replies became unreachable — the note looked simply
     // deleted. Keep the door open while there is anything to read.
@@ -1069,10 +1090,10 @@
       x.addEventListener("click", (e) => { e.stopPropagation(); deleteNote(p.id); });
       li.querySelector(".n").textContent = p.number;
       li.querySelector(".c").textContent = p.comment;
-      li.querySelector(".s").innerHTML = p.kind === "page" ? "the whole page"
+      li.querySelector(".s").replaceChildren(p.kind === "page" ? "the whole page"
         : p.kind === "flow" ? `a recorded flow · ${Number(p.steps) || 0} steps`
-        : p.node.dataset.orphan === "1" ? `<span class="warn">not on this view</span>`
-        : escapeHtml(p.selector);
+        : p.node.dataset.orphan === "1" ? elt("span", { class: "warn" }, "not on this view")
+        : p.selector);
       appendThread(li.querySelector(".body"), p.thread);
       // The agent asked: the answer box is right here.
       if (p.status === "waiting") li.querySelector(".body").appendChild(answerForm(p.id, "Your answer", "Answer"));
@@ -1477,6 +1498,8 @@
       }
     }
     if (e.key === "Escape") {
+      // Just after Send, picking is off only until the crop is taken; Esc then means "stay off".
+      pendingResume = false;
       if (recording && !picking && ui.pop.style.display !== "block") { took(); return stopRecording(); }
       if (tipPinned && !picking && ui.pop.style.display !== "block") { took(); return hideTip(); }
       if (ui.panel.style.display === "flex" && !picking && ui.pop.style.display !== "block") { took(); return togglePanel(false); }
@@ -1602,27 +1625,26 @@
   // repaint it without wiping whatever you have already typed.
   function paintMeta(el, region) {
     const hint = sourceHint(el);
-    const comp = hint.components[0] ? `<b>&lt;${hint.components[0]}&gt;</b> ` : "";
+    const comp = hint.components[0] ? [elt("b", null, `<${hint.components[0]}>`), " "] : [];
     const file = hint.file ? ` · ${hint.file}${hint.line ? ":" + hint.line : ""}` : "";
     if (flowSteps) {
-      ui.meta.innerHTML = `<div class="row"><b>Recorded flow</b>${flowSteps.length} step${flowSteps.length === 1 ? "" : "s"}</div><ol class="steps"></ol>`;
+      ui.meta.replaceChildren(elt("div", { class: "row" }, elt("b", null, "Recorded flow"), `${flowSteps.length} step${flowSteps.length === 1 ? "" : "s"}`), elt("ol", { class: "steps" }));
       const ol = ui.meta.querySelector(".steps");
       for (const st of flowSteps) { const li = document.createElement("li"); li.textContent = st.describe + (st.text ? ` “${st.text}”` : ""); ol.appendChild(li); }
       ui.scope.style.display = "none";
       return;
     }
     if (selectedPage) {
-      ui.meta.innerHTML = `<div class="row"><b>This page</b>${escapeHtml(clip(document.title || location.pathname, 60))}</div>` +
-        `<div class="picked">A note about the whole page — the screenshot is what is on screen now</div>`;
+      ui.meta.replaceChildren(elt("div", { class: "row" }, elt("b", null, "This page"), clip(document.title || location.pathname, 60)),
+        elt("div", { class: "picked" }, "A note about the whole page — the screenshot is what is on screen now"));
       ui.scope.style.display = "none";
       return;
     }
     const label = clip(el.innerText || el.getAttribute("aria-label") || el.getAttribute("placeholder") || "", 46);
-    ui.meta.innerHTML = region
-      ? `<div class="row"><b>Region</b> ${region.width}×${region.height} in ${escapeHtml(describe(el))}${escapeHtml(file)}</div>` +
-        `<div class="picked">${region.contains.length} element${region.contains.length === 1 ? "" : "s"} inside</div>`
-      : `<div class="row">${comp}${escapeHtml(describe(el))}${escapeHtml(file)}</div>` +
-        (label ? `<div class="picked">“${escapeHtml(label)}”</div>` : "");
+    ui.meta.replaceChildren(...(region
+      ? [elt("div", { class: "row" }, elt("b", null, "Region"), ` ${region.width}×${region.height} in ${describe(el)}${file}`),
+         elt("div", { class: "picked" }, `${region.contains.length} element${region.contains.length === 1 ? "" : "s"} inside`)]
+      : [elt("div", { class: "row" }, ...comp, describe(el) + file), label && elt("div", { class: "picked" }, `“${label}”`)]).filter(Boolean));
     const many = pickChain.length > 1;
     ui.scope.style.display = many ? "flex" : "none";
     ui.narrower.disabled = pickIndex <= 0;
@@ -1990,7 +2012,7 @@
       p.node.style.top = y + "px";
       return;
     }
-    if (p.el && (!p.el.isConnected || (p.fp && !fingerprintMatches(p.el, p.fp)))) p.el = null;
+    if (p.el && (!p.el.isConnected || (p.fp && !fingerprintMatches(p.el, p.fp) && !renamed(p.el, p.fp)))) p.el = null;
     const el = p.el || (p.el = findElement(p.selector, p.fp));
     if (!el) {
       p.node.style.display = "none";
@@ -2066,7 +2088,7 @@
   let tipTimer = 0;
   function showTip(p, node) {
     clearTimeout(tipTimer);
-    ui.tip.innerHTML = `<div><span class="num">#${p.number}</span> ${escapeHtml(p.comment)}</div><button class="del">Remove this note</button>`;
+    ui.tip.replaceChildren(elt("div", null, elt("span", { class: "num" }, `#${p.number}`), " " + p.comment), elt("button", { class: "del" }, "Remove this note"));
     ui.tip.querySelector(".del").onclick = () => deleteNote(p.id);
     ui.tip.style.display = "block";
     const r = node.getBoundingClientRect();
@@ -2116,8 +2138,12 @@
     return ok;
   }
 
-  function escapeHtml(s) {
-    return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  // DOM, not markup: whatever the page or the agent wrote stays text.
+  function elt(tag, attrs, ...kids) {
+    const e = document.createElement(tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    e.append(...kids);
+    return e;
   }
 
   // Re-render pending pins for this page on load (they live in the bridge, not the page).
@@ -2218,7 +2244,8 @@
     if (msg.type === "togglePicker") { togglePicking(); reply({ picking }); }
     else if (msg.type === "startPicker") { startPicking(); reply({ picking }); }
     else if (msg.type === "setPicking") {
-      if (msg.src !== frameKey && msg.picking !== picking) msg.picking ? startPicking(true) : stopPicking(true);
+      // An "off" from another frame also cancels a resume this frame is still waiting to make.
+      if (msg.src !== frameKey && (msg.picking !== picking || (!msg.picking && pendingResume))) msg.picking ? startPicking(true) : stopPicking(true);
       reply({ picking });
     }
     else if (msg.type === "captureDone") { showOverlay(); resumePicking(); reply({ ok: true }); }

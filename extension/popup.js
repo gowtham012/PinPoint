@@ -71,15 +71,15 @@ async function refresh({ keepHint = false } = {}) {
   // instead of a <pinpoint> placeholder nobody can copy.
   if (h.cliPath) { cliPath = h.cliPath; api.storage.local.set({ cliPath }).catch(() => {}); }
   paintBridgeButton(h);
-  if (!(keepHint && !h.ok)) $("#hint").innerHTML = h.ok
-    ? (h.movedTo ? `Found the bridge on port ${h.movedTo} and switched to it.` : "")
+  if (!(keepHint && !h.ok)) $("#hint").replaceChildren(...(h.ok
+    ? [h.movedTo ? `Found the bridge on port ${h.movedTo} and switched to it.` : ""]
     : h.code === "several"
-      ? `Several bridges are running (${h.candidates.map((c) => `:${c.port}${c.project ? " " + esc(c.project.split("/").pop()) : ""}`).join(", ")}). Set the port below to the one you want.`
+      ? [`Several bridges are running (${h.candidates.map((c) => `:${c.port}${c.project ? " " + c.project.split("/").pop() : ""}`).join(", ")}). Set the port below to the one you want.`]
     : needsToken
-      ? `The bridge is running, but this browser has not got its token. Run <code>node ${esc(cliPath || "<pinpoint>/bridge/cli.js")} token</code> and paste the output above — once.`
+      ? ["The bridge is running, but this browser has not got its token. Run ", elt("code", null, `node ${cliPath || "<pinpoint>/bridge/cli.js"} token`), " and paste the output above — once."]
     : /Another server/.test(h.error || "")
-      ? `Port ${$("#port").value} is taken by something else — change the port below, or start the bridge with --port.`
-      : `Or start it in a terminal: <code>node ${esc(cliPath || "<pinpoint>/bridge/cli.js")} --project &lt;your repo&gt;</code>`;
+      ? [`Port ${$("#port").value} is taken by something else — change the port below, or start the bridge with --port.`]
+      : ["Or start it in a terminal: ", elt("code", null, `node ${cliPath || "<pinpoint>/bridge/cli.js"} --project <your repo>`)]));
 
   const res = h.ok ? await send({ type: "list" }) : null;
   if (gen !== refreshes) return;
@@ -88,13 +88,14 @@ async function refresh({ keepHint = false } = {}) {
   const items = res?.annotations || [];
   $("#copyAll").disabled = $("#clear").disabled = !items.length;
   if (!items.length) {
-    list.innerHTML = `<div class="empty">${h.ok ? "No pending annotations" : ""}</div>`;
+    list.replaceChildren(elt("div", { class: "empty" }, h.ok ? "No pending annotations" : ""));
     return;
   }
   const here = (where?.url || "").split("#")[0];
   for (const a of items) {
     const li = document.createElement("li");
-    li.innerHTML = `<span class="n">${a.number}</span><div class="c"><div class="t"></div><div class="s"></div><div class="u"></div></div><button class="x" title="Remove" aria-label="Remove note ${a.number}">✕</button>`;
+    li.append(elt("span", { class: "n" }, a.number), elt("div", { class: "c" }, elt("div", { class: "t" }), elt("div", { class: "s" }), elt("div", { class: "u" })),
+      elt("button", { class: "x", title: "Remove", "aria-label": `Remove note ${a.number}` }, "✕"));
     li.querySelector(".t").textContent = a.comment;
     li.querySelector(".s").textContent = (a.source?.components?.[0] ? `<${a.source.components[0]}> ` : "") + a.element.selector;
     const u = li.querySelector(".u");
@@ -114,21 +115,32 @@ async function refresh({ keepHint = false } = {}) {
 // ---------- starting / restarting the bridge ----------
 let cliPath = null;
 api.storage.local.get({ cliPath: null }).then((v) => { cliPath = v.cliPath; }).catch(() => {});
-const esc = (t) => String(t).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+// DOM, not markup: paths and error text stay text.
+function elt(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  e.append(...kids);
+  return e;
+}
 // Safari has no native messaging host of this kind, so it gets Restart (plain HTTP) but not Start.
 const canStart = typeof api.runtime.sendNativeMessage === "function";
 
-const ICON = {
-  start: `<svg viewBox="0 0 24 24"><path d="M7 5l12 7-12 7z"/></svg>`,
-  restart: `<svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5"/></svg>`,
-};
+const ICON = { start: "M7 5l12 7-12 7z", restart: "M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5" };
+function icon(d) {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg"), path = document.createElementNS(NS, "path");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  path.setAttribute("d", d);
+  svg.append(path);
+  return svg;
+}
 function paintBridgeButton(h) {
   const btn = $("#bridge");
   // Up but locked out (no token yet) is not "start it" — the token box is the next step.
   btn.style.display = h.code === "token" ? "none" : h.ok || canStart ? "flex" : "none";
   btn.disabled = false;
   btn.dataset.state = h.ok ? "restart" : "start";
-  btn.querySelector(".bg").innerHTML = ICON[btn.dataset.state];
+  btn.querySelector(".bg").replaceChildren(icon(ICON[btn.dataset.state]));
   btn.querySelector(".bl").textContent = h.ok ? "Restart bridge" : "Start bridge";
 }
 
@@ -171,12 +183,12 @@ $("#bridge").onclick = async () => {
   if (r?.ok) { $("#hint").textContent = ""; refresh(); return; }
   // Everything that can go wrong here ends in "run the installer once", except a busy port,
   // which the bridge's own message already explains better than we could.
-  const install = `node ${esc(cliPath || "<pinpoint>/bridge/cli.js")} install-native-host`;
-  $("#hint").innerHTML =
-    r?.code === "no_host" ? `One-time setup. Run this once, then press again — if you have already run it, run it again, the extension's id may have changed:<br><code>${install}</code>`
-    : r?.code === "no_node" ? `The launcher couldn't find Node. Run this again, then press again:<br><code>${install}</code>`
-    : r?.code === "unsupported" ? esc(r.error)
-    : `<span style="white-space:pre-wrap">${esc(r?.error || "the bridge did not start")}</span>`;
+  const install = () => [elt("br"), elt("code", null, `node ${cliPath || "<pinpoint>/bridge/cli.js"} install-native-host`)];
+  $("#hint").replaceChildren(...(
+    r?.code === "no_host" ? ["One-time setup. Run this once, then press again — if you have already run it, run it again, the extension's id may have changed:", ...install()]
+    : r?.code === "no_node" ? ["The launcher couldn't find Node. Run this again, then press again:", ...install()]
+    : r?.code === "unsupported" ? [r.error]
+    : [elt("span", { style: "white-space:pre-wrap" }, r?.error || "the bridge did not start")]));
   refresh({ keepHint: true });
 };
 
