@@ -13,6 +13,8 @@
 [![Mentioned in Awesome Claude Code](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
 [![stars](https://img.shields.io/github/stars/gowtham012/pinpoint?style=flat)](https://github.com/gowtham012/pinpoint/stargazers)
 
+<a href="https://mcprush.com/to/pinpoint-mcp?ref=badge"><img width="300" src="https://mcprush.com/badge/pinpoint-mcp/card.svg" alt="Pinpoint MCP server on mcprush: grade A"></a>
+
 **[gowtham012.github.io/PinPoint](https://gowtham012.github.io/PinPoint/)**
 
 **English** ·
@@ -183,7 +185,7 @@ and Linux only; on Windows, start the bridge in a terminal.
 
 **Also listed on** the [official MCP Registry](https://registry.modelcontextprotocol.io)
 (`io.github.gowtham012/pinpoint`), [cursor.directory](https://cursor.directory/plugins/pinpoint)
-(one-click **Add to Cursor**) and [Glama](https://glama.ai/mcp/servers/gowtham012/pinpoint). Those
+(one-click **Add to Cursor**) and [Glama](https://glama.ai/mcp/servers/gowtham012/pinpoint) and [mcprush](https://mcprush.com/gowtham012/pinpoint-mcp) (grade A). Those
 install the MCP server only; web pages still need the extension and bridge.
 </details>
 
