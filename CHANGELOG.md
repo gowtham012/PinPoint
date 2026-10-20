@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **The iOS and Android pickers hold the conversation.** A note waiting on you shows a **?** pin that
+  opens the agent's question and an answer box; a finished note shows the agent's reply with
+  **Accept** and **Not quite** instead of the pin silently vanishing. Pins follow the bridge live.
+  Trailhead takes `--sticky-book` for its "after", and the iOS demo video is re-recorded with the whole
+  exchange, zoomed in, plus a 9:16 cut (`docs/demo-ios-vertical.mp4`).
+
 ### Changed
 - **A new logo: the lime drop pin.** The toolbar icons (now with a 32 px size), the on-page bar,
   the site's favicon and the README use it; the bar shows it in colour, and inverted (ink pin, lime

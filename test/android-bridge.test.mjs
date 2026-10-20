@@ -192,3 +192,32 @@ test("android: setup --for android points at the picker, not the extension", asy
   assert.match(out.err, /Android: adb is here/);
   assert.doesNotMatch(out.err, /Load unpacked/, "no extension to load for a native app");
 });
+
+// The picker's conversation routes: the page the bridge serves may read events, answer and accept;
+// a web page — even one on the same host, another port — may not.
+test("android: the picker's answer/accept/events routes take the bridge's own origin and nobody else's", async () => {
+  const node = { id: "save", label: "", text: "Save", class: "android.widget.Button", bounds: { x: 0, y: 0, width: 10, height: 10 }, path: "#save" };
+  const { id } = await (await fetch(BASE + "/android/annotations", { method: "POST", headers: { origin: BASE, "content-type": "application/json" },
+    body: JSON.stringify({ comment: "bigger", node, device: { serial: "emulator-5554", name: "Pixel_7_API_34", emulator: true }, viewport: { width: 1080, height: 2400, dpr: 1 } }) })).json();
+  const post = (p, origin, body) => fetch(BASE + p, { method: "POST", headers: { origin, "content-type": "application/json" }, body: JSON.stringify(body) });
+  const evil = ["http://localhost:3000", "https://evil.example", `http://127.0.0.1:${PORT + 1}`, "null"];
+  await fetch(`${BASE}/annotations/${id}/reply`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "which one?", by: "agent" }) });
+  for (const o of evil) {
+    assert.equal((await post(`/annotations/${id}/answer`, o, { text: "x" })).status, 403, `answer from ${o}`);
+    assert.equal((await post(`/annotations/${id}/accept`, o, {})).status, 403, `accept from ${o}`);
+    assert.equal((await fetch(BASE + "/events?since=0&timeout=1", { headers: { origin: o } })).status, 403, `events from ${o}`);
+    assert.equal((await fetch(BASE + "/annotations", { headers: { origin: o } })).status, 403, `list from ${o}`);
+  }
+  let { annotation: a } = await (await fetch(`${BASE}/annotations/${id}`)).json();
+  assert.equal(a.status, "waiting", "nothing the evil origins sent landed");
+
+  const ans = await post(`/annotations/${id}/answer`, BASE, { text: "the blue one" });
+  assert.equal(ans.status, 200);
+  assert.equal(ans.headers.get("access-control-allow-origin"), BASE);
+  await fetch(`${BASE}/annotations/${id}/resolve`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ note: "done" }) });
+  assert.equal((await (await post(`/annotations/${id}/accept`, `http://localhost:${PORT}`, {})).json()).ok, true, "localhost spelling of our origin");
+  assert.equal((await fetch(BASE + "/events?since=0&timeout=1", { headers: { origin: BASE } })).status, 200);
+  ({ annotation: a } = await (await fetch(`${BASE}/annotations/${id}`)).json());
+  assert.ok(a.acceptedAt);
+  assert.deepEqual(a.thread.map((m) => m.by), ["agent", "you"]);
+});

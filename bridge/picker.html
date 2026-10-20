@@ -23,7 +23,15 @@
   #pop { position: absolute; width: 280px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px; line-height: 1.4; box-shadow: 0 6px 24px #0004; z-index: 2; cursor: default; }
   #pop .what { color: var(--muted); font-size: 12px; margin-bottom: 6px; overflow-wrap: anywhere; }
   #pop textarea { width: 100%; height: 70px; font: inherit; padding: 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); resize: vertical; }
-  #pop .row { display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px; }
+  .pin.ask { background: #ffb020; }
+  /* A note's conversation, and the agent's reply when it is done. */
+  #note, #done { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px; line-height: 1.4; box-shadow: 0 6px 24px #0004; cursor: default; overflow-wrap: anywhere; }
+  #note { position: absolute; width: 300px; z-index: 3; }
+  #done { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); width: min(460px, calc(100vw - 32px)); z-index: 4; }
+  .msg { margin: 0 0 8px; }
+  .msg b { display: block; font-size: 12px; color: var(--muted); font-weight: 600; }
+  #note textarea, #done textarea { width: 100%; height: 56px; font: inherit; padding: 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); resize: vertical; }
+  .row { display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -43,8 +51,14 @@
       <textarea id="comment" placeholder="What should change — how it looks or what it does?"></textarea>
       <div class="row"><button id="cancel">Cancel</button><button id="send" class="primary">Send ⌘↩</button></div>
     </div>
+    <div id="note" hidden></div>
   </div>
 </main>
+<div id="done" hidden>
+  <div class="msg"><b id="donewho"></b><span id="donetext"></span></div>
+  <div class="row" id="donebtns"><button id="notquite">Not quite</button><button id="accept" class="primary">Accept</button></div>
+  <form id="reopen" hidden><textarea placeholder="Not quite? Say what is still wrong — the note reopens" aria-label="What is still wrong"></textarea><div class="row"><button type="submit" class="primary">Reopen ⌘↩</button></div></form>
+</div>
 <script>
 // Everything shown from the tree goes through textContent: labels come from the app and are untrusted.
 const $ = (id) => document.getElementById(id);
@@ -54,8 +68,12 @@ const DEVICE = { ios: "iOS Simulator", android: "Android emulator" }[KIND];
 const READING = { ios: "Reading the simulator… (the first time takes a few seconds)", android: "Reading the emulator…" }[KIND];
 document.title = "Pinpoint — " + DEVICE;
 $("name").textContent = "Pinpoint · " + DEVICE;
-const shot = $("shot"), stage = $("stage"), hover = $("hover"), tip = $("tip"), pop = $("pop");
-let screen = null, picked = null, pins = [];
+const shot = $("shot"), stage = $("stage"), hover = $("hover"), tip = $("tip"), pop = $("pop"), note = $("note"), done = $("done");
+let screen = null, picked = null, pins = [], version = 0;
+// The note whose conversation is open, and the done notes already shown (null until the first load:
+// what was finished before the page opened is history, not news).
+let open = null, seenDone = null, shown = null, doneTimer = 0;
+const post = (p, body) => fetch(p, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
 
 const describe = (n) => n.id ? "#" + n.id : (n.label || n.text || n.value) ? `"${(n.label || n.text || n.value).slice(0, 50)}"` : "view";
 // On-screen pixels per point, since the image is scaled to fit the window.
@@ -90,20 +108,126 @@ async function load() {
   loadPins();
 }
 
-// Pending notes for this device, so a resolved one disappears when you refresh.
+// The open notes on this device are pins — "?" when the agent asked you something. A note the agent
+// has just finished shows its reply instead of vanishing.
 async function loadPins() {
+  if (!screen) return;
+  const body = await (await fetch("/annotations?url=" + encodeURIComponent(screen.url))).json();
+  version = body.version;
   pins.forEach((p) => p.remove());
-  const { annotations } = await (await fetch("/annotations?status=pending&url=" + encodeURIComponent(screen.url))).json();
-  pins = annotations.map((a) => {
+  const live = body.annotations.filter((a) => a.status === "pending" || a.status === "waiting");
+  pins = live.map((a) => {
     const p = document.createElement("div");
-    p.className = "pin";
-    p.textContent = a.number;
-    p.title = a.comment;
+    p.className = a.status === "waiting" ? "pin ask" : "pin";
+    p.textContent = a.status === "waiting" ? "?" : a.number;
+    p.title = `#${a.number}: ${a.comment}`;
     p.style.left = (a.element.rect.x + a.element.rect.width) * scale() + "px";
     p.style.top = a.element.rect.y * scale() + "px";
+    p.addEventListener("click", (e) => { e.stopPropagation(); showNote(a, p); });
     stage.append(p);
     return p;
   });
+  // Keep the open conversation unless it changed under you (then show the new state).
+  if (open) {
+    const a = live.find((x) => x.id === open.id), p = pins[live.indexOf(a)];
+    if (!a) closeNote();
+    else if (a.status + (a.thread || []).length !== open.key) showNote(a, p);
+  }
+  const finished = body.annotations.filter((a) => a.status === "resolved" && !a.acceptedAt);
+  if (seenDone) {
+    const fresh = finished.filter((a) => !seenDone.has(a.id + a.resolvedAt));
+    if (fresh.length) showDone(fresh[fresh.length - 1]);
+  }
+  seenDone = new Set(finished.map((a) => a.id + a.resolvedAt));
+}
+
+// Agent text is untrusted: every line goes in through textContent.
+function line(who, text) {
+  const d = document.createElement("div"), b = document.createElement("b"), t = document.createElement("span");
+  d.className = "msg"; b.textContent = who; t.textContent = text;
+  d.append(b, t);
+  return d;
+}
+function showNote(a, pin) {
+  closePop();
+  open = { id: a.id, key: a.status + (a.thread || []).length };
+  note.replaceChildren(line(`#${a.number} · you`, a.comment));
+  for (const m of a.thread || []) note.append(line(m.by === "you" ? "You" : (m.name || "Your agent") + (m.kind === "resolution" ? " (done)" : ""), m.text));
+  if (a.status === "waiting") {
+    const f = document.createElement("form"), ta = document.createElement("textarea"), row = document.createElement("div"), go = document.createElement("button");
+    ta.placeholder = "Your answer"; ta.setAttribute("aria-label", "Your answer");
+    row.className = "row"; go.type = "submit"; go.className = "primary"; go.textContent = "Answer ⌘↩";
+    row.append(go); f.append(ta, row); note.append(f);
+    f.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const text = ta.value.trim();
+      if (!text) return ta.focus();
+      go.disabled = true;
+      const r = await post(`/annotations/${a.id}/answer`, { text }).catch(() => null);
+      go.disabled = false;
+      if (!r?.ok) return void ($("status").textContent = "Not sent — the bridge isn't answering.");
+      $("status").textContent = `Answered #${a.number} — sent to your agent.`;
+      closeNote();
+      loadPins();
+    });
+    setTimeout(() => ta.focus());
+  } else {
+    note.append(line("", "Waiting for your agent."));
+  }
+  note.style.left = Math.max(0, Math.min(parseFloat(pin.style.left) - 300, shot.clientWidth - 300)) + "px";
+  note.style.top = parseFloat(pin.style.top) + 16 + "px";
+  note.hidden = false;
+  // Kept on screen: a pin low on the phone opens its card upwards.
+  const over = note.offsetTop + note.offsetHeight - shot.clientHeight;
+  if (over > 0) note.style.top = Math.max(0, parseFloat(pin.style.top) - 16 - note.offsetHeight) + "px";
+}
+function closeNote() { note.hidden = true; open = null; }
+
+// "#3 done": the agent's reply, and the two things you might say to it, for a while.
+function showDone(a) {
+  shown = a;
+  $("donewho").textContent = `#${a.number} done · ${a.resolvedBy || "your agent"}`;
+  $("donetext").textContent = a.resolution || "marked it done";
+  $("donebtns").hidden = false; $("reopen").hidden = true; $("reopen").querySelector("textarea").value = "";
+  done.hidden = false;
+  armDone();
+}
+function armDone() {
+  clearTimeout(doneTimer);
+  doneTimer = setTimeout(() => { if (!done.matches(":hover") && $("reopen").hidden) hideDone(); else armDone(); }, 20000);
+}
+function hideDone() { clearTimeout(doneTimer); done.hidden = true; shown = null; }
+$("accept").onclick = async () => {
+  const a = shown;
+  hideDone();
+  const r = await post(`/annotations/${a.id}/accept`, {}).catch(() => null);
+  $("status").textContent = r?.ok ? `Accepted #${a.number}.` : "Not accepted — the bridge isn't answering.";
+};
+$("notquite").onclick = () => {
+  $("donebtns").hidden = true; $("reopen").hidden = false;
+  $("reopen").querySelector("textarea").focus();
+};
+$("reopen").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const a = shown, text = $("reopen").querySelector("textarea").value.trim();
+  if (!text) return;
+  const r = await post(`/annotations/${a.id}/answer`, { text }).catch(() => null);
+  if (!r?.ok) return void ($("status").textContent = "Not sent — the bridge isn't answering.");
+  hideDone();
+  $("status").textContent = `Reopened #${a.number} — sent to your agent.`;
+  loadPins();
+});
+
+// Pins follow the bridge as it changes — a question or a reply shows without a refresh.
+async function watch() {
+  for (;;) {
+    try {
+      const r = await (await fetch(`/events?since=${version}&timeout=25000`)).json();
+      const changed = r.changed;
+      version = r.version;
+      if (changed) await loadPins();
+    } catch { await new Promise((r) => setTimeout(r, 3000)); }
+  }
 }
 
 shot.addEventListener("mousemove", (e) => {
@@ -120,6 +244,7 @@ shot.addEventListener("mouseleave", () => { if (pop.hidden) hover.hidden = tip.h
 
 shot.addEventListener("click", (e) => {
   if (!screen) return;
+  closeNote();
   picked = nodeAt(...pointFrom(e));
   if (!picked) return;
   place(hover, picked.bounds);
@@ -172,12 +297,16 @@ $("send").onclick = send;
 $("cancel").onclick = closePop;
 $("refresh").onclick = load;
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") closePop();
+  const form = e.target.closest?.("form");
+  if (form && e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); return form.requestSubmit(); }
+  if (e.key === "Escape") { closePop(); closeNote(); if ($("reopen").hidden) hideDone(); }
+  else if (e.target.tagName === "TEXTAREA" && e.target.id !== "comment") return;
   else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send();
   else if (e.key.toLowerCase() === "r" && pop.hidden && !e.metaKey && !e.ctrlKey) load();
 });
 window.addEventListener("resize", () => screen && (closePop(), loadPins()));
 load();
+watch();
 </script>
 </body>
 </html>

@@ -97,3 +97,76 @@ test("the Android picker: same page at /android, an emulator annotation comes ou
   assert.ok(a.screenshot?.width > 0);
   await page.close();
 });
+
+// The conversation, as the extension has it: the agent asks, you answer from the picker; the agent
+// resolves, its reply shows with Accept and Not quite. Agent text is rendered as text, never as HTML.
+const api = (p, body) => fetch(BASE + p, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
+const note = (id) => fetch(`${BASE}/annotations/${id}`).then((r) => r.json()).then((b) => b.annotation);
+
+async function converse(kind, screen, target, tipText) {
+  const { page, annotation: a } = await pickAndSend(kind, screen, target, tipText);
+  // The agent asks: the pin turns into a "?" without a refresh.
+  const question = 'Sticky always, or only after scrolling? <img src=x onerror="window.__pwned=1">';
+  assert.equal((await api(`/annotations/${a.id}/reply`, { text: question, by: "claude-code" })).ok, true);
+  await page.locator(".pin.ask").waitFor();
+  assert.equal(await page.locator(".pin.ask").textContent(), "?");
+  await page.click(".pin.ask");
+  await page.locator("#note").waitFor();
+  assert.match(await page.locator("#note").textContent(), /claude-code/);
+  assert.ok((await page.locator("#note").textContent()).includes(question), "the question is shown as text");
+  assert.equal(await page.locator("#note img").count(), 0, "never parsed as HTML");
+  await page.fill("#note textarea", "Always");
+  await page.click("#note button[type=submit]");
+  await page.locator(".pin.ask").waitFor({ state: "detached" });
+  let n = await note(a.id);
+  assert.equal(n.status, "pending");
+  assert.deepEqual(n.thread.map((m) => [m.by, m.text]), [["agent", question], ["you", "Always"]]);
+
+  // The agent resolves: the reply shows, the pin goes. Not quite reopens it with a follow-up.
+  await api(`/annotations/${a.id}/resolve`, { note: "Pinned with .safeAreaInset(edge: .bottom)", by: "claude-code" });
+  await page.locator("#done").waitFor();
+  assert.match(await page.locator("#done").textContent(), /done.*Pinned with \.safeAreaInset\(edge: \.bottom\)/s);
+  await page.locator(".pin").waitFor({ state: "detached" });
+  await page.click("#notquite");
+  await page.fill("#done textarea", "Add a shadow above it");
+  await page.click("#done button[type=submit]");
+  await page.locator(".pin").waitFor();
+  n = await note(a.id);
+  assert.equal(n.status, "pending");
+  assert.deepEqual(n.thread.slice(-2).map((m) => [m.by, m.kind || "", m.text]), [["agent", "resolution", "Pinned with .safeAreaInset(edge: .bottom)"], ["you", "", "Add a shadow above it"]]);
+
+  // Resolved again: Accept marks it accepted.
+  await api(`/annotations/${a.id}/resolve`, { note: "Added a shadow", by: "claude-code" });
+  await page.locator("#done").waitFor();
+  assert.match(await page.locator("#done").textContent(), /Added a shadow/);
+  await page.click("#accept");
+  await page.locator("#done").waitFor({ state: "hidden" });
+  for (let i = 0; i < 20 && !(await note(a.id)).acceptedAt; i++) await new Promise((r) => setTimeout(r, 100));
+  assert.ok((await note(a.id)).acceptedAt, "accepted");
+  assert.equal(await page.evaluate(() => window.__pwned), undefined);
+  await page.close();
+}
+
+test("the iOS picker: the agent's question, your answer, its reply, Accept and Not quite", async () => {
+  const button = { id: "book-button", label: "Book this trip", text: "", value: "", hint: "", bounds: { x: 20, y: 700, width: 362, height: 50 }, path: '"Trailhead" > #book-button' };
+  const screen = {
+    device: { udid: "U-2", name: "iPhone Talk" },
+    url: "ios-simulator://iPhone Talk",
+    viewport: { width: 402, height: 874, dpr: 1 },
+    nodes: [{ id: "", label: "Trailhead", text: "", value: "", hint: "", bounds: { x: 0, y: 0, width: 402, height: 874 }, path: '"Trailhead"' }, button],
+  };
+  screen.png = await fakeScreen({ width: 402, height: 874 }, button.bounds);
+  await converse("ios", screen, button, "#book-button");
+});
+
+test("the Android picker: the same conversation at /android", async () => {
+  const sw = { id: "save", label: "Save", text: "", class: "android.widget.Button", bounds: { x: 100, y: 1800, width: 880, height: 160 }, path: '"Form" > #save' };
+  const screen = {
+    device: { serial: "emulator-5556", name: "Pixel_Talk", emulator: true },
+    url: "android-emulator://Pixel_Talk",
+    viewport: { width: 1080, height: 2400, dpr: 1 },
+    nodes: [{ id: "", label: "", text: "Form", class: "android.widget.FrameLayout", bounds: { x: 0, y: 0, width: 1080, height: 2400 }, path: '"Form"' }, sw],
+  };
+  screen.png = await fakeScreen({ width: 1080, height: 2400 }, sw.bounds);
+  await converse("android", screen, sw, "#save");
+});

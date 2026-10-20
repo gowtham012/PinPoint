@@ -293,9 +293,9 @@ guesses.
 A native app has no DOM, so this path reads the **accessibility tree**. It works for SwiftUI, UIKit,
 React Native and Flutter apps, with nothing added to your app.
 
-<img src="docs/demo-ios.gif" alt="The iOS Simulator picker: hovering elements shows their accessibility identifiers, the Book this trip button is picked and a note sent, a numbered pin appears, and the pin is gone once the agent resolves it" width="760">
+<img src="docs/demo-ios.gif" alt="The iOS Simulator picker: hovering elements shows their accessibility identifiers, the Book this trip button is picked and a note sent, a numbered pin appears, the agent asks a question that is answered in the picker, then it makes the button sticky, its reply is accepted, and a refresh shows the sticky button with the pin gone" width="760">
 
-<sub>Hover, click, say what should change; your agent gets the identifier, tree path, frame and a crop. · <a href="docs/demo-ios.mp4">full-speed video</a></sub>
+<sub>Hover, click, say what should change; your agent gets the identifier, tree path, frame and a crop, asks if it must, and replies when it's done. · <a href="docs/demo-ios.mp4">full-speed video</a> · <a href="docs/demo-ios-vertical.mp4">vertical</a></sub>
 
 <table>
 <tr>
@@ -310,6 +310,8 @@ Homebrew `openjdk` is found even off your PATH).
 With the bridge running, open **http://127.0.0.1:7331/ios** (setup opens it for you). Hover to see each
 element, click one, type, **⌘↩**. The agent gets the `accessibilityIdentifier` (your `testID`), label,
 tree path, frame and a crop. Press **R** after the app changes.
+The picker also shows the agent's side: a **?** pin opens its question with a box to answer, and a
+finished note shows its reply with **Accept** and **Not quite** (reopen it with a follow-up), as in the browser.
 
 **No app handy?** `bash demo/ios/run.sh` builds **Trailhead**, a one-screen SwiftUI demo, with `swiftc`
 alone and launches it on the booted Simulator.
