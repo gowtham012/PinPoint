@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.2] — 2026-10-21
+
 ### Added
 - **"<ProductCard> appears 6 times on this page."** When the element you pick belongs to a component
   rendered more than once (counted from React's fiber tree or Vue's instance tree, production
