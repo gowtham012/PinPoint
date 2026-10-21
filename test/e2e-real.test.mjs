@@ -24,8 +24,11 @@ const DIR = path.join(here, "site/real");
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".map": "application/json" };
 
 const site = http.createServer((req, res) => {
-  const p = path.join(DIR, path.normalize(req.url.split("?")[0]).replace(/\/$/, "/index.html"));
-  if (!p.startsWith(DIR) || !fs.existsSync(p)) { res.writeHead(404); return res.end(); }
+  // The trailing "/" is checked before path.normalize, which turns it into "\\" on Windows.
+  let u = decodeURIComponent(req.url.split("?")[0]);
+  if (u.endsWith("/")) u += "index.html";
+  const p = path.join(DIR, path.normalize(u));
+  if (!p.startsWith(DIR) || !fs.existsSync(p) || !fs.statSync(p).isFile()) { res.writeHead(404); return res.end(); }
   res.writeHead(200, { "content-type": TYPES[path.extname(p)] || "application/octet-stream" });
   res.end(fs.readFileSync(p));
 });

@@ -183,7 +183,7 @@
 
   // { snippet, scripts } from the page, pageUrl from the sender → { file, line, column, name } | null.
   // `get` is fetchText; tests pass their own.
-  async function resolve({ snippet, scripts }, pageUrl, { timeout = 1500, get = fetchText } = {}) {
+  async function resolve({ snippet, scripts }, pageUrl, { timeout = 4000, get = fetchText } = {}) {
     if (typeof snippet !== "string" || snippet.length < 16 || snippet.length > 500 || !Array.isArray(scripts)) return null;
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), timeout);

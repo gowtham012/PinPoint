@@ -709,7 +709,7 @@
   }
   // `reuse` (element.reuse) was counted under the same minified name, so it is renamed too.
   async function applyMapSource(el, hint, reuse) {
-    const r = await Promise.race([mapLookup(el), new Promise((res) => setTimeout(res, 1800))]); // the worker stops at 1.5 s
+    const r = await Promise.race([mapLookup(el), new Promise((res) => setTimeout(res, 4300))]); // the worker stops at 4 s
     if (!r) return;
     Object.assign(hint, { file: r.file, line: r.line ?? null, column: r.column ?? null, method: "sourcemap" });
     if (r.name) {
@@ -2002,8 +2002,13 @@
       // A page note is cropped to the window: the whole visible page, not the <body> box. Measured
       // before the note is built: a source-map lookup in there can take a moment, and the crop is of
       // what was on screen when Send was pressed (the worker skips it if the page scrolled since).
-      const capture = await captureRect(el, page ? { x: window.scrollX, y: window.scrollY, width: window.innerWidth, height: window.innerHeight } : region);
-      const a = await buildAnnotation(el, comment, region ? { region } : {});
+      // captureRect reads the box synchronously when called, so starting it first keeps the crop to
+      // the moment of Send; building the note runs alongside it, so a slow source-map lookup never
+      // holds the note back from the worker (a navigation right after Send must not lose it).
+      const [capture, a] = await Promise.all([
+        captureRect(el, page ? { x: window.scrollX, y: window.scrollY, width: window.innerWidth, height: window.innerHeight } : region),
+        buildAnnotation(el, comment, region ? { region } : {}),
+      ]);
       if (draft) a.status = "draft";
       if (page) a.kind = "page";
       if (steps) { a.kind = "flow"; a.steps = steps; }

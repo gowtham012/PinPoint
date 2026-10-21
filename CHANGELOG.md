@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `file:line` and component name — React (Vite, webpack, Next.js) and Vue 3 production builds
   alike, arrow-function components included. The note's source hint says `method: "sourcemap"`.
   The service worker fetches only the page's own origin (or another loopback port from a loopback
-  page) — never a third-party host — within 1.5 seconds and 8 MB per file; on any failure the note
+  page) — never a third-party host — within 4 seconds and 8 MB per file; on any failure the note
   simply has no file, as before. The VLQ decoder is ~40 lines in `extension/sourcemap.js`, no new dependency.
 
 ## [0.7.1] — 2026-10-20
