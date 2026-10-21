@@ -11,6 +11,7 @@
 [![Mentioned in Awesome Claude Code](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
 [![stars](https://img.shields.io/github/stars/gowtham012/pinpoint?style=flat)](https://github.com/gowtham012/pinpoint/stargazers)
 [![Pinpoint MCP on mcprush](https://mcprush.com/badge/pinpoint-mcp/score.svg)](https://mcprush.com/to/pinpoint-mcp?ref=badge)
+[![Pinpoint on Product Hunt](https://img.shields.io/badge/Product%20Hunt-Pinpoint-DA552F?logo=producthunt&logoColor=white)](https://www.producthunt.com/products/pinpoint-10?launch=pinpoint-ff1b5d56-ec19-41d9-a201-e69311ca2084)
 
 **[gowtham012.github.io/PinPoint](https://gowtham012.github.io/PinPoint/)**
 
