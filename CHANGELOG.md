@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **A source hint for production builds, from the page's source maps.** When a minified build has
+  stripped React's `_debugSource` and Vue's `__file`, Pinpoint takes the clicked component's own
+  minified code, finds it in the scripts the page loaded, follows that script's `sourceMappingURL`
+  (or `SourceMap` header; `data:` maps and indexed maps too) and maps it back to the original
+  `file:line` and component name. The note's source hint says `method: "sourcemap"`. The service
+  worker fetches only the page's own origin (or another loopback port from a loopback page) — never
+  a third-party host — within 1.5 seconds and 8 MB per file; on any failure the note simply has no
+  file, as before. The VLQ decoder is ~40 lines in `extension/sourcemap.js`, no new dependency.
+
 ## [0.7.1] — 2026-10-20
 
 ### Added

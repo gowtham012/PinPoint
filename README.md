@@ -488,7 +488,8 @@ element          tag, id, classes, a CSS selector built from stable attributes w
                  attributes, bounding box, ~25 computed style properties, and a fingerprint
                  (tag + text + key attributes) used to verify a pin is still on the right element
 source           framework (react/vue/svelte/angular/astro), component chain,
-                 file:line where the dev build exposes it
+                 file:line where the dev build exposes it — or, in a production build, from the
+                 page's own source maps (same origin only; method: "sourcemap")
 screenshot       PNG of just the element (+8px), long edge ≤1200px
 context          only when something went wrong: uncaught errors and failed requests from the
                  minute before, redacted in the browser

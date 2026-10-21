@@ -87,6 +87,33 @@
     return hint;
   }
 
+  // For the source-map fallback (sourcemap.js, in the worker): the nearest component's own source
+  // text and the page's scripts, so the worker can find which bundle holds it. Only asked when the
+  // hint above found no file — a production build. The function's text is the page's own code.
+  function mapProbe(el) {
+    let fn = null;
+    for (let node = el; node && !fn; node = node.parentElement) {
+      const key = Object.keys(node).find((k) => k.startsWith("__reactFiber$") || k.startsWith("__reactInternalInstance$"));
+      for (let f = key && node[key], i = 0; f && i < 80 && !fn; f = f.return, i++) {
+        const t = f.type;
+        fn = typeof t === "function" ? t : [t?.render, t?.type, t?.type?.render].find((x) => typeof x === "function") || null;
+      }
+      const v = node.__vueParentComponent?.type || node.__vue__?.$options;
+      if (!fn && v) fn = [v.setup, v.render].find((x) => typeof x === "function") || null;
+    }
+    if (!fn) return null;
+    const src = Function.prototype.toString.call(fn);
+    if (src.length < 16 || /\{\s*\[native code\]\s*\}/.test(src)) return null;
+    const scripts = new Set([...document.scripts].map((s) => s.src).filter(Boolean));
+    try { for (const r of performance.getEntriesByType("resource")) if (r.initiatorType === "script") scripts.add(r.name); } catch {}
+    return { snippet: src.slice(0, 120), name: fn.name || null, scripts: [...scripts].slice(0, 30) };
+  }
+  document.addEventListener("pinpoint:probe", (e) => {
+    let r = null;
+    try { r = mapProbe(e.target); } catch {}
+    e.target.dispatchEvent(new CustomEvent("pinpoint:probe-result", { detail: JSON.stringify(r) }));
+  }, true);
+
   // ---------- page context ----------
   // What went wrong on the page lately: uncaught errors and unhandled rejections, newest last. Only
   // listening — console is never wrapped, so DevTools keeps showing the page's own call sites. This

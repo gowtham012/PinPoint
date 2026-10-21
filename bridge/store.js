@@ -205,7 +205,7 @@ export function toMarkdown(a, { heading = true, channel = "mcp" } = {}) {
     lines.push(`- Text as rendered: "${flat(e.text)}"` + (tt && tt !== "none" ? ` (CSS text-transform: ${tt} — the source string will differ, grep the HTML below instead)` : ""));
   }
   if (s.components?.length) lines.push(`- Component chain (${flat(s.framework)}): ${s.components.map(flat).join(" ← ")}`);
-  if (s.file) lines.push(`- Source file: ${flat(s.file)}${s.line ? ":" + flat(s.line) : ""}`);
+  if (s.file) lines.push(`- Source file: ${flat(s.file)}${s.line ? ":" + flat(s.line) : ""}` + (s.method === "sourcemap" ? " (found through the page's source map)" : ""));
   else if (!s.components?.length) lines.push(`- Source file: not detected (no framework metadata on this page) — find the element by grepping the HTML below`);
   const attrs = Object.entries(s.attributes || {});
   if (attrs.length) lines.push(`- Markers: ${attrs.map(([k, v]) => `${flat(k)}="${flat(v)}"`).join(", ")}`);

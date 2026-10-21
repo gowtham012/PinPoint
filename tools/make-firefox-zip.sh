@@ -20,7 +20,7 @@ node -e '
 const f = process.argv[1], m = require(f);
 delete m.key;
 m.name = "Pinpoint \u2014 annotate UI for your coding agent";
-m.background = { scripts: ["redact.js", "background.js"] };   // redact.js first: background.js needs it
+m.background = { scripts: ["redact.js", "sourcemap.js", "background.js"] };   // helpers first: background.js needs them
 m.browser_specific_settings = { gecko: {
   id: "pinpoint@gowtham012.github.io",
   strict_min_version: "140.0",
