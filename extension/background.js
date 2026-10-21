@@ -10,7 +10,8 @@
 const api = globalThis.browser ?? globalThis.chrome;
 
 // pinpointRedact, for page context. A Firefox build lists redact.js in background.scripts instead.
-if (typeof importScripts === "function") { try { importScripts("redact.js"); } catch {} }
+// pinpointSourceMap, for the source-hint fallback; Firefox lists it in background.scripts too.
+if (typeof importScripts === "function") { try { importScripts("redact.js"); } catch {} try { importScripts("sourcemap.js"); } catch {} }
 
 const DEFAULT_PORT = 7331;
 const WATCH_ALARM = "pinpoint-watch";
@@ -709,6 +710,13 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const [tab] = await api.tabs.query({ active: true, currentWindow: true });
         if (!tab?.id) return { ok: false, error: "No active tab." };
         return togglePicker(tab, true);
+      }
+      // The source-hint fallback (sourcemap.js). Here, not in the page: the page's CSP and any fetch
+      // it has wrapped do not apply, and the page never sees the requests. The origin checked is the
+      // asking frame's own, from the browser — never one the message names.
+      case "sourcemap": {
+        if (!sender.url || !isLocalDev(sender.url) || !globalThis.pinpointSourceMap) return null;
+        return globalThis.pinpointSourceMap.resolve({ snippet: msg.snippet, scripts: msg.scripts }, sender.url);
       }
       case "canRun": {
         const [tab] = await api.tabs.query({ active: true, currentWindow: true });

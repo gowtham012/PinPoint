@@ -211,6 +211,13 @@
       .pop .scope button:hover:not(:disabled) { color: var(--paper); background: var(--graphite-3); }
       .pop .scope button:disabled { opacity: .35; cursor: default; }
       .pop .scope-hint { font: 10.5px/1 var(--mono); color: var(--paper-faint); margin-left: auto; }
+      /* One of several copies: this one, or the component everywhere? Nothing is chosen for you. */
+      .pop .reuse { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: -2px 0 10px; }
+      .pop .reuse .rtext { flex: 1 0 100%; font: 11.5px/1.4 var(--sans); color: var(--paper-dim); margin-bottom: 2px; }
+      .pop .reuse button { font: 500 11.5px var(--sans); color: var(--paper-dim); background: var(--graphite-2);
+                           border-radius: 7px; padding: 5px 9px; line-height: 1; }
+      .pop .reuse button:hover { color: var(--paper); background: var(--graphite-3); }
+      .pop .reuse button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
       .pop .row2 { display: flex; gap: 4px; margin-top: 10px; align-items: center; }
       .pop .status { order: -1; margin-right: auto; font-size: 11.5px; color: var(--paper-faint); }
       .pop .status.err { color: var(--danger); }
@@ -372,6 +379,11 @@
         <button class="narrower" title="Select the element inside this one">↓ narrower</button>
         <span class="scope-hint"></span>
       </div>
+      <div class="reuse" role="group" aria-label="Change just this one, or the component everywhere">
+        <span class="rtext"></span>
+        <button class="r-one" aria-pressed="false">Just this one</button>
+        <button class="r-all" aria-pressed="false">Everywhere (the component)</button>
+      </div>
       <textarea rows="2" aria-label="What should change"></textarea>
       <div class="row2">
         <span class="status" role="status"></span>
@@ -421,6 +433,8 @@
     wider: shadow.querySelector(".pop .wider"),
     narrower: shadow.querySelector(".pop .narrower"),
     scopeHint: shadow.querySelector(".pop .scope-hint"),
+    reuse: shadow.querySelector(".pop .reuse"),
+    reuseText: shadow.querySelector(".pop .reuse .rtext"),
     text: shadow.querySelector(".pop textarea"),
     send: shadow.querySelector(".pop .send"),
     sendKbd: shadow.querySelector(".pop .send kbd"),
@@ -668,6 +682,41 @@
       if (h && !h.error) return h;
     } catch {}
     return { framework: null, components: [], file: null, line: null, column: null, attributes: {} };
+  }
+
+  // A production build has stripped the framework's debug info, so the hint has no file: ask the
+  // worker to trace the component through the page's own source maps (sourcemap.js). Bounded, and
+  // any failure just leaves the hint as it was.
+  // Started when the popover opens (paintMeta) and reused at Send, so the lookup has usually
+  // finished — or at least filled the worker's cache — by the time the comment is written.
+  const mapLookups = new WeakMap();
+  function mapLookup(el) {
+    if (!mapLookups.has(el)) mapLookups.set(el, mapSource(el).catch(() => null));
+    return mapLookups.get(el);
+  }
+  async function mapSource(el) {
+    let raw = null;
+    const on = (e) => { raw = e.detail; };
+    el.addEventListener("pinpoint:probe-result", on, { once: true });
+    el.dispatchEvent(new CustomEvent("pinpoint:probe", { bubbles: true }));
+    el.removeEventListener("pinpoint:probe-result", on);
+    let probe = null;
+    try { probe = JSON.parse(raw); } catch {}
+    if (typeof probe?.snippet !== "string") return null;
+    const r = await chrome.runtime.sendMessage({ type: "sourcemap", snippet: probe.snippet, scripts: probe.scripts }).catch(() => null);
+    if (typeof r?.file !== "string") return null;
+    return { ...r, fnName: probe.name };
+  }
+  // `reuse` (element.reuse) was counted under the same minified name, so it is renamed too.
+  async function applyMapSource(el, hint, reuse) {
+    const r = await Promise.race([mapLookup(el), new Promise((res) => setTimeout(res, 4300))]); // the worker stops at 4 s
+    if (!r) return;
+    Object.assign(hint, { file: r.file, line: r.line ?? null, column: r.column ?? null, method: "sourcemap" });
+    if (r.name) {
+      const i = hint.components.indexOf(r.fnName);
+      if (i >= 0) hint.components[i] = r.name; else hint.components.unshift(r.name);
+      if (reuse?.component === r.fnName) reuse.component = r.name;
+    }
   }
 
   // The page's recent uncaught errors, from inspector.js in the MAIN world. Raw and untrusted: the
@@ -1625,6 +1674,14 @@
   // repaint it without wiping whatever you have already typed.
   function paintMeta(el, region) {
     const hint = sourceHint(el);
+    paintReuse(selectedPage || flowSteps ? null : hint.reuse);
+    // A minified build painted `<Vf>` just now; once the map answers, say `<ProductCard>` instead.
+    if (!hint.file && /^(react|vue)$/.test(hint.framework || "")) mapLookup(el).then((r) => {
+      if (!r?.name || !r.fnName || r.name === r.fnName || selected !== el) return;
+      const from = `<${r.fnName}>`, to = `<${r.name}>`;
+      for (const b of ui.meta.querySelectorAll("b")) if (b.textContent === from) b.textContent = to;
+      ui.reuseText.textContent = ui.reuseText.textContent.replace(from, to);
+    });
     const comp = hint.components[0] ? [elt("b", null, `<${hint.components[0]}>`), " "] : [];
     const file = hint.file ? ` · ${hint.file}${hint.line ? ":" + hint.line : ""}` : "";
     if (flowSteps) {
@@ -1650,6 +1707,23 @@
     ui.narrower.disabled = pickIndex <= 0;
     ui.wider.disabled = pickIndex >= pickChain.length - 1;
     ui.scopeHint.textContent = many ? `${pickIndex + 1}/${pickChain.length} · ⌥↑↓` : "";
+  }
+
+  // "<Card> appears 6 times on this page": the comment rarely says whether it means this one card or
+  // the component, so ask once, here, and let the agent know which (or that nobody said).
+  let reuseScope = null;
+  function paintReuse(r) {
+    reuseScope = null;
+    ui.reuse.style.display = r ? "flex" : "none";
+    for (const b of ui.reuse.querySelectorAll("button")) b.setAttribute("aria-pressed", "false");
+    if (r) ui.reuseText.textContent = `${r.estimate ? r.component : `<${r.component}>`} appears ${r.count}${r.count >= 500 ? "+" : ""} times on this page${r.estimate ? " (estimate)" : ""}`;
+  }
+  for (const [cls, scope] of [["r-one", "instance"], ["r-all", "component"]]) {
+    ui.reuse.querySelector("." + cls).addEventListener("click", (e) => {
+      e.preventDefault();
+      reuseScope = reuseScope === scope ? null : scope;   // a second click takes the choice back
+      for (const b of ui.reuse.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b === e.currentTarget && !!reuseScope));
+    });
   }
 
   // Clicking is a guess. On this page, a few pixels off the headline is the difference between a
@@ -1852,6 +1926,9 @@
 
   async function buildAnnotation(el, comment, opts = {}) {
     const r = el.getBoundingClientRect();
+    const source = sourceHint(el);
+    const reuse = source.reuse;
+    delete source.reuse;
     const a = {
       id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random())).slice(0, 8),
       createdAt: new Date().toISOString(),
@@ -1870,12 +1947,15 @@
         styles: computedStyles(el),
         fingerprint: fingerprint(el),
       },
-      source: sourceHint(el),
+      source,
       screenshot: null,
     };
+    if (reuse && !selectedPage && !flowSteps) a.element.reuse = { ...reuse, ...(reuseScope ? { scope: reuseScope } : {}) };
     // A region annotation is an element annotation on its anchor, plus the box. Everything
     // downstream — selector, fingerprint, pin re-finding, styles — keeps working unchanged.
     if (opts.region) a.region = opts.region;
+    // Only React and Vue leave a component function to look up; anything else adds no await here.
+    if (!a.source.file && /^(react|vue)$/.test(a.source.framework || "")) { try { await applyMapSource(el, a.source, a.element.reuse); } catch {} }
     const errors = pageErrors();
     if (errors.length) a.context = { errors };
     return a;
@@ -1894,7 +1974,7 @@
     ];
     if (a.element.text) lines.push(`**Text:** "${a.element.text}"`);
     if (s.components?.length) lines.push(`**Component chain (${s.framework}):** ${s.components.join(" ← ")}`);
-    if (s.file) lines.push(`**Source:** ${s.file}${s.line ? ":" + s.line : ""}`);
+    if (s.file) lines.push(`**Source:** ${s.file}${s.line ? ":" + s.line : ""}${s.method === "sourcemap" ? " (via source map)" : ""}`);
     lines.push(`**Size:** ${a.element.rect.width}×${a.element.rect.height}px at viewport ${a.page.viewport.width}×${a.page.viewport.height}`);
     const st = Object.entries(a.element.styles).map(([k, v]) => `${k}: ${v}`).join("; ");
     if (st) lines.push(``, `**Computed styles:** ${st}`);
@@ -1919,12 +1999,19 @@
     try {
       const region = selectedRegion;
       const page = selectedPage, steps = flowSteps;
-      const a = await buildAnnotation(el, comment, region ? { region } : {});
+      // A page note is cropped to the window: the whole visible page, not the <body> box. Measured
+      // before the note is built: a source-map lookup in there can take a moment, and the crop is of
+      // what was on screen when Send was pressed (the worker skips it if the page scrolled since).
+      // captureRect reads the box synchronously when called, so starting it first keeps the crop to
+      // the moment of Send; building the note runs alongside it, so a slow source-map lookup never
+      // holds the note back from the worker (a navigation right after Send must not lose it).
+      const [capture, a] = await Promise.all([
+        captureRect(el, page ? { x: window.scrollX, y: window.scrollY, width: window.innerWidth, height: window.innerHeight } : region),
+        buildAnnotation(el, comment, region ? { region } : {}),
+      ]);
       if (draft) a.status = "draft";
       if (page) a.kind = "page";
       if (steps) { a.kind = "flow"; a.steps = steps; }
-      // A page note is cropped to the window: the whole visible page, not the <body> box.
-      const capture = await captureRect(el, page ? { x: window.scrollX, y: window.scrollY, width: window.innerWidth, height: window.innerHeight } : region);
       if (capture) hideOverlayForCapture();
       // The worker stores the comment first and answers immediately, then takes and attaches the
       // crop on its own. Nothing here is on the page's lifetime.
