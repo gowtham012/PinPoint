@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Send never waits for the source-map lookup.** The page hands the lookup to the worker with the
+  note, and the worker resolves it while posting, so navigating right after Send on a production
+  build can no longer lose the note.
+
 ## [0.7.2] — 2026-10-21
 
 ### Added

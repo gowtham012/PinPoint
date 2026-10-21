@@ -571,6 +571,15 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       case "submit": {
         if (sender.tab) msg.annotation.page = { ...msg.annotation.page, topUrl: sender.tab.url || null, frameId: sender.frameId || 0 };
         msg.annotation.context = pageContext(sender.tab?.id, msg.annotation.context);
+        // The page handed over its source-map probe instead of waiting for it, so a navigation right
+        // after Send can't lose the note. Resolved here (this worker outlives the page), same rules
+        // as the "sourcemap" message: local dev pages only, origin from the browser, never the page.
+        const probe = msg.annotation.mapProbe;
+        delete msg.annotation.mapProbe;
+        if (probe && typeof probe.snippet === "string" && Array.isArray(probe.scripts) && sender.url && isLocalDev(sender.url) && globalThis.pinpointSourceMap) {
+          const r = await globalThis.pinpointSourceMap.resolve({ snippet: probe.snippet.slice(0, 400), scripts: probe.scripts.slice(0, 30) }, sender.url).catch(() => null);
+          globalThis.pinpointSourceMap.applyToNote(msg.annotation, r, typeof probe.name === "string" ? probe.name : null);
+        }
         const result = await bridgeFetch("/annotations", {
           method: "POST",
           headers: { "content-type": "application/json" },
