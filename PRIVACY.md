@@ -1,6 +1,6 @@
 # Privacy
 
-*Last updated: 18 October 2026. This describes Pinpoint 0.7 — the extension in `extension/` and
+*Last updated: 20 October 2026. This describes Pinpoint 0.7 — the extension in `extension/` and
 the bridge in `bridge/`, as published in this repository.*
 
 Pinpoint is a developer tool that runs on your own machine. There is no Pinpoint account, no Pinpoint
@@ -16,7 +16,8 @@ this is assembled and posted to your local bridge:
 - **the element** — tag, id, classes, a CSS selector, DOM path, rendered text, trimmed `outerHTML`,
   `role`/`aria-*`/`data-*` attributes, bounding box, about 25 computed style properties, and a
   fingerprint used to re-find the element after a re-render
-- **the framework hint** where a dev build exposes it — React/Vue component chain and `file:line`
+- **the framework hint** where a dev build exposes it — React/Vue component chain and `file:line` —
+  or, when a production build has stripped that, the `file:line` the page's own source map gives (below)
 - **your comment** — the sentence you typed
 - **a screenshot** — a PNG cropped to the element, captured by the extension's service worker
 - **page errors and failed requests**, only when something went wrong (below)
@@ -41,6 +42,14 @@ removed, and the HTTP status or network error). Only requests made by local deve
 recorded. Request and response bodies and headers are never read. The record is kept in the
 extension's memory only, per tab, and is dropped when the tab closes or loads a new page. Nothing is
 attached when nothing went wrong.
+
+**Source maps.** When the framework hint finds no file (a production build), the extension's
+service worker reads the page's own scripts and their source maps to find where the clicked component
+came from: it downloads only scripts the page itself loaded, and only from the page's own origin (or,
+on a loopback page, another loopback port), without cookies, at most 8 MB each, for at most 1.5
+seconds. Scripts and maps on any other host are never requested. What it keeps is a file path, a
+line and a component name in the note's source hint; the scripts and maps stay in the worker's
+memory for a minute and are not stored or sent anywhere.
 
 Before page errors and failed requests leave the browser, they are cut to 2000 characters and then
 scrubbed. Query strings and fragments are dropped from URLs, but a stack frame's line:col is kept.
@@ -75,7 +84,8 @@ for microphone permission the first time. Dictation is not offered on Firefox.
 
 To `http://127.0.0.1:<port>` (7331 by default) and nowhere else. The extension contains no other
 network destination — no telemetry endpoint, no remote code, no update service beyond the browser's
-own. The bridge refuses any request carrying a web page's `Origin`, accepts an extension only with the
+own. (The one other request it makes is the source-map lookup above: to the local page's own dev
+server, for files that page already loaded.) The bridge refuses any request carrying a web page's `Origin`, accepts an extension only with the
 token in `~/.pinpoint/token`, and only listens on loopback.
 
 **The one place data leaves Pinpoint is the one you asked for:** the coding agent you connect. Over
@@ -116,7 +126,7 @@ leaves nothing behind.
 
 | Permission | Why |
 |---|---|
-| `host_permissions: <all_urls>` | Chrome requires a broad host permission for `tabs.captureVisibleTab`, which takes the screenshot. A narrower permission does not grant that API. It is not used to read or inject into pages beyond the local-development matches below. |
+| `host_permissions: <all_urls>` | Chrome requires a broad host permission for `tabs.captureVisibleTab`, which takes the screenshot. A narrower permission does not grant that API. It is not used to read or inject into pages beyond the local-development matches below; the only fetches it allows are the source-map lookup's, to a local page's own origin. |
 | `activeTab`, `scripting` | Show the bar and the picker on the page you are annotating. |
 | `tabs` | Know which tab is being captured, and keep pins in sync across tabs showing the same page. |
 | `storage` | The settings listed above. |

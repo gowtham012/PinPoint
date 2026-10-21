@@ -684,6 +684,39 @@
     return { framework: null, components: [], file: null, line: null, column: null, attributes: {} };
   }
 
+  // A production build has stripped the framework's debug info, so the hint has no file: ask the
+  // worker to trace the component through the page's own source maps (sourcemap.js). Bounded, and
+  // any failure just leaves the hint as it was.
+  // Started when the popover opens (paintMeta) and reused at Send, so the lookup has usually
+  // finished — or at least filled the worker's cache — by the time the comment is written.
+  const mapLookups = new WeakMap();
+  function mapLookup(el) {
+    if (!mapLookups.has(el)) mapLookups.set(el, mapSource(el).catch(() => null));
+    return mapLookups.get(el);
+  }
+  async function mapSource(el) {
+    let raw = null;
+    const on = (e) => { raw = e.detail; };
+    el.addEventListener("pinpoint:probe-result", on, { once: true });
+    el.dispatchEvent(new CustomEvent("pinpoint:probe", { bubbles: true }));
+    el.removeEventListener("pinpoint:probe-result", on);
+    let probe = null;
+    try { probe = JSON.parse(raw); } catch {}
+    if (typeof probe?.snippet !== "string") return null;
+    const r = await chrome.runtime.sendMessage({ type: "sourcemap", snippet: probe.snippet, scripts: probe.scripts }).catch(() => null);
+    if (typeof r?.file !== "string") return null;
+    return { ...r, fnName: probe.name };
+  }
+  async function applyMapSource(el, hint) {
+    const r = await Promise.race([mapLookup(el), new Promise((res) => setTimeout(res, 1800))]); // the worker stops at 1.5 s
+    if (!r) return;
+    Object.assign(hint, { file: r.file, line: r.line ?? null, column: r.column ?? null, method: "sourcemap" });
+    if (r.name) {
+      const i = hint.components.indexOf(r.fnName);
+      if (i >= 0) hint.components[i] = r.name; else hint.components.unshift(r.name);
+    }
+  }
+
   // The page's recent uncaught errors, from inspector.js in the MAIN world. Raw and untrusted: the
   // worker validates and redacts them before they reach the bridge.
   function pageErrors() {
@@ -1640,6 +1673,7 @@
   function paintMeta(el, region) {
     const hint = sourceHint(el);
     paintReuse(selectedPage || flowSteps ? null : hint.reuse);
+    if (!hint.file && /^(react|vue)$/.test(hint.framework || "")) mapLookup(el);
     const comp = hint.components[0] ? [elt("b", null, `<${hint.components[0]}>`), " "] : [];
     const file = hint.file ? ` · ${hint.file}${hint.line ? ":" + hint.line : ""}` : "";
     if (flowSteps) {
@@ -1912,6 +1946,8 @@
     // A region annotation is an element annotation on its anchor, plus the box. Everything
     // downstream — selector, fingerprint, pin re-finding, styles — keeps working unchanged.
     if (opts.region) a.region = opts.region;
+    // Only React and Vue leave a component function to look up; anything else adds no await here.
+    if (!a.source.file && /^(react|vue)$/.test(a.source.framework || "")) { try { await applyMapSource(el, a.source); } catch {} }
     const errors = pageErrors();
     if (errors.length) a.context = { errors };
     return a;
@@ -1930,7 +1966,7 @@
     ];
     if (a.element.text) lines.push(`**Text:** "${a.element.text}"`);
     if (s.components?.length) lines.push(`**Component chain (${s.framework}):** ${s.components.join(" ← ")}`);
-    if (s.file) lines.push(`**Source:** ${s.file}${s.line ? ":" + s.line : ""}`);
+    if (s.file) lines.push(`**Source:** ${s.file}${s.line ? ":" + s.line : ""}${s.method === "sourcemap" ? " (via source map)" : ""}`);
     lines.push(`**Size:** ${a.element.rect.width}×${a.element.rect.height}px at viewport ${a.page.viewport.width}×${a.page.viewport.height}`);
     const st = Object.entries(a.element.styles).map(([k, v]) => `${k}: ${v}`).join("; ");
     if (st) lines.push(``, `**Computed styles:** ${st}`);
@@ -1955,12 +1991,14 @@
     try {
       const region = selectedRegion;
       const page = selectedPage, steps = flowSteps;
+      // A page note is cropped to the window: the whole visible page, not the <body> box. Measured
+      // before the note is built: a source-map lookup in there can take a moment, and the crop is of
+      // what was on screen when Send was pressed (the worker skips it if the page scrolled since).
+      const capture = await captureRect(el, page ? { x: window.scrollX, y: window.scrollY, width: window.innerWidth, height: window.innerHeight } : region);
       const a = await buildAnnotation(el, comment, region ? { region } : {});
       if (draft) a.status = "draft";
       if (page) a.kind = "page";
       if (steps) { a.kind = "flow"; a.steps = steps; }
-      // A page note is cropped to the window: the whole visible page, not the <body> box.
-      const capture = await captureRect(el, page ? { x: window.scrollX, y: window.scrollY, width: window.innerWidth, height: window.innerHeight } : region);
       if (capture) hideOverlayForCapture();
       // The worker stores the comment first and answers immediately, then takes and attaches the
       // crop on its own. Nothing here is on the page's lifetime.
