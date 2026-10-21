@@ -38,11 +38,33 @@
     return true;
   }
 
+  // The Vue 3 instance that rendered el. Dev builds stamp el.__vueParentComponent; production
+  // builds don't (nor app._instance), but the mount container keeps __vue_app__ and _vnode, so
+  // walk that vnode tree and take the nearest ancestor element some instance rendered.
+  // ponytail: one app (the nearest container's), 50k vnodes, re-walked per call.
+  function vueOwner(el) {
+    for (let v = el, i = 0; v && i < 12; i++, v = v.parentElement) if (v.__vueParentComponent) return v.__vueParentComponent;
+    let c = el;
+    while (c && !c.__vue_app__) c = c.parentElement;
+    const root = c?._vnode?.component;
+    if (!root) return null;
+    const owner = new Map(), stack = [[root.subTree, root]];
+    for (let seen = 0; stack.length && seen++ < 50000;) {
+      const [vn, inst] = stack.pop();
+      if (!vn || typeof vn !== "object") continue;
+      if (vn.component) { stack.push([vn.component.subTree, vn.component]); continue; }
+      if (vn.el?.nodeType === 1 && !owner.has(vn.el)) owner.set(vn.el, inst);
+      if (vn.suspense) stack.push([vn.suspense.activeBranch, inst]);
+      else if (Array.isArray(vn.children)) for (const ch of vn.children) stack.push([ch, inst]);
+    }
+    for (let v = el; v; v = v.parentElement) if (owner.has(v)) return owner.get(v);
+    return null;
+  }
+
   function vueHint(el, hint) {
-    let v = el;
-    for (let i = 0; v && i < 12; i++, v = v.parentElement) {
-      const inst = v.__vueParentComponent || v.__vue__;
-      if (!inst) continue;
+    let inst = vueOwner(el);
+    for (let v = el, i = 0; v && i < 12 && !inst; i++, v = v.parentElement) inst = v.__vue__;   // Vue 2
+    if (inst) {
       hint.framework = "vue";
       let c = inst, guard = 0;
       while (c && guard++ < 10 && hint.components.length < 8) {
@@ -109,9 +131,7 @@
       if (count > 1) hint.reuse = { component: nameOf(comp.type), count, estimate: false };
       return;
     }
-    let v = el;
-    while (v && !v.__vueParentComponent) v = v.parentElement;
-    const inst = v?.__vueParentComponent;
+    const inst = vueOwner(el);
     if (inst) {
       let root = inst; while (root.parent) root = root.parent;
       let count = 0, seen = 0;
@@ -164,8 +184,8 @@
         const t = f.type;
         fn = typeof t === "function" ? t : [t?.render, t?.type, t?.type?.render].find((x) => typeof x === "function") || null;
       }
-      const v = node.__vueParentComponent?.type || node.__vue__?.$options;
-      if (!fn && v) fn = [v.setup, v.render].find((x) => typeof x === "function") || null;
+      const v = !fn && ((node === el ? vueOwner(el) : node.__vueParentComponent)?.type || node.__vue__?.$options);
+      if (v) fn = [v.setup, v.render].find((x) => typeof x === "function") || null;
     }
     if (!fn) return null;
     const src = Function.prototype.toString.call(fn);

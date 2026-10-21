@@ -8,7 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **"<ProductCard> appears 6 times on this page."** When the element you pick belongs to a component
-  rendered more than once (counted from React's fiber tree or Vue's instance tree; estimated from
+  rendered more than once (counted from React's fiber tree or Vue's instance tree, production
+  builds included — a Vue 3 production build is read through its app's vnode tree; estimated from
   matching structure on plain HTML), the comment box says so and offers **Just this one** /
   **Everywhere (the component)**. The note carries `element.reuse` with the choice, the agent's
   markdown gets a "Reused:" line, and when nobody chose, the agent is told to ask before it edits the
@@ -17,10 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stripped React's `_debugSource` and Vue's `__file`, Pinpoint takes the clicked component's own
   minified code, finds it in the scripts the page loaded, follows that script's `sourceMappingURL`
   (or `SourceMap` header; `data:` maps and indexed maps too) and maps it back to the original
-  `file:line` and component name. The note's source hint says `method: "sourcemap"`. The service
-  worker fetches only the page's own origin (or another loopback port from a loopback page) — never
-  a third-party host — within 1.5 seconds and 8 MB per file; on any failure the note simply has no
-  file, as before. The VLQ decoder is ~40 lines in `extension/sourcemap.js`, no new dependency.
+  `file:line` and component name — React (Vite, webpack, Next.js) and Vue 3 production builds
+  alike, arrow-function components included. The note's source hint says `method: "sourcemap"`.
+  The service worker fetches only the page's own origin (or another loopback port from a loopback
+  page) — never a third-party host — within 1.5 seconds and 8 MB per file; on any failure the note
+  simply has no file, as before. The VLQ decoder is ~40 lines in `extension/sourcemap.js`, no new dependency.
 
 ## [0.7.1] — 2026-10-20
 

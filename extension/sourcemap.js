@@ -77,7 +77,13 @@
     }
     if (typeof map.mappings !== "string" || !Array.isArray(map.sources)) return null;
     map._lines ||= decodeMappings(map.mappings);
-    const hit = segmentAt(map._lines, line, column);
+    let hit = segmentAt(map._lines, line, column);
+    // No segment right at the function's start (Vue's generated `setup(__props) {` wrapper has
+    // none): the one before it belongs to the previous module, so take the first one inside it.
+    if (!hit || hit.segs[hit.i][0] < column) {
+      const segs = map._lines[line] || [], k = segs.findIndex((s) => s[0] >= column);
+      if (k >= 0 && segs[k][0] < column + 120) hit = { segs, i: k };
+    }
     if (!hit) return null;
     const seg = hit.segs[hit.i];
     if (seg.length < 4) return null;
@@ -89,6 +95,14 @@
     for (let k = hit.i; k < hit.segs.length && hit.segs[k][0] <= column + 40 && !name; k++) {
       const s = hit.segs[k], cand = s.length === 5 ? map.names?.[s[4]] : null;
       if (typeof cand === "string" && /^[A-Z][\w$]*$/.test(cand)) name = cand;
+    }
+    // An arrow component (`const Price = ({ value }) => …`) has its name on the binding just
+    // before the function's text: the nearest named segment back, same file, within 40 columns.
+    for (let k = hit.i - 1; !name && k >= 0 && hit.segs[k][0] >= column - 40 && hit.segs[k][1] === seg[1]; k--) {
+      const s = hit.segs[k], cand = s.length === 5 ? map.names?.[s[4]] : null;
+      if (typeof cand !== "string") continue;
+      if (/^[A-Z][\w$]*$/.test(cand)) name = cand;
+      break;
     }
     return { file, line: seg[2] + 1, column: seg[3] + 1, name };
   }

@@ -707,13 +707,15 @@
     if (typeof r?.file !== "string") return null;
     return { ...r, fnName: probe.name };
   }
-  async function applyMapSource(el, hint) {
+  // `reuse` (element.reuse) was counted under the same minified name, so it is renamed too.
+  async function applyMapSource(el, hint, reuse) {
     const r = await Promise.race([mapLookup(el), new Promise((res) => setTimeout(res, 1800))]); // the worker stops at 1.5 s
     if (!r) return;
     Object.assign(hint, { file: r.file, line: r.line ?? null, column: r.column ?? null, method: "sourcemap" });
     if (r.name) {
       const i = hint.components.indexOf(r.fnName);
       if (i >= 0) hint.components[i] = r.name; else hint.components.unshift(r.name);
+      if (reuse?.component === r.fnName) reuse.component = r.name;
     }
   }
 
@@ -1673,7 +1675,13 @@
   function paintMeta(el, region) {
     const hint = sourceHint(el);
     paintReuse(selectedPage || flowSteps ? null : hint.reuse);
-    if (!hint.file && /^(react|vue)$/.test(hint.framework || "")) mapLookup(el);
+    // A minified build painted `<Vf>` just now; once the map answers, say `<ProductCard>` instead.
+    if (!hint.file && /^(react|vue)$/.test(hint.framework || "")) mapLookup(el).then((r) => {
+      if (!r?.name || !r.fnName || r.name === r.fnName || selected !== el) return;
+      const from = `<${r.fnName}>`, to = `<${r.name}>`;
+      for (const b of ui.meta.querySelectorAll("b")) if (b.textContent === from) b.textContent = to;
+      ui.reuseText.textContent = ui.reuseText.textContent.replace(from, to);
+    });
     const comp = hint.components[0] ? [elt("b", null, `<${hint.components[0]}>`), " "] : [];
     const file = hint.file ? ` · ${hint.file}${hint.line ? ":" + hint.line : ""}` : "";
     if (flowSteps) {
@@ -1947,7 +1955,7 @@
     // downstream — selector, fingerprint, pin re-finding, styles — keeps working unchanged.
     if (opts.region) a.region = opts.region;
     // Only React and Vue leave a component function to look up; anything else adds no await here.
-    if (!a.source.file && /^(react|vue)$/.test(a.source.framework || "")) { try { await applyMapSource(el, a.source); } catch {} }
+    if (!a.source.file && /^(react|vue)$/.test(a.source.framework || "")) { try { await applyMapSource(el, a.source, a.element.reuse); } catch {} }
     const errors = pageErrors();
     if (errors.length) a.context = { errors };
     return a;

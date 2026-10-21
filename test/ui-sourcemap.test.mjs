@@ -53,9 +53,38 @@ test("a minified component's position maps back to its original file, line and n
   assert.deepEqual(plain(SM.originalPosition(map, at.line, at.column)), { file: "src/components/PriceTag.js", line: 9, column: 8, name: "PriceTag" });
   const badge = SM.locate(BUNDLE, "function a({text:n}){let t=document");
   assert.deepEqual(plain(SM.originalPosition(map, badge.line, badge.column)), { file: "src/components/PriceTag.js", line: 2, column: 8, name: "Badge" });
-  // Before the first segment of a line, and past the last line: nothing.
-  assert.equal(SM.originalPosition({ ...map, _lines: undefined, mappings: "EAAA" }, 0, 1), null);
+  // Before the first segment of a line: the first one within the function's head (120 columns)
+  // stands in; further than that, and past the last line, nothing.
+  assert.equal(SM.originalPosition({ ...map, _lines: undefined, mappings: "EAAA" }, 0, 1)?.column, 1);
+  assert.equal(SM.originalPosition({ ...map, _lines: undefined, mappings: "wMAAA" }, 0, 1), null);
   assert.equal(SM.originalPosition(map, 5, 0), null);
+});
+
+// The two real Vite production builds in test/site/real (test/fixtures/real/build.sh).
+const real = (app) => ({ text: fs.readFileSync(path.join(here, `site/real/${app}/app.js`), "utf8"), map: JSON.parse(fs.readFileSync(path.join(here, `site/real/${app}/app.js.map`), "utf8")) });
+
+test("Vue production: <script setup>'s generated setup() has no segment of its own; the first one inside it is used", () => {
+  const { text, map } = real("vue");
+  const start = text.indexOf("setup(", text.indexOf('__name:"PriceCard"'));
+  const at = SM.locate(text, text.slice(start, start + 120));   // what inspector.js sends: setup's own text
+  const segs = SM.decodeMappings(map.mappings)[at.line];
+  const before = segs.findLast((s) => s[0] <= at.column);
+  assert.ok(before[0] < at.column && !/PriceCard\.vue$/.test(map.sources[before[1]]), "the segment at or before setup( belongs to another module");
+  const r = plain(SM.originalPosition(map, at.line, at.column));
+  assert.equal(r.file, "src/components/PriceCard.vue");
+});
+
+test("an arrow-function component's name comes from the `const` binding just before the function", () => {
+  const { text, map } = real("react");
+  const start = text.search(/\(\{value:\w+\}\)=>/);
+  const at = SM.locate(text, text.slice(start, start + 120));
+  const r = plain(SM.originalPosition(map, at.line, at.column));
+  assert.equal(r.file, "src/components/Price.jsx");
+  assert.equal(r.name, "Price");
+  // …and a function declaration still takes the name after `function`, never the one before it.
+  const card = text.search(/function \w+\(\{title:/);
+  const c = SM.locate(text, text.slice(card, card + 120));
+  assert.deepEqual([SM.originalPosition(map, c.line, c.column).file, SM.originalPosition(map, c.line, c.column).name], ["src/components/ProductCard.jsx", "ProductCard"]);
 });
 
 test("locate: 0-based line and column; absent or ambiguous snippets find nothing", () => {
