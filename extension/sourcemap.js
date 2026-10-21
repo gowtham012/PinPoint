@@ -210,5 +210,17 @@
     } catch { return null; } finally { clearTimeout(timer); }
   }
 
-  globalThis.pinpointSourceMap = { decodeMappings, segmentAt, cleanSource, originalPosition, locate, mapComment, allowed, resolve };
+  // Put a resolved position into a note: the source hint, and the component's original name where
+  // the chain (and element.reuse, counted under the same minified name) still has the minified one.
+  function applyToNote(note, r, fnName) {
+    if (typeof r?.file !== "string" || !note?.source) return;
+    Object.assign(note.source, { file: r.file, line: r.line ?? null, column: r.column ?? null, method: "sourcemap" });
+    if (r.name && typeof r.name === "string") {
+      const c = Array.isArray(note.source.components) ? note.source.components : (note.source.components = []);
+      const i = c.indexOf(fnName);
+      if (i >= 0) c[i] = r.name; else c.unshift(r.name);
+      if (note.element?.reuse?.component === fnName) note.element.reuse.component = r.name;
+    }
+  }
+  globalThis.pinpointSourceMap = { decodeMappings, segmentAt, cleanSource, originalPosition, locate, mapComment, allowed, resolve, applyToNote };
 })();

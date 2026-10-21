@@ -694,7 +694,8 @@
     if (!mapLookups.has(el)) mapLookups.set(el, mapSource(el).catch(() => null));
     return mapLookups.get(el);
   }
-  async function mapSource(el) {
+  // The component's minified code and the page's scripts, from inspector.js (synchronous).
+  function probeOf(el) {
     let raw = null;
     const on = (e) => { raw = e.detail; };
     el.addEventListener("pinpoint:probe-result", on, { once: true });
@@ -702,21 +703,14 @@
     el.removeEventListener("pinpoint:probe-result", on);
     let probe = null;
     try { probe = JSON.parse(raw); } catch {}
-    if (typeof probe?.snippet !== "string") return null;
+    return typeof probe?.snippet === "string" ? probe : null;
+  }
+  async function mapSource(el) {
+    const probe = probeOf(el);
+    if (!probe) return null;
     const r = await chrome.runtime.sendMessage({ type: "sourcemap", snippet: probe.snippet, scripts: probe.scripts }).catch(() => null);
     if (typeof r?.file !== "string") return null;
     return { ...r, fnName: probe.name };
-  }
-  // `reuse` (element.reuse) was counted under the same minified name, so it is renamed too.
-  async function applyMapSource(el, hint, reuse) {
-    const r = await Promise.race([mapLookup(el), new Promise((res) => setTimeout(res, 4300))]); // the worker stops at 4 s
-    if (!r) return;
-    Object.assign(hint, { file: r.file, line: r.line ?? null, column: r.column ?? null, method: "sourcemap" });
-    if (r.name) {
-      const i = hint.components.indexOf(r.fnName);
-      if (i >= 0) hint.components[i] = r.name; else hint.components.unshift(r.name);
-      if (reuse?.component === r.fnName) reuse.component = r.name;
-    }
   }
 
   // The page's recent uncaught errors, from inspector.js in the MAIN world. Raw and untrusted: the
@@ -1954,8 +1948,9 @@
     // A region annotation is an element annotation on its anchor, plus the box. Everything
     // downstream — selector, fingerprint, pin re-finding, styles — keeps working unchanged.
     if (opts.region) a.region = opts.region;
-    // Only React and Vue leave a component function to look up; anything else adds no await here.
-    if (!a.source.file && /^(react|vue)$/.test(a.source.framework || "")) { try { await applyMapSource(el, a.source, a.element.reuse); } catch {} }
+    // Only React and Vue leave a component function to look up. Send never waits for it: the worker
+    // resolves the probe while it posts the note, so a navigation right after Send can't lose it.
+    if (!a.source.file && /^(react|vue)$/.test(a.source.framework || "")) { const p = probeOf(el); if (p) a.mapProbe = p; }
     const errors = pageErrors();
     if (errors.length) a.context = { errors };
     return a;
