@@ -149,6 +149,22 @@ export function summaryLine(a) {
   return `#${a.number} [${a.id}] ${a.comment} — ${comp}${sel}${file}${stale}`;
 }
 
+// The element is one of several copies of a component (or, without a framework, of a structure).
+// The developer may have said which they mean in the popover. The scope is only ever one of our
+// own fixed phrases; the component name is page data and gets flattened like the rest.
+const REUSE_SCOPE = {
+  instance: "just this instance — the developer chose to change only this one, not the shared component.",
+  component: "the component — the developer chose to change it everywhere it is used.",
+};
+function reuseLine(r, flat) {
+  const count = Number(r?.count);
+  if (!r || !Number.isInteger(count) || count < 2) return null;
+  const name = r.estimate ? flat(r.component) : `<${flat(r.component)}>`;
+  return `- Reused: ${name} is rendered ${count}${count >= 500 ? "+" : ""} times on this page` +
+    (r.estimate ? " (an estimate from matching structure — the page has no framework info)" : "") +
+    `. Scope: ${(Object.hasOwn(REUSE_SCOPE, r.scope) && REUSE_SCOPE[r.scope]) || "not specified — the comment doesn't say whether to change only this instance or the shared component; ask with reply_annotation before editing if unclear."}`;
+}
+
 export function toMarkdown(a, { heading = true, channel = "mcp" } = {}) {
   const s = a.source || {};
   const e = a.element;
@@ -207,6 +223,8 @@ export function toMarkdown(a, { heading = true, channel = "mcp" } = {}) {
   if (s.components?.length) lines.push(`- Component chain (${flat(s.framework)}): ${s.components.map(flat).join(" ← ")}`);
   if (s.file) lines.push(`- Source file: ${flat(s.file)}${s.line ? ":" + flat(s.line) : ""}`);
   else if (!s.components?.length) lines.push(`- Source file: not detected (no framework metadata on this page) — find the element by grepping the HTML below`);
+  const reuse = reuseLine(e.reuse, flat);
+  if (reuse) lines.push(reuse);
   const attrs = Object.entries(s.attributes || {});
   if (attrs.length) lines.push(`- Markers: ${attrs.map(([k, v]) => `${flat(k)}="${flat(v)}"`).join(", ")}`);
   const ea = Object.entries(e.attributes || {});

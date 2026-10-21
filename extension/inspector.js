@@ -75,6 +75,71 @@
     }
   }
 
+  // Is the picked element one of several copies of the same component? Counted in the tree the
+  // framework already keeps (React fibers from the root, Vue instances from the app root); a page
+  // with neither gets an estimate from structure: same tag + classes under the same kind of parent.
+  // Sets hint.reuse = { component, count, estimate } only when count > 1.
+  // ponytail: one React root / one Vue app (the picked element's); counting stops at 500 and the
+  // walk at 50k nodes. Vue 2 (__vue__) is not counted.
+  function reuseHint(el, hint) {
+    const CAP = 500, WALK = 50000;
+    let node = el, fiber = null;
+    while (node && !fiber) {
+      const key = Object.keys(node).find((k) => k.startsWith("__reactFiber$"));
+      if (key) fiber = node[key]; else node = node.parentElement;
+    }
+    if (fiber) {
+      const nameOf = (t) => typeof t === "function" ? t.displayName || t.name
+        : t && typeof t === "object" && !t._context ? t.displayName || t.render?.displayName || t.render?.name || t.type?.displayName || t.type?.name : null;
+      let f = fiber, comp = null, root = null;
+      for (let g = 0; f && g < 200; g++, f = f.return) {
+        const n = nameOf(f.type);
+        if (!comp && n && !/^(Fragment|Provider|Consumer|Context|Suspense|Boundary|Anonymous)$/.test(n)) comp = f;
+        if (!f.return) root = f;
+      }
+      if (!comp || root?.tag !== 3) return;   // 3 = HostRoot
+      let count = 0, seen = 0;
+      const stack = [root.stateNode?.current || root];   // the committed tree, not a stale alternate
+      while (stack.length && count < CAP && seen++ < WALK) {
+        const x = stack.pop();
+        if (x.type === comp.type) count++;
+        if (x.sibling) stack.push(x.sibling);
+        if (x.child) stack.push(x.child);
+      }
+      if (count > 1) hint.reuse = { component: nameOf(comp.type), count, estimate: false };
+      return;
+    }
+    let v = el;
+    while (v && !v.__vueParentComponent) v = v.parentElement;
+    const inst = v?.__vueParentComponent;
+    if (inst) {
+      let root = inst; while (root.parent) root = root.parent;
+      let count = 0, seen = 0;
+      const stack = [root.subTree];
+      while (stack.length && count < CAP && seen++ < WALK) {
+        const vn = stack.pop();
+        if (!vn || typeof vn !== "object") continue;
+        if (vn.component) { if (vn.component.type === inst.type) count++; stack.push(vn.component.subTree); }
+        else if (vn.suspense) stack.push(vn.suspense.activeBranch);
+        else if (Array.isArray(vn.children)) stack.push(...vn.children);
+      }
+      const t = inst.type;
+      if (count > 1) hint.reuse = { component: t?.name || t?.__name || "Anonymous", count, estimate: false };
+      return;
+    }
+    if (hint.framework) return;   // Svelte, Angular…: no tree to count in, and no guessing over one
+    const p = el.parentElement;
+    if (!p || el === document.body || el === document.documentElement) return;
+    if (!el.classList.length && !p.classList.length) return;   // a bare <p> in a bare <div> is everywhere
+    const sig = (n) => n.tagName.toLowerCase() + [...n.classList].sort().map((c) => "." + c).join("");
+    const mine = sig(el), parent = sig(p);
+    let count = 0;
+    for (const n of el.getRootNode().querySelectorAll(el.tagName)) {
+      if (n.parentElement && sig(n) === mine && sig(n.parentElement) === parent && ++count >= CAP) break;
+    }
+    if (count > 1) hint.reuse = { component: `${parent} > ${mine}`, count, estimate: true };
+  }
+
   function inspect(el) {
     const hint = { framework: null, components: [], file: null, line: null, column: null, attributes: {} };
     try { attrHints(el, hint); } catch {}
@@ -84,6 +149,7 @@
       else if ([...el.attributes].some((a) => /^_ngcontent|^ng-/.test(a.name))) hint.framework = "angular";
       else if (el.closest("[data-astro-cid], astro-island")) hint.framework = "astro";
     }
+    try { reuseHint(el, hint); } catch {}
     return hint;
   }
 

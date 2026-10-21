@@ -487,6 +487,8 @@ element          tag, id, classes, a CSS selector built from stable attributes w
                  "host >>> inner"), DOM path, rendered text, trimmed outerHTML, role/aria/data-*
                  attributes, bounding box, ~25 computed style properties, and a fingerprint
                  (tag + text + key attributes) used to verify a pin is still on the right element
+                 + reuse, when it is one of several: the component and how many times it is on the
+                 page (an estimate on plain HTML), and whether you meant this one or all of them
 source           framework (react/vue/svelte/angular/astro), component chain,
                  file:line where the dev build exposes it
 screenshot       PNG of just the element (+8px), long edge ≤1200px

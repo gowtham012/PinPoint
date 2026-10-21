@@ -211,6 +211,13 @@
       .pop .scope button:hover:not(:disabled) { color: var(--paper); background: var(--graphite-3); }
       .pop .scope button:disabled { opacity: .35; cursor: default; }
       .pop .scope-hint { font: 10.5px/1 var(--mono); color: var(--paper-faint); margin-left: auto; }
+      /* One of several copies: this one, or the component everywhere? Nothing is chosen for you. */
+      .pop .reuse { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: -2px 0 10px; }
+      .pop .reuse .rtext { flex: 1 0 100%; font: 11.5px/1.4 var(--sans); color: var(--paper-dim); margin-bottom: 2px; }
+      .pop .reuse button { font: 500 11.5px var(--sans); color: var(--paper-dim); background: var(--graphite-2);
+                           border-radius: 7px; padding: 5px 9px; line-height: 1; }
+      .pop .reuse button:hover { color: var(--paper); background: var(--graphite-3); }
+      .pop .reuse button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
       .pop .row2 { display: flex; gap: 4px; margin-top: 10px; align-items: center; }
       .pop .status { order: -1; margin-right: auto; font-size: 11.5px; color: var(--paper-faint); }
       .pop .status.err { color: var(--danger); }
@@ -372,6 +379,11 @@
         <button class="narrower" title="Select the element inside this one">↓ narrower</button>
         <span class="scope-hint"></span>
       </div>
+      <div class="reuse" role="group" aria-label="Change just this one, or the component everywhere">
+        <span class="rtext"></span>
+        <button class="r-one" aria-pressed="false">Just this one</button>
+        <button class="r-all" aria-pressed="false">Everywhere (the component)</button>
+      </div>
       <textarea rows="2" aria-label="What should change"></textarea>
       <div class="row2">
         <span class="status" role="status"></span>
@@ -421,6 +433,8 @@
     wider: shadow.querySelector(".pop .wider"),
     narrower: shadow.querySelector(".pop .narrower"),
     scopeHint: shadow.querySelector(".pop .scope-hint"),
+    reuse: shadow.querySelector(".pop .reuse"),
+    reuseText: shadow.querySelector(".pop .reuse .rtext"),
     text: shadow.querySelector(".pop textarea"),
     send: shadow.querySelector(".pop .send"),
     sendKbd: shadow.querySelector(".pop .send kbd"),
@@ -1625,6 +1639,7 @@
   // repaint it without wiping whatever you have already typed.
   function paintMeta(el, region) {
     const hint = sourceHint(el);
+    paintReuse(selectedPage || flowSteps ? null : hint.reuse);
     const comp = hint.components[0] ? [elt("b", null, `<${hint.components[0]}>`), " "] : [];
     const file = hint.file ? ` · ${hint.file}${hint.line ? ":" + hint.line : ""}` : "";
     if (flowSteps) {
@@ -1650,6 +1665,23 @@
     ui.narrower.disabled = pickIndex <= 0;
     ui.wider.disabled = pickIndex >= pickChain.length - 1;
     ui.scopeHint.textContent = many ? `${pickIndex + 1}/${pickChain.length} · ⌥↑↓` : "";
+  }
+
+  // "<Card> appears 6 times on this page": the comment rarely says whether it means this one card or
+  // the component, so ask once, here, and let the agent know which (or that nobody said).
+  let reuseScope = null;
+  function paintReuse(r) {
+    reuseScope = null;
+    ui.reuse.style.display = r ? "flex" : "none";
+    for (const b of ui.reuse.querySelectorAll("button")) b.setAttribute("aria-pressed", "false");
+    if (r) ui.reuseText.textContent = `${r.estimate ? r.component : `<${r.component}>`} appears ${r.count}${r.count >= 500 ? "+" : ""} times on this page${r.estimate ? " (estimate)" : ""}`;
+  }
+  for (const [cls, scope] of [["r-one", "instance"], ["r-all", "component"]]) {
+    ui.reuse.querySelector("." + cls).addEventListener("click", (e) => {
+      e.preventDefault();
+      reuseScope = reuseScope === scope ? null : scope;   // a second click takes the choice back
+      for (const b of ui.reuse.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b === e.currentTarget && !!reuseScope));
+    });
   }
 
   // Clicking is a guess. On this page, a few pixels off the headline is the difference between a
@@ -1852,6 +1884,9 @@
 
   async function buildAnnotation(el, comment, opts = {}) {
     const r = el.getBoundingClientRect();
+    const source = sourceHint(el);
+    const reuse = source.reuse;
+    delete source.reuse;
     const a = {
       id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random())).slice(0, 8),
       createdAt: new Date().toISOString(),
@@ -1870,9 +1905,10 @@
         styles: computedStyles(el),
         fingerprint: fingerprint(el),
       },
-      source: sourceHint(el),
+      source,
       screenshot: null,
     };
+    if (reuse && !selectedPage && !flowSteps) a.element.reuse = { ...reuse, ...(reuseScope ? { scope: reuseScope } : {}) };
     // A region annotation is an element annotation on its anchor, plus the box. Everything
     // downstream — selector, fingerprint, pin re-finding, styles — keeps working unchanged.
     if (opts.region) a.region = opts.region;

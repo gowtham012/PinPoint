@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **"<ProductCard> appears 6 times on this page."** When the element you pick belongs to a component
+  rendered more than once (counted from React's fiber tree or Vue's instance tree; estimated from
+  matching structure on plain HTML), the comment box says so and offers **Just this one** /
+  **Everywhere (the component)**. The note carries `element.reuse` with the choice, the agent's
+  markdown gets a "Reused:" line, and when nobody chose, the agent is told to ask before it edits the
+  shared component.
+
 ## [0.7.1] — 2026-10-20
 
 ### Added
