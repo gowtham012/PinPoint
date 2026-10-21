@@ -11,6 +11,8 @@
 [![Mentioned in Awesome Claude Code](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
 [![stars](https://img.shields.io/github/stars/gowtham012/pinpoint?style=flat)](https://github.com/gowtham012/pinpoint/stargazers)
 [![Pinpoint MCP on mcprush](https://mcprush.com/badge/pinpoint-mcp/score.svg)](https://mcprush.com/to/pinpoint-mcp?ref=badge)
+[![Pinpoint on Product Hunt](https://img.shields.io/badge/Product%20Hunt-Pinpoint-DA552F?logo=producthunt&logoColor=white)](https://www.producthunt.com/products/pinpoint-10?launch=pinpoint-ff1b5d56-ec19-41d9-a201-e69311ca2084)
+[![Firefox Add-on](https://img.shields.io/amo/v/pinpoint-bridge?logo=firefoxbrowser&label=Firefox%20Add-on)](https://addons.mozilla.org/firefox/addon/pinpoint-bridge/)
 
 **[gowtham012.github.io/PinPoint](https://gowtham012.github.io/PinPoint/)**
 
@@ -79,6 +81,7 @@ flowchart LR
 
 ## Contents
 
+- [Get Pinpoint](#-get-pinpoint): stores, npm, MCP directories
 - [Quick start](#-quick-start)
 - [Using it](#-using-it)
 - [Talking it through](#-talking-it-through)
@@ -100,6 +103,20 @@ flowchart LR
 
 Pinpoint never touches the page itself, so it composes with browser automation instead of competing
 with it: point at the thing, let the agent change the code, let your tests drive the browser.
+
+## 🔗 Get Pinpoint
+
+| Where | Link |
+|---|---|
+| **Firefox** (140+, desktop) | [Firefox Add-ons](https://addons.mozilla.org/firefox/addon/pinpoint-bridge/) |
+| **Chrome, Brave, Arc, Opera, Vivaldi** | Chrome Web Store listing in review — load it unpacked for now ([Quick start](#-quick-start)) |
+| **Edge** | Add-ons listing coming — loads the same package unpacked today |
+| **Safari** | Build with Xcode: `bash tools/make-safari.sh` |
+| **Bridge + MCP server** | [npm: `pinpoint-bridge`](https://www.npmjs.com/package/pinpoint-bridge) · `npx -y pinpoint-bridge` |
+| **MCP directories** | [Official MCP Registry](https://registry.modelcontextprotocol.io) · [Glama](https://glama.ai/mcp/servers/gowtham012/pinpoint) · [mcprush](https://mcprush.com/gowtham012/pinpoint-mcp) · [cursor.directory](https://cursor.directory/plugins/pinpoint) |
+| **Releases** | [GitHub releases](https://github.com/gowtham012/PinPoint/releases) (store zips attached) |
+| **Website & demo** | [gowtham012.github.io/PinPoint](https://gowtham012.github.io/PinPoint/) |
+| **Launch** | [Product Hunt](https://www.producthunt.com/products/pinpoint-10?launch=pinpoint-ff1b5d56-ec19-41d9-a201-e69311ca2084) · [Show HN](https://news.ycombinator.com/item?id=50185443) |
 
 ## 🚀 Quick start
 
@@ -399,7 +416,7 @@ To pin an agent to your clone instead of npm, use the absolute path to `cli.js` 
 |---|---|
 | **Chrome, Brave, Arc, Opera, Vivaldi** | ✅ Load unpacked. Verified in CI on headless Chromium. |
 | **Edge** | ✅ Load unpacked: the same package as Chrome. |
-| **Firefox 140+** | ✅ An addons.mozilla.org package built by `bash tools/make-firefox-zip.sh`. Store listing pending. No dictation. |
+| **Firefox 140+** | ✅ [Install from Firefox Add-ons](https://addons.mozilla.org/firefox/addon/pinpoint-bridge/) (desktop). No dictation. |
 | **Safari** | ✅ Built with `bash tools/make-safari.sh` (needs Xcode). No component chain, source hint or page errors. |
 
 <details>
