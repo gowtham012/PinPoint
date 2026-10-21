@@ -917,6 +917,13 @@ test("scrolling right after Send never attaches a picture of somewhere else", as
 test("B2b: when a screenshot truly can't be taken, the agent is told so instead of guessing", async () => {
   await clearAll();
   const page = await openPage("/rerender.html");
+  // Hold the worker's "is the page still there?" check back, so the navigation below always lands
+  // first. Without it a fast runner took the picture before the page left (macOS CI, now and then).
+  const sw = ctx.serviceWorkers()[0];
+  await sw.evaluate(() => {
+    globalThis.__realWaitUntilCapturable = waitUntilCapturable;
+    waitUntilCapturable = async (...a) => { await new Promise((r) => setTimeout(r, 1500)); return __realWaitUntilCapturable(...a); };
+  });
   await arm(page);
   await page.locator("#page-title").click();
   await waitShadow(page, () => __pinpointShadow.querySelector(".pop").style.display === "block");
@@ -932,6 +939,7 @@ test("B2b: when a screenshot truly can't be taken, the agent is told so instead 
   const t0 = Date.now();
   let a;
   do { [a] = await pending(); await new Promise((r) => setTimeout(r, 150)); } while (!a?.screenshotSkipped && Date.now() - t0 < 10000);
+  await sw.evaluate(() => { waitUntilCapturable = __realWaitUntilCapturable; });
   assert.equal(a.screenshot, null);
   assert.match(a.screenshotSkipped || "", /page changed/);
   const md = await (await fetch(BASE + "/pending.md")).text();
