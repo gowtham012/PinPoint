@@ -35,7 +35,7 @@ const site = http.createServer((req, res) => {
   const files = {
     "/": "site/index.html", "/react.development.js": "node_modules/react/umd/react.development.js", "/react-dom.development.js": "node_modules/react-dom/umd/react-dom.development.js",
     "/vue.html": "site/vue.html", "/vue.global.js": "node_modules/vue/dist/vue.global.js",
-    "/plain.html": "site/plain.html", "/region.html": "site/region.html", "/rerender.html": "site/rerender.html", "/frame.html": "site/frame.html", "/csp.html": "site/csp.html", "/stress.html": "site/stress.html", "/modal.html": "site/modal.html", "/spa.html": "site/spa.html", "/dialog.html": "site/dialog.html",
+    "/plain.html": "site/plain.html", "/region.html": "site/region.html", "/rerender.html": "site/rerender.html", "/frame.html": "site/frame.html", "/csp.html": "site/csp.html", "/stress.html": "site/stress.html", "/modal.html": "site/modal.html", "/spa.html": "site/spa.html", "/dialog.html": "site/dialog.html", "/focus-trap.html": "site/focus-trap.html",
     "/errors.html": "site/errors.html",
   };
   const f = files[p];
@@ -1970,6 +1970,31 @@ test("S7: re-checking a note made inside an iframe looks in that iframe", async 
   assert.match(text, /Verdict: (unchanged|moved|changed)/, text);
   assert.doesNotMatch(text, /No tab is open|Could not re-check|Verdict: gone/, text);
   await c.close();
+  await disarm(page);
+  await page.close();
+});
+
+// antd Drawer, rc-dialog, focus-trap-react and MUI Modal all keep focus inside their panel with a
+// window-level `focusin` listener. Pinpoint's UI is parented to <html>, so every focusin it raised
+// looked like "escaped the panel": the caret appeared for one frame, then the page pulled it back
+// and the note could not be typed at all. One capture-phase listener on window keeps our own events
+// from reaching the trap; everything else on the page still sees focus as before.
+test("S8: an open focus-trapping drawer cannot steal the comment box's caret", async () => {
+  await clearAll();
+  const page = await openPage("/focus-trap.html");
+  // Put focus in the drawer first, the way it is after a user opens it. focus(), not click():
+  // Pinpoint's own dock may be floating over that spot, and this test is about focus, not clicks.
+  await page.locator("#drawer-input").focus();
+  await page.waitForFunction(() => document.activeElement?.id === "drawer-input");
+  await arm(page);
+  await page.locator("#outside").hover();
+  await page.locator("#outside").click();
+  await waitShadow(page, () => __pinpointShadow.querySelector(".pop").style.display === "block", null, { timeout: 4000 });
+  // Real keystrokes, not textarea.value: if the trap took the caret back, nothing lands here.
+  await typeComment(page, "typed over a focus trap");
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
+  const [a] = await pendingWithShots(1);
+  assert.equal(a.comment, "typed over a focus trap", "the note kept the text typed into it");
   await disarm(page);
   await page.close();
 });
