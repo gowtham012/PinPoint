@@ -463,6 +463,27 @@
     "transform:none !important;filter:none !important;clip-path:none !important;contain:none !important;";
   (document.documentElement || document.body).appendChild(host);
 
+  // ---------- focus-lock jailbreak ----------
+  // Component libraries that trap focus (antd/rc-drawer, rc-dialog, MUI Modal…) install a
+  // window-level `focusin` listener (rc-util's `lockFocus`/`syncFocus`) that yanks focus back
+  // into their panel whenever it lands anywhere outside. Our UI lives in a shadow root parented
+  // to <html>, so every click into our textarea counted as "outside": the caret appeared for a
+  // frame and was then stolen, making the popup impossible to type in while a Drawer/Modal is open.
+  //
+  // We can't move inside their trap, but we can keep the event from reaching it: a capture-phase
+  // listener on window runs before the trap's bubble-phase one, and stopPropagation on the path
+  // means neither the page nor that bubble listener ever sees a focusin coming from our UI.
+  // A closed shadow root still retargets composed events to the host, so the path names it.
+  // Only our own events are swallowed — page focus, and the trap itself, behave as before.
+  window.addEventListener(
+    "focusin",
+    (e) => {
+      const path = e.composedPath();
+      if (path.length ? path.includes(host) : e.target === host) e.stopPropagation();
+    },
+    true,
+  );
+
   // ---------- helpers: selectors, paths, styles, source hints ----------
   // closest() does not cross shadow boundaries, so from inside our own shadow root the host is
   // unreachable and every control we own looked like page content. While picking, that made the

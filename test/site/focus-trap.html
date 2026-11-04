@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Focus-trap fixture (antd Drawer / rc-dialog pattern)</title>
+<style>
+  body { font-family: system-ui; margin: 0; padding: 24px; background: #fafafa; }
+  #drawer { position: fixed; left: 24px; top: 24px; width: 260px; padding: 16px; background: #fff;
+            border: 1px solid #ddd; border-radius: 10px; }
+  #outside { margin-top: 140px; padding: 20px; background: #eef; border-radius: 8px; }
+</style>
+</head>
+<body>
+<!--
+  The focus jail every component library ships: rc-util's lockFocus / focus-trap-react /
+  MUI Modal all install a window-level `focusin` listener that yanks focus back into their
+  panel whenever it lands anywhere outside. An open antd Drawer (or rc-dialog, or MUI Modal)
+  does exactly this while the user is annotating the page behind it.
+-->
+<div id="drawer" role="dialog" aria-label="Open drawer">
+  <button id="drawer-close">Close</button>
+  <input id="drawer-input" placeholder="Something in the drawer" />
+</div>
+<p id="outside">A paragraph outside the drawer — the thing to annotate.</p>
+<script>
+  const drawer = document.getElementById("drawer");
+  const first = drawer.querySelector("button");
+  // Bubble phase on window, like the real traps: a capture-phase listener that stops the
+  // event at window keeps it from ever reaching this one.
+  window.addEventListener("focusin", (e) => {
+    if (!drawer.contains(e.target)) first.focus();
+  });
+</script>
+</body>
+</html>

@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Typing into the comment box while a page's Drawer or Modal is open.** Component libraries that
+  trap focus (antd/rc-drawer, rc-dialog, focus-trap-react, MUI Modal) listen for `focusin` on
+  `window` and pull focus back into their panel whenever it lands outside. Pinpoint's UI lives in a
+  shadow root parented to `<html>`, so every click into its textarea counted as "outside": the caret
+  appeared for a frame and was taken away, and the note could not be typed at all. A capture-phase
+  listener now stops Pinpoint's own `focusin` events before they reach that trap; page focus, and
+  the trap's handling of it, are unchanged.
+
 ## [0.7.2] — 2026-10-21
 
 ### Added
